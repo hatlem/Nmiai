@@ -128,7 +128,7 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 11. Department on employee: If GET /department returns results, include "department": {"id": <first_dept_id>} in POST /employee body.
 11b. userType on employee: ALWAYS include "userType": "STANDARD" when creating employees. Without it you get 422.
 12. Version field for PUTs: ALL PUT requests require the 'version' field from the GET response. Include it in the body. Missing version causes 409 Conflict.
-19. POST /travelExpense/cost FIELD NAMES: The REQUIRED fields are: travelExpense({"id":X}), vatType({"id":X}), paymentType({"id":X}), amountCurrencyIncVat(number), date(string). FORBIDDEN fields that cause 422: "amount", "title", "description", "name". Use "comments" instead of "description". Use "amountCurrencyIncVat" instead of "amount". GET /ledger/vatType first to get vatType ID.
+19. POST /travelExpense/cost FIELD NAMES: The REQUIRED fields are: travelExpense({{\"id\":ID}}), vatType({{\"id\":ID}}), paymentType({{\"id\":ID}}), amountCurrencyIncVat(number), date(string). FORBIDDEN fields that cause 422: "amount", "title", "description", "name". Use "comments" instead of "description". Use "amountCurrencyIncVat" instead of "amount". GET /ledger/vatType first to get vatType ID.
 
 ## TIER 3 PITFALLS (complex tasks)
 13. Opening balance — postings MUST sum to zero: Total debit must equal total credit. If you only have
@@ -365,7 +365,7 @@ To fix field mismatches:
 10. 422 "department" on employee -> GET /department first, include "department": {{"id": <id>}} in body
 11. 422 "deliveryDate" or "orderDate" null on order -> Add deliveryDate and orderDate (use invoiceDate or today)
 12. 422 "systemgenererte" or "rad 0" on voucher postings -> Row numbers MUST start from 1, NEVER 0. Row 0 is reserved. Fix: set "row": 1, 2, 3... Also include BOTH "amountGross" AND "amountGrossCurrency" (same value). Example: {{"row": 1, "account": {{"id": X}}, "amountGross": 1500, "amountGrossCurrency": 1500}}
-13. 422 "Feltet eksisterer ikke" on /travelExpense/cost -> You used WRONG field names. CORRECT fields: travelExpense({"id":X}), vatType({"id":X}), paymentType({"id":X}), amountCurrencyIncVat(number), date(string). WRONG: "amount"→use "amountCurrencyIncVat", "description"→use "comments", "title"→remove it, "name"→remove it. Must also GET /ledger/vatType for vatType ID.
+13. 422 "Feltet eksisterer ikke" on /travelExpense/cost -> You used WRONG field names. CORRECT fields: travelExpense({{\"id\":ID}}), vatType({{\"id\":ID}}), paymentType({{\"id\":ID}}), amountCurrencyIncVat(number), date(string). WRONG: "amount"→use "amountCurrencyIncVat", "description"→use "comments", "title"→remove it, "name"→remove it. Must also GET /ledger/vatType for vatType ID.
 
 ## Instructions
 1. Analyze WHY each step failed
