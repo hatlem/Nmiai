@@ -99,15 +99,40 @@ def _parse_json(text: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # Try fixing common LLM issues: trailing commas, single quotes
+    # Try fixing common LLM issues: trailing commas
     if start >= 0 and end > start:
         candidate = text[start:end]
-        # Remove trailing commas before } or ]
         candidate = re.sub(r',\s*([}\]])', r'\1', candidate)
         try:
             return json.loads(candidate)
         except json.JSONDecodeError:
             pass
+
+    # Try to recover truncated JSON by closing open braces/brackets
+    if start >= 0:
+        candidate = text[start:]
+        # Count unmatched braces
+        open_braces = candidate.count("{") - candidate.count("}")
+        open_brackets = candidate.count("[") - candidate.count("]")
+        if open_braces > 0 or open_brackets > 0:
+            # Truncate at last complete value (after last comma or colon+value)
+            # Then close all open structures
+            suffix = "]" * max(0, open_brackets) + "}" * max(0, open_braces)
+            # Try removing partial trailing content after last complete entry
+            # Look for last , or { or [ followed by incomplete content
+            truncated = candidate.rstrip()
+            # Remove trailing partial key-value pair
+            truncated = re.sub(r',\s*"[^"]*"?\s*:?\s*"?[^"]*$', '', truncated)
+            truncated = re.sub(r',\s*\{[^}]*$', '', truncated)
+            truncated = truncated.rstrip().rstrip(",")
+            suffix = "]" * max(0, truncated.count("[") - truncated.count("]"))
+            suffix += "}" * max(0, truncated.count("{") - truncated.count("}"))
+            try:
+                result = json.loads(truncated + suffix)
+                logger.warning(f"Recovered truncated JSON ({len(text)} chars -> {len(truncated)} used)")
+                return result
+            except json.JSONDecodeError:
+                pass
 
     logger.error(f"Could not parse JSON from ({len(text)} chars): {text[:300]}")
     raise json.JSONDecodeError("No valid JSON found", text, 0)
@@ -254,6 +279,32 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "innkjøpsordre": ("create_purchase_order", 0.90),
         "bestilling fra leverandor": ("create_purchase_order", 0.88),
         "bestilling fra leverandør": ("create_purchase_order", 0.88),
+        # Supplier invoice extras
+        "opprett leverandorfaktura": ("create_supplier_invoice", 0.95),
+        "registrer leverandørfaktura": ("create_supplier_invoice", 0.95),
+        "ny leverandorfaktura": ("create_supplier_invoice", 0.90),
+        "create supplier invoice": ("create_supplier_invoice", 0.95),
+        "incoming invoice": ("create_supplier_invoice", 0.90),
+        "factura del proveedor": ("create_supplier_invoice", 0.90),
+        "lieferantenrechnung": ("create_supplier_invoice", 0.90),
+        # Update supplier with ø
+        "oppdater leverandør": ("update_supplier", 0.90),
+        "endre leverandør": ("update_supplier", 0.90),
+        # Travel expense extras
+        "registrer reiseregning": ("create_travel_expense", 0.90),
+        "ny reiseregning": ("create_travel_expense", 0.90),
+        "create travel expense": ("create_travel_expense", 0.90),
+        # Timesheet extras
+        "timeforing": ("create_timesheet_entry", 0.85),
+        "timeføring": ("create_timesheet_entry", 0.85),
+        "register hours": ("create_timesheet_entry", 0.85),
+        # Salary extras
+        "lonn": ("create_salary_payment", 0.85),
+        "lønn": ("create_salary_payment", 0.85),
+        # Invoice with payment (multilingual)
+        "factura con pago": ("create_invoice_with_payment", 0.90),
+        "rechnung mit zahlung": ("create_invoice_with_payment", 0.90),
+        "facture avec paiement": ("create_invoice_with_payment", 0.90),
     }
     for phrase, (task_type, conf) in high_conf_keywords.items():
         if phrase in prompt_lower:
@@ -383,9 +434,14 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     )
 
     try:
-        plan = _parse_json(response.text)
+        raw_text = response.text
+    except (ValueError, AttributeError):
+        raw_text = ""
+
+    try:
+        plan = _parse_json(raw_text)
     except (json.JSONDecodeError, Exception) as e:
-        logger.error(f"Failed to parse plan JSON: {e}. Raw: {response.text[:300]}")
+        logger.error(f"Failed to parse plan JSON: {e}. Raw: {raw_text[:300]}")
         template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
         plan = {
             "task_type": task_type,
@@ -437,9 +493,20 @@ async def self_repair(
     )
 
     try:
-        repaired = _parse_json(response.text)
+        raw_text = response.text
+    except (ValueError, AttributeError) as e:
+        logger.error(f"Self-repair: empty response from LLM: {e}")
+        return {
+            "task_type": task_type,
+            "reasoning": "Self-repair: empty LLM response",
+            "steps": [],
+            "extracted_values": plan.get("extracted_values", {}),
+        }
+
+    try:
+        repaired = _parse_json(raw_text)
     except (json.JSONDecodeError, Exception) as e:
-        logger.error(f"Self-repair JSON parse failed: {e}. Raw ({len(response.text or '')} chars): {(response.text or '')[:400]}")
+        logger.error(f"Self-repair JSON parse failed: {e}. Raw ({len(raw_text)} chars): {raw_text[:400]}")
         # Return empty plan so the repair loop knows to stop
         return {
             "task_type": task_type,
