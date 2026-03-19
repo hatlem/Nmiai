@@ -29,6 +29,10 @@ TEMPLATES: dict[str, dict] = {
                     "firstName": "{{firstName}}",
                     "lastName": "{{lastName}}",
                     "email": "{{email}}",
+                    "dateOfBirth": "{{dateOfBirth}}",
+                    "phoneNumberMobile": "{{phoneNumberMobile}}",
+                    "userType": "STANDARD",
+                    "department": {"id": "$step_0.values[0].id"},
                 },
             },
         ],
@@ -49,7 +53,7 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "GET",
                 "path": "/employee",
-                "params": {"firstName": "{{search_firstName}}", "lastName": "{{search_lastName}}", "fields": "id,firstName,lastName"},
+                "params": {"firstName": "{{search_firstName}}", "lastName": "{{search_lastName}}", "fields": "id,firstName,lastName,email,phoneNumberMobile,version"},
             },
             {
                 "method": "PUT",
@@ -73,6 +77,8 @@ TEMPLATES: dict[str, dict] = {
                     "name": "{{name}}",
                     "isCustomer": True,
                     "email": "{{email}}",
+                    "phoneNumber": "{{phoneNumber}}",
+                    "organizationNumber": "{{organizationNumber}}",
                 },
             },
         ],
@@ -90,7 +96,9 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/product",
                 "body": {
                     "name": "{{name}}",
+                    "number": "{{number}}",
                     "priceExcludingVatCurrency": "{{price}}",
+                    "description": "{{description}}",
                 },
             },
         ],
@@ -101,7 +109,7 @@ TEMPLATES: dict[str, dict] = {
     "create_invoice": {
         "description": "Create an invoice: customer -> order with orderLines -> invoice. NOTE: Company must have bankAccountNumber registered. If 422 about 'bankkontonummer', the sandbox is not properly set up.",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
-        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email"],
+        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email", "orderDate", "deliveryDate"],
         "steps": [
             {
                 "method": "POST",
@@ -109,6 +117,7 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{customer_name}}",
                     "isCustomer": True,
+                    "email": "{{customer_email}}",
                 },
             },
             {
@@ -126,6 +135,7 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/order/$step_1.id/:invoice",
                 "params": {
                     "invoiceDate": "{{invoiceDate}}",
+                    "invoiceDueDate": "{{invoiceDueDate}}",
                     "sendToCustomer": False,
                 },
             },
@@ -135,7 +145,7 @@ TEMPLATES: dict[str, dict] = {
     "create_invoice_existing_customer": {
         "description": "Create invoice for an existing customer (search by name first)",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
-        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate"],
+        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate"],
         "steps": [
             {
                 "method": "GET",
@@ -157,6 +167,7 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/order/$step_1.id/:invoice",
                 "params": {
                     "invoiceDate": "{{invoiceDate}}",
+                    "invoiceDueDate": "{{invoiceDueDate}}",
                     "sendToCustomer": False,
                 },
             },
@@ -247,7 +258,7 @@ TEMPLATES: dict[str, dict] = {
     # ===== TRAVEL EXPENSES =====
 
     "create_travel_expense": {
-        "description": "Register a travel expense report with travel details",
+        "description": "Register a travel expense report with travel details. If costs are mentioned, add them as perDiemCompensations or mileageAllowances within travelDetails, or as individual cost entries via POST /travelExpense/cost after creating the expense.",
         "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost"],
         "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel"],
         "steps": [
@@ -339,6 +350,7 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/project",
                 "body": {
                     "name": "{{project_name}}",
+                    "description": "{{project_description}}",
                     "customer": {"id": "$step_1.id"},
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
@@ -350,11 +362,16 @@ TEMPLATES: dict[str, dict] = {
     },
 
     "create_project_existing_customer": {
-        "description": "Create a project linked to an existing customer (search by name first)",
+        "description": "Create a project linked to an existing customer (search by name first). Must set projectManager.",
         "relevant_schemas": ["Project", "Customer"],
-        "extract_fields": ["project_name", "customer_name", "startDate", "endDate", "description"],
-        "optimal_calls": 2,
+        "extract_fields": ["project_name", "customer_name", "startDate", "endDate", "description", "projectManager"],
+        "optimal_calls": 3,
         "steps": [
+            {
+                "method": "GET",
+                "path": "/employee",
+                "params": {"fields": "id", "count": 1},
+            },
             {
                 "method": "GET",
                 "path": "/customer",
@@ -365,10 +382,12 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/project",
                 "body": {
                     "name": "{{project_name}}",
-                    "customer": {"id": "$step_0.values[0].id"},
+                    "description": "{{project_description}}",
+                    "customer": {"id": "$step_1.values[0].id"},
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
                     "isInternal": False,
+                    "projectManager": {"id": "$step_0.values[0].id"},
                 },
             },
         ],
@@ -389,6 +408,7 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/project",
                 "body": {
                     "name": "{{project_name}}",
+                    "description": "{{project_description}}",
                     "isInternal": True,
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
@@ -411,6 +431,7 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{name}}",
                     "departmentNumber": "{{departmentNumber}}",
+                    "departmentManager": {"id": "{{departmentManagerId}}"},
                 },
             },
         ],
@@ -429,6 +450,8 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{name}}",
                     "email": "{{email}}",
+                    "phoneNumber": "{{phoneNumber}}",
+                    "organizationNumber": "{{organizationNumber}}",
                 },
             },
         ],
@@ -502,7 +525,7 @@ TEMPLATES: dict[str, dict] = {
     "create_contact": {
         "description": "Create a contact person for a customer",
         "relevant_schemas": ["Contact", "Customer"],
-        "extract_fields": ["firstName", "lastName", "email", "customer_name"],
+        "extract_fields": ["firstName", "lastName", "email", "phoneNumber", "customer_name"],
         "steps": [
             {
                 "method": "GET",
@@ -516,6 +539,7 @@ TEMPLATES: dict[str, dict] = {
                     "firstName": "{{firstName}}",
                     "lastName": "{{lastName}}",
                     "email": "{{email}}",
+                    "phoneNumber": "{{phoneNumber}}",
                     "customer": {"id": "$step_0.values[0].id"},
                 },
             },
@@ -818,6 +842,8 @@ TEMPLATES: dict[str, dict] = {
                     "isCustomer": True,
                     "isSupplier": True,
                     "email": "{{email}}",
+                    "phoneNumber": "{{phoneNumber}}",
+                    "organizationNumber": "{{organizationNumber}}",
                 },
             },
         ],
@@ -916,7 +942,7 @@ TEMPLATES: dict[str, dict] = {
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": [
             "customer_name", "orderLines", "invoiceDate", "invoiceDueDate",
-            "paymentDate", "paymentAmount",
+            "paymentDate", "paymentAmount", "orderDate", "deliveryDate",
         ],
         "optimal_calls": 5,
         "steps": [
@@ -943,6 +969,7 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/order/$step_1.id/:invoice",
                 "params": {
                     "invoiceDate": "{{invoiceDate}}",
+                    "invoiceDueDate": "{{invoiceDueDate}}",
                     "sendToCustomer": False,
                 },
             },
@@ -985,6 +1012,7 @@ KEYWORD_HINTS: dict[str, list[str]] = {
     "create_invoice": ["faktura", "invoice", "factura", "fatura", "Rechnung", "facture", "opprett faktura", "ny faktura"],
     "create_invoice_with_payment": ["faktura med betaling", "invoice with payment", "faktura og betaling"],
     "register_payment": ["innbetaling", "betaling", "payment", "pago", "pagamento", "Zahlung", "paiement", "registrer betaling", "registrer innbetaling"],
+    "register_payment_by_search": ["betal faktura nummer", "registrer betaling pa faktura", "payment on invoice number", "betal faktura nr", "betaling for faktura", "pay invoice number", "payment for invoice", "betaling på faktura"],
     "create_credit_note": ["kreditnota", "credit note", "nota de credito", "Gutschrift", "avoir"],
     "create_travel_expense": ["reiseregning", "travel expense", "gastos de viaje", "despesas de viagem", "Reisekosten", "note de frais", "reiserekning", "registrer reiseregning"],
     "delete_travel_expense": ["slett reiseregning", "delete travel"],

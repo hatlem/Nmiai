@@ -70,32 +70,41 @@ STANDARD, EXTENDED, NO_ACCESS
 EFFICIENCY_RULES = """## Efficiency Rules (CRITICAL — affects your score!)
 Every unnecessary API call REDUCES your score. The scoring system tracks:
 1. Total number of API calls vs. the optimal solution
-2. Number of 4xx error responses
+2. Number of 4xx error responses (EACH one hurts your score)
 
 DO:
-- POST directly for new entities (customer, employee, product, etc.)
+- POST directly for new entities with ALL fields in one call
 - Combine operations where possible (order + orderLines in one call)
-- Use the template steps as your guide
+- Use the template steps as your guide — they represent near-optimal call sequences
+- Include ALL required fields in the FIRST attempt to avoid 422 errors
 
 DO NOT:
 - Make GET calls to "check if something exists" before creating it (UNLESS task says "existing")
-- Make exploratory GET calls
-- Retry failed calls blindly
+- Make exploratory GET calls to discover what's available
+- Retry failed calls blindly — understand the error first
+- Make unnecessary GET calls to verify your work — the system does this
 
 EXCEPTIONS (GET-before-create IS correct):
-- "existing customer/employee" -> GET first
-- Account numbers -> GET /ledger/account?number=X (required!)
+- "existing customer/employee" -> GET first to find their ID
+- Account numbers -> GET /ledger/account?number=X (required — account numbers are NOT IDs!)
 - Payment types -> GET /invoice/paymentType (required for register_payment)
+- Employee ID -> GET /employee when needed for travel expenses, timesheets, salary
+- Department ID -> GET /department when creating employees (include if results exist)
 """
 
 VERIFICATION_AWARENESS = """## Verification Awareness
 After execution, the system verifies EVERY field against expected values.
-- Include ALL fields from the prompt in your API calls
-- Don't skip optional fields that are mentioned (email, phone, description, etc.)
+- Include ALL fields from the prompt in your API calls — every missing field loses points
 - Dates in YYYY-MM-DD format
-- Amounts as numbers (not strings)
-- Preserve special characters in names exactly
-- Include organizationNumber if mentioned
+- Amounts as numbers (not strings): 1500.00 not "1500.00"
+- Preserve special characters in names exactly (Ø, Æ, Å, ñ, ü, etc.)
+- Include organizationNumber if mentioned (format: 9 digits in Norway)
+- Include phoneNumber/phoneNumberMobile if mentioned
+- Include email if mentioned
+- Include dateOfBirth if mentioned (for employees)
+- Include description if mentioned (for products, projects)
+- For updates: ALWAYS include the version field from the GET response in the PUT body
+- Amounts with MVA/VAT: Extract the gross amount and let the API handle VAT calculation
 """
 
 KNOWN_PITFALLS = """## CRITICAL PITFALLS
@@ -106,23 +115,27 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 5. Account numbers != IDs: Must GET /ledger/account?number=X to find real ID.
 6. VAT types vary: Never hardcode vatType IDs. Query GET /ledger/vatType.
 7. Order before Invoice: Create Order with orderLines, then PUT /order/{id}/:invoice.
+7b. Order REQUIRES deliveryDate AND orderDate: ALWAYS include both in POST /order body. Use invoiceDate or today's date if not explicitly specified in the prompt.
 8. Empty sandbox: Each submission starts fresh — no pre-existing entities.
 9. Supplier creation: Set name (required). Do NOT set isSupplier on /supplier endpoint.
 10. Travel expense employee: Always GET /employee first for the employee ID.
 11. Department on employee: If GET /department returns results, include "department": {"id": <first_dept_id>} in POST /employee body.
+11b. userType on employee: ALWAYS include "userType": "STANDARD" when creating employees. Without it you get 422.
+12. Version field for PUTs: ALL PUT requests require the 'version' field from the GET response. Include it in the body. Missing version causes 409 Conflict.
 
 ## TIER 3 PITFALLS (complex tasks)
-12. Opening balance — postings MUST sum to zero: Total debit must equal total credit. If you only have
+13. Opening balance — postings MUST sum to zero: Total debit must equal total credit. If you only have
     asset accounts, add a balancing equity posting (e.g. account 2050). Format each posting as:
     {"account": {"id": <id>}, "amountGross": <amount>} where positive = debit, negative = credit.
     Do NOT fetch all accounts (count=1000) — only GET the specific account numbers mentioned in the task.
-13. Bank reconciliation — accounting period must be open: The reconciliation date range must fall within
+14. Bank reconciliation — accounting period must be open: The reconciliation date range must fall within
     an open accounting period. If you get a 422 error about closed period, the dates are wrong.
     After creating the reconciliation, you may need to POST individual payment/match entries.
-14. Invoice with payment — the /:invoice action returns the created invoice: When you PUT
+15. Invoice with payment — the /:invoice action returns the created invoice: When you PUT
     /order/{id}/:invoice, the response contains the invoice ID. Use $step_N.id from that response
     for the subsequent /:payment call. Do NOT try to search for the invoice separately.
-15. Bank account for invoicing: If invoice creation fails with "bankkontonummer" error, the company needs a bank account. This is usually pre-configured in competition sandboxes but may need: PUT /company with bankAccountNumber field.
+16. Bank account for invoicing: If invoice creation fails with "bankkontonummer" error, the company needs a bank account. This is usually pre-configured in competition sandboxes but may need: PUT /company with bankAccountNumber field.
+17. deliveryDate on orders: REQUIRED field. If not specified in the prompt, use the same date as orderDate.
 """
 
 
@@ -196,15 +209,19 @@ The extracted_values dict MUST contain EVERY piece of data you extracted from th
 Keys MUST match Tripletex API field names exactly. For example:
 - Employee: firstName, lastName, email, phoneNumberMobile, dateOfBirth
 - Customer: name, email, organizationNumber, phoneNumber
-- Product: name, priceExcludingVatCurrency, number
-- Project: project_name, startDate, endDate
+- Product: name, priceExcludingVatCurrency, number, description
+- Project: project_name, description, startDate, endDate
 - Department: name, departmentNumber
-- Invoice: customer_name, invoiceDate, invoiceDueDate
-- Travel: departureDate, returnDate, departureFrom, destination
+- Invoice: customer_name, customer_email, invoiceDate, invoiceDueDate, orderLines
+- Travel: departureDate, returnDate, departureFrom, destination, purpose
+- Supplier: name, email, organizationNumber, phoneNumber
+- Contact: firstName, lastName, email, phoneNumber
+- Voucher: date, description, account numbers, amounts
 
-If the prompt says "Kari Nordmann, kari@test.no" your extracted_values MUST include:
-{{"firstName": "Kari", "lastName": "Nordmann", "email": "kari@test.no"}}
+If the prompt says "Kari Nordmann, kari@test.no, tlf 99887766" your extracted_values MUST include:
+{{"firstName": "Kari", "lastName": "Nordmann", "email": "kari@test.no", "phoneNumberMobile": "99887766"}}
 NEVER return an empty extracted_values if the prompt contains any data.
+For update tasks, put all fields to change in a "fields_to_update" dict within extracted_values.
 """
 
 
@@ -272,6 +289,10 @@ To fix field mismatches:
 5. 422 "invalid value" -> Check field types
 6. Field mismatch -> GET entity, PUT with correct value + version
 7. Account number as ID -> Must GET /ledger/account?number=X first
+8. 422 "bankkontonummer" -> Company needs bank account. Fix: GET /company/1 to get version, then PUT /company/1 with bankAccountNumber (e.g. "15031750204")
+9. 422 "Brukertype" on employee -> Add "userType": "STANDARD" to body
+10. 422 "department" on employee -> GET /department first, include "department": {"id": <id>} in body
+11. 422 "deliveryDate" or "orderDate" null on order -> Add deliveryDate and orderDate (use invoiceDate or today)
 
 ## Instructions
 1. Analyze WHY each step failed
