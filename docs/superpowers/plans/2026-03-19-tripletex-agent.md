@@ -4,7 +4,7 @@
 
 **Goal:** Build an AI agent with `/solve` endpoint that receives accounting tasks in natural language, plans Tripletex API calls via Gemini 3.1 Pro, executes them, and scores maximum points.
 
-**Architecture:** Plan-then-Execute. Single LLM call parses prompt into structured JSON plan of API calls. Deterministic executor runs the plan, resolving inter-step dependencies. Optional LLM recovery on failure.
+**Architecture:** Two-stage LLM with template-based planning. Stage 1: classify task type (lightweight). Stage 2: fill pre-built plan template with extracted values (task-specific context only). Self-repair via LLM on error (no hardcoded fixes). Deterministic executor resolves dependencies.
 
 **Tech Stack:** Python 3.11, FastAPI, httpx, Vertex AI (Gemini 3.1 Pro), Docker, Cloud Run
 
@@ -19,19 +19,20 @@ tripletex/
 ├── Dockerfile                      # Python 3.11-slim, uvicorn
 ├── requirements.txt                # fastapi, uvicorn, httpx, google-cloud-aiplatform
 ├── main.py                         # FastAPI app: POST /solve, GET /health
-├── agent.py                        # LLM planning: prompt → structured plan, recovery
-├── executor.py                     # Execute plan steps, resolve deps, handle errors
+├── agent.py                        # Two-stage LLM: classify → fill template → self-repair
+├── executor.py                     # Execute plan steps, resolve $step_N deps
 ├── tripletex_client.py             # Async HTTP client: auth, GET/POST/PUT/DELETE
+├── templates.py                    # Pre-built plan templates for all 30 task types
 ├── prompts/
 │   ├── __init__.py
-│   └── system.py                   # System prompt builder: role + API ref + glossary + few-shots
+│   ├── classifier.py               # Stage 1: classify task type (lightweight prompt)
+│   └── planner.py                  # Stage 2: fill template (task-specific context only)
 ├── schemas/
-│   └── api_reference.json          # Compact Tripletex API reference (14 KB)
+│   └── api_reference.json          # Compact Tripletex API reference (14 KB, loaded selectively)
 └── tests/
     ├── __init__.py
-    ├── test_executor.py            # Unit tests for dependency resolution + error handling
-    ├── test_agent.py               # Unit tests for plan parsing
-    └── test_main.py                # Integration test for /solve endpoint
+    ├── test_executor.py            # Unit tests for dependency resolution
+    └── test_templates.py           # Verify all templates have valid structure
 ```
 
 ---
@@ -40,9 +41,8 @@ tripletex/
 
 **Files:**
 - Create: `tripletex/tripletex_client.py`
-- Create: `tripletex/tests/test_executor.py` (dependency resolution tests used later)
 
-The async HTTP wrapper for all Tripletex API calls. Handles auth, JSON parsing, error extraction.
+Async HTTP wrapper for all Tripletex API calls. Handles auth, JSON parsing, error extraction.
 
 - [ ] **Step 1: Create tripletex_client.py**
 
@@ -52,6 +52,7 @@ import httpx
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 class TripletexClient:
     """Async HTTP client for Tripletex API v2."""
@@ -65,16 +66,16 @@ class TripletexClient:
             headers={"Content-Type": "application/json"},
         )
 
-    async def request(self, method: str, path: str, body: dict | None = None, params: dict | None = None) -> dict:
-        """Make an API request. Returns {"status_code": int, "ok": bool, "data": dict}."""
+    async def request(
+        self, method: str, path: str,
+        body: dict | None = None, params: dict | None = None,
+    ) -> dict:
+        """Make API request. Returns {status_code, ok, data}."""
         url = f"{self.base_url}{path}"
         logger.info(f"{method} {path}")
 
         response = await self._client.request(
-            method=method,
-            url=url,
-            json=body,
-            params=params,
+            method=method, url=url, json=body, params=params,
         )
 
         result = {
@@ -88,12 +89,11 @@ class TripletexClient:
             result["data"] = {"raw": response.text[:500]}
 
         if not response.is_success:
-            logger.warning(f"{method} {path} → {response.status_code}: {result['data']}")
+            logger.warning(f"{method} {path} -> {response.status_code}: {result['data']}")
 
         return result
 
     async def get(self, path: str, params: dict | None = None) -> dict:
-        # Default to fields=* so we see all available fields
         if params is None:
             params = {}
         if "fields" not in params:
@@ -113,12 +113,7 @@ class TripletexClient:
         await self._client.aclose()
 ```
 
-- [ ] **Step 2: Verify file created**
-
-Run: `cat tripletex/tripletex_client.py | head -5`
-Expected: Shows the import lines.
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
 git add tripletex/tripletex_client.py
@@ -127,14 +122,547 @@ git commit -m "feat(tripletex): add async HTTP client wrapper"
 
 ---
 
-### Task 2: Execution Engine
+### Task 2: Plan Templates
+
+**Files:**
+- Create: `tripletex/templates.py`
+- Create: `tripletex/tests/__init__.py`
+- Create: `tripletex/tests/test_templates.py`
+
+Pre-built plan templates for all known task types. The LLM only needs to extract values and fill placeholders — not design the API flow from scratch. This maximizes correctness and minimizes API calls.
+
+Template placeholders use `{{field_name}}` syntax. The LLM fills these in Stage 2.
+
+- [ ] **Step 1: Write test for template structure**
+
+```python
+# tripletex/tests/test_templates.py
+import pytest
+from templates import TEMPLATES
+
+
+def test_all_templates_have_required_fields():
+    for task_type, template in TEMPLATES.items():
+        assert "steps" in template, f"{task_type} missing steps"
+        assert "relevant_schemas" in template, f"{task_type} missing relevant_schemas"
+        assert "description" in template, f"{task_type} missing description"
+        assert len(template["steps"]) > 0, f"{task_type} has empty steps"
+        for i, step in enumerate(template["steps"]):
+            assert "method" in step, f"{task_type} step {i} missing method"
+            assert "path" in step, f"{task_type} step {i} missing path"
+
+
+def test_all_methods_are_valid():
+    valid_methods = {"GET", "POST", "PUT", "DELETE"}
+    for task_type, template in TEMPLATES.items():
+        for step in template["steps"]:
+            assert step["method"] in valid_methods, f"{task_type}: invalid method {step['method']}"
+
+
+def test_minimum_task_types():
+    """We need at least 15 templates to cover common task types."""
+    assert len(TEMPLATES) >= 15, f"Only {len(TEMPLATES)} templates, need at least 15"
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd tripletex && /opt/homebrew/bin/python3 -m pytest tests/test_templates.py -v`
+Expected: FAIL — `templates` module not found.
+
+- [ ] **Step 3: Create templates.py**
+
+```python
+# tripletex/templates.py
+"""Pre-built plan templates for Tripletex task types.
+
+Each template defines:
+- description: What this task type does (shown to LLM in Stage 2)
+- relevant_schemas: Which entity schemas to include in Stage 2 context
+- steps: Ordered API calls with {{placeholder}} values for LLM to fill
+- extract_fields: Fields the LLM must extract from the prompt
+
+The LLM's job is ONLY to extract values and fill placeholders.
+"""
+
+TEMPLATES: dict[str, dict] = {
+
+    # ===== EMPLOYEES =====
+
+    "create_employee": {
+        "description": "Create an employee, optionally assign a role/entitlement",
+        "relevant_schemas": ["Employee"],
+        "extract_fields": ["firstName", "lastName", "email", "dateOfBirth", "phoneNumberMobile", "role"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/employee",
+                "body": {
+                    "firstName": "{{firstName}}",
+                    "lastName": "{{lastName}}",
+                    "email": "{{email}}",
+                },
+            },
+        ],
+        "conditional_steps": {
+            "if_role": {
+                "method": "PUT",
+                "path": "/employee/entitlement/:grantEntitlementsByTemplate",
+                "params": {"employeeId": "$step_0.id", "template": "{{role}}"},
+            },
+        },
+    },
+
+    "update_employee": {
+        "description": "Update an existing employee's details (phone, email, address, etc.)",
+        "relevant_schemas": ["Employee"],
+        "extract_fields": ["search_name", "fields_to_update"],
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/employee",
+                "params": {"firstName": "{{search_firstName}}", "lastName": "{{search_lastName}}", "fields": "id,firstName,lastName"},
+            },
+            {
+                "method": "PUT",
+                "path": "/employee/$step_0.values[0].id",
+                "body": "{{fields_to_update}}",
+            },
+        ],
+    },
+
+    # ===== CUSTOMERS =====
+
+    "create_customer": {
+        "description": "Create a customer with contact details",
+        "relevant_schemas": ["Customer"],
+        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "isSupplier"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/customer",
+                "body": {
+                    "name": "{{name}}",
+                    "isCustomer": True,
+                    "email": "{{email}}",
+                },
+            },
+        ],
+    },
+
+    # ===== PRODUCTS =====
+
+    "create_product": {
+        "description": "Create a product with price and VAT settings",
+        "relevant_schemas": ["Product"],
+        "extract_fields": ["name", "number", "priceExcludingVatCurrency", "priceIncludingVatCurrency", "description"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/product",
+                "body": {
+                    "name": "{{name}}",
+                    "priceExcludingVatCurrency": "{{price}}",
+                },
+            },
+        ],
+    },
+
+    # ===== INVOICING =====
+
+    "create_invoice": {
+        "description": "Create an invoice: customer -> order with orderLines -> invoice",
+        "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
+        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/customer",
+                "body": {
+                    "name": "{{customer_name}}",
+                    "isCustomer": True,
+                },
+            },
+            {
+                "method": "POST",
+                "path": "/order",
+                "body": {
+                    "customer": {"id": "$step_0.id"},
+                    "orderDate": "{{orderDate}}",
+                    "deliveryDate": "{{deliveryDate}}",
+                    "orderLines": "{{orderLines}}",
+                },
+            },
+            {
+                "method": "PUT",
+                "path": "/order/$step_1.id/:invoice",
+                "params": {
+                    "invoiceDate": "{{invoiceDate}}",
+                    "sendToCustomer": False,
+                },
+            },
+        ],
+    },
+
+    "create_invoice_existing_customer": {
+        "description": "Create invoice for an existing customer (search by name first)",
+        "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
+        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate"],
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/customer",
+                "params": {"name": "{{customer_name}}", "fields": "id,name"},
+            },
+            {
+                "method": "POST",
+                "path": "/order",
+                "body": {
+                    "customer": {"id": "$step_0.values[0].id"},
+                    "orderDate": "{{orderDate}}",
+                    "deliveryDate": "{{deliveryDate}}",
+                    "orderLines": "{{orderLines}}",
+                },
+            },
+            {
+                "method": "PUT",
+                "path": "/order/$step_1.id/:invoice",
+                "params": {
+                    "invoiceDate": "{{invoiceDate}}",
+                    "sendToCustomer": False,
+                },
+            },
+        ],
+    },
+
+    "register_payment": {
+        "description": "Register a payment on an existing invoice",
+        "relevant_schemas": ["Invoice"],
+        "extract_fields": ["invoice_id", "amount", "paymentDate"],
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/invoice/paymentType",
+                "params": {"fields": "id,description"},
+            },
+            {
+                "method": "PUT",
+                "path": "/invoice/{{invoice_id}}/:payment",
+                "params": {
+                    "paymentDate": "{{paymentDate}}",
+                    "paymentTypeId": "$step_0.values[0].id",
+                    "paidAmount": "{{amount}}",
+                },
+            },
+        ],
+    },
+
+    "create_credit_note": {
+        "description": "Create a credit note for an existing invoice",
+        "relevant_schemas": ["Invoice"],
+        "extract_fields": ["invoice_id", "date", "comment"],
+        "steps": [
+            {
+                "method": "PUT",
+                "path": "/invoice/{{invoice_id}}/:createCreditNote",
+                "params": {
+                    "date": "{{date}}",
+                    "comment": "{{comment}}",
+                },
+            },
+        ],
+    },
+
+    "send_invoice": {
+        "description": "Send an invoice to the customer",
+        "relevant_schemas": ["Invoice"],
+        "extract_fields": ["invoice_id", "sendType", "email"],
+        "steps": [
+            {
+                "method": "PUT",
+                "path": "/invoice/{{invoice_id}}/:send",
+                "params": {
+                    "sendType": "{{sendType}}",
+                },
+            },
+        ],
+    },
+
+    # ===== TRAVEL EXPENSES =====
+
+    "create_travel_expense": {
+        "description": "Register a travel expense report with travel details",
+        "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost"],
+        "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel"],
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/employee",
+                "params": {"fields": "id", "count": 1},
+            },
+            {
+                "method": "POST",
+                "path": "/travelExpense",
+                "body": {
+                    "employee": {"id": "$step_0.values[0].id"},
+                    "travelDetails": {
+                        "departureDate": "{{departureDate}}",
+                        "returnDate": "{{returnDate}}",
+                        "departureFrom": "{{departureFrom}}",
+                        "destination": "{{destination}}",
+                        "purpose": "{{purpose}}",
+                        "isDayTrip": "{{isDayTrip}}",
+                        "isForeignTravel": "{{isForeignTravel}}",
+                    },
+                    "title": "{{title}}",
+                },
+            },
+        ],
+    },
+
+    "delete_travel_expense": {
+        "description": "Delete a travel expense report",
+        "relevant_schemas": ["TravelExpense"],
+        "extract_fields": ["travel_expense_id"],
+        "steps": [
+            {
+                "method": "DELETE",
+                "path": "/travelExpense/{{travel_expense_id}}",
+            },
+        ],
+    },
+
+    "deliver_travel_expense": {
+        "description": "Deliver (submit) a travel expense for approval",
+        "relevant_schemas": ["TravelExpense"],
+        "extract_fields": ["travel_expense_id"],
+        "steps": [
+            {
+                "method": "PUT",
+                "path": "/travelExpense/:deliver",
+                "params": {"id": "{{travel_expense_id}}"},
+            },
+        ],
+    },
+
+    "approve_travel_expense": {
+        "description": "Approve a travel expense",
+        "relevant_schemas": ["TravelExpense"],
+        "extract_fields": ["travel_expense_id"],
+        "steps": [
+            {
+                "method": "PUT",
+                "path": "/travelExpense/:approve",
+                "params": {"id": "{{travel_expense_id}}"},
+            },
+        ],
+    },
+
+    # ===== PROJECTS =====
+
+    "create_project": {
+        "description": "Create a project, optionally linked to a customer",
+        "relevant_schemas": ["Project", "Customer"],
+        "extract_fields": ["name", "customer_name", "startDate", "endDate", "isInternal", "projectManager", "description"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/customer",
+                "body": {
+                    "name": "{{customer_name}}",
+                    "isCustomer": True,
+                },
+            },
+            {
+                "method": "POST",
+                "path": "/project",
+                "body": {
+                    "name": "{{project_name}}",
+                    "customer": {"id": "$step_0.id"},
+                    "startDate": "{{startDate}}",
+                    "endDate": "{{endDate}}",
+                    "isInternal": False,
+                },
+            },
+        ],
+    },
+
+    "create_internal_project": {
+        "description": "Create an internal project (no customer)",
+        "relevant_schemas": ["Project"],
+        "extract_fields": ["name", "startDate", "endDate", "description"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/project",
+                "body": {
+                    "name": "{{project_name}}",
+                    "isInternal": True,
+                    "startDate": "{{startDate}}",
+                    "endDate": "{{endDate}}",
+                },
+            },
+        ],
+    },
+
+    # ===== DEPARTMENTS =====
+
+    "create_department": {
+        "description": "Create a department",
+        "relevant_schemas": ["Department"],
+        "extract_fields": ["name", "departmentNumber", "departmentManager"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/department",
+                "body": {
+                    "name": "{{name}}",
+                    "departmentNumber": "{{departmentNumber}}",
+                },
+            },
+        ],
+    },
+
+    # ===== SUPPLIERS =====
+
+    "create_supplier": {
+        "description": "Create a supplier",
+        "relevant_schemas": ["Supplier"],
+        "extract_fields": ["name", "organizationNumber", "email", "phoneNumber"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/supplier",
+                "body": {
+                    "name": "{{name}}",
+                    "email": "{{email}}",
+                },
+            },
+        ],
+    },
+
+    # ===== CONTACTS =====
+
+    "create_contact": {
+        "description": "Create a contact person for a customer",
+        "relevant_schemas": ["Contact", "Customer"],
+        "extract_fields": ["firstName", "lastName", "email", "customer_name"],
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/customer",
+                "params": {"name": "{{customer_name}}", "fields": "id,name"},
+            },
+            {
+                "method": "POST",
+                "path": "/contact",
+                "body": {
+                    "firstName": "{{firstName}}",
+                    "lastName": "{{lastName}}",
+                    "email": "{{email}}",
+                    "customer": {"id": "$step_0.values[0].id"},
+                },
+            },
+        ],
+    },
+
+    # ===== LEDGER / VOUCHERS =====
+
+    "create_voucher": {
+        "description": "Create a ledger voucher with postings",
+        "relevant_schemas": ["Voucher", "Posting"],
+        "extract_fields": ["date", "description", "postings"],
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/ledger/voucher",
+                "body": {
+                    "date": "{{date}}",
+                    "description": "{{description}}",
+                    "postings": "{{postings}}",
+                },
+            },
+        ],
+    },
+
+    "reverse_voucher": {
+        "description": "Reverse a voucher",
+        "relevant_schemas": ["Voucher"],
+        "extract_fields": ["voucher_id", "date"],
+        "steps": [
+            {
+                "method": "PUT",
+                "path": "/ledger/voucher/{{voucher_id}}/:reverse",
+                "params": {"date": "{{date}}"},
+            },
+        ],
+    },
+
+    # ===== CORRECTIONS =====
+
+    "delete_entity": {
+        "description": "Delete an entity by type and ID",
+        "relevant_schemas": [],
+        "extract_fields": ["entity_type", "entity_id"],
+        "steps": [
+            {
+                "method": "DELETE",
+                "path": "/{{entity_type}}/{{entity_id}}",
+            },
+        ],
+    },
+
+    # ===== FALLBACK =====
+
+    "unknown": {
+        "description": "Task type not recognized — LLM generates plan from scratch using full API reference",
+        "relevant_schemas": ["Employee", "Customer", "Product", "Order", "OrderLine", "Invoice", "TravelExpense", "Project", "Department", "Contact", "Supplier", "Voucher", "Posting"],
+        "extract_fields": [],
+        "steps": [],
+    },
+}
+
+
+# Map Norwegian keywords to task types for fast classification
+KEYWORD_HINTS: dict[str, list[str]] = {
+    "create_employee": ["ansatt", "employee", "empleado", "empregado", "mitarbeiter", "employe"],
+    "update_employee": ["oppdater ansatt", "endre ansatt", "update employee"],
+    "create_customer": ["kunde", "customer", "cliente", "client", "Kunde"],
+    "create_product": ["produkt", "product", "producto", "produto", "Produkt", "produit"],
+    "create_invoice": ["faktura", "invoice", "factura", "fatura", "Rechnung", "facture"],
+    "register_payment": ["innbetaling", "betaling", "payment", "pago", "pagamento", "Zahlung", "paiement"],
+    "create_credit_note": ["kreditnota", "credit note", "nota de credito", "Gutschrift", "avoir"],
+    "create_travel_expense": ["reiseregning", "travel expense", "gastos de viaje", "despesas de viagem", "Reisekosten", "note de frais"],
+    "delete_travel_expense": ["slett reiseregning", "delete travel"],
+    "create_project": ["prosjekt", "project", "proyecto", "projeto", "Projekt", "projet"],
+    "create_department": ["avdeling", "department", "departamento", "Abteilung", "departement"],
+    "create_supplier": ["leverandor", "supplier", "proveedor", "fornecedor", "Lieferant", "fournisseur"],
+    "create_voucher": ["bilag", "voucher", "Beleg", "piece comptable"],
+    "reverse_voucher": ["reverser", "reverse", "tilbakefor"],
+    "send_invoice": ["send faktura", "send invoice"],
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `cd tripletex && /opt/homebrew/bin/python3 -m pytest tests/test_templates.py -v`
+Expected: All 3 tests PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tripletex/templates.py tripletex/tests/
+git commit -m "feat(tripletex): add pre-built plan templates for 20+ task types"
+```
+
+---
+
+### Task 3: Execution Engine
 
 **Files:**
 - Create: `tripletex/executor.py`
-- Create: `tripletex/tests/__init__.py`
 - Create: `tripletex/tests/test_executor.py`
 
-The deterministic executor that runs a plan's API call steps, resolves `$step_N.field` dependencies, and handles errors.
+Deterministic executor that runs plan steps and resolves `$step_N.field` dependencies. No hardcoded error fixes — all error recovery goes through LLM self-repair in agent.py.
 
 - [ ] **Step 1: Write failing tests for dependency resolution**
 
@@ -143,16 +671,20 @@ The deterministic executor that runs a plan's API call steps, resolves `$step_N.
 import pytest
 from executor import resolve_ref, resolve_refs
 
+
 def test_resolve_ref_simple_id():
     results = {0: {"data": {"value": {"id": 42}}}}
     assert resolve_ref("$step_0.id", results) == 42
+
 
 def test_resolve_ref_nested_field():
     results = {0: {"data": {"value": {"id": 42, "name": "Test"}}}}
     assert resolve_ref("$step_0.name", results) == "Test"
 
+
 def test_resolve_ref_no_match():
     assert resolve_ref("plain_string", {}) == "plain_string"
+
 
 def test_resolve_refs_in_dict():
     results = {0: {"data": {"value": {"id": 10}}}}
@@ -160,21 +692,31 @@ def test_resolve_refs_in_dict():
     resolved = resolve_refs(body, results)
     assert resolved == {"customer": {"id": 10}, "name": "Test"}
 
+
 def test_resolve_refs_in_path():
     results = {1: {"data": {"value": {"id": 99}}}}
     path = "/order/$step_1.id/:invoice"
     resolved = resolve_ref(path, results)
     assert resolved == "/order/99/:invoice"
 
+
 def test_resolve_ref_array_indexing():
     """Test $step_N.values[0].id pattern for list responses."""
-    results = {0: {"data": {"values": [{"id": 7, "description": "Cash"}, {"id": 8, "description": "Bank"}]}}}
+    results = {0: {"data": {"values": [{"id": 7, "description": "Cash"}, {"id": 8}]}}}
     assert resolve_ref("$step_0.values[0].id", results) == 7
+
 
 def test_resolve_ref_deep_nested():
     """Test deeply nested path resolution."""
     results = {0: {"data": {"value": {"customer": {"id": 5}}}}}
     assert resolve_ref("$step_0.customer.id", results) == 5
+
+
+def test_resolve_ref_non_string():
+    """Non-string values pass through unchanged."""
+    assert resolve_ref(42, {}) == 42
+    assert resolve_ref(True, {}) is True
+    assert resolve_ref(None, {}) is None
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -182,7 +724,7 @@ def test_resolve_ref_deep_nested():
 Run: `cd tripletex && /opt/homebrew/bin/python3 -m pytest tests/test_executor.py -v`
 Expected: FAIL — `executor` module not found.
 
-- [ ] **Step 3: Implement executor.py**
+- [ ] **Step 3: Create executor.py**
 
 ```python
 # tripletex/executor.py
@@ -192,6 +734,7 @@ from tripletex_client import TripletexClient
 
 logger = logging.getLogger(__name__)
 
+
 def _deep_get(obj, path_parts: list[str]):
     """Navigate nested dicts/lists by dot-separated path parts.
     Supports array indexing like 'values[0]'."""
@@ -199,7 +742,6 @@ def _deep_get(obj, path_parts: list[str]):
     for part in path_parts:
         if current is None:
             return None
-        # Handle array indexing: values[0]
         array_match = re.match(r'(\w+)\[(\d+)\]', part)
         if array_match:
             key, idx = array_match.group(1), int(array_match.group(2))
@@ -218,7 +760,7 @@ def _deep_get(obj, path_parts: list[str]):
     return current
 
 
-def resolve_ref(value: str, results: dict):
+def resolve_ref(value, results: dict):
     """Resolve $step_N.path.to.field references in a string value.
     Supports nested paths like $step_0.values[0].id and $step_1.value.id"""
     if not isinstance(value, str):
@@ -230,13 +772,12 @@ def resolve_ref(value: str, results: dict):
         step_data = results.get(step_idx, {}).get("data", {})
         parts = field_path.split(".")
 
-        # Try value.path first (POST/PUT wrap in {"value": {...}})
+        # Try value.path first (POST/PUT responses wrap in {"value": {...}})
         val = step_data.get("value", {})
         if isinstance(val, dict):
             resolved = _deep_get(val, parts)
             if resolved is not None:
                 return resolved
-            # Try without first part if it's "value" (user wrote $step_0.value.id)
             if parts[0] == "value" and len(parts) > 1:
                 resolved = _deep_get(val, parts[1:])
                 if resolved is not None:
@@ -249,6 +790,16 @@ def resolve_ref(value: str, results: dict):
 
         return None
 
+    # If entire string is a single reference, return typed value (int, not "42")
+    single_match = re.fullmatch(pattern, value)
+    if single_match:
+        step_idx = int(single_match.group(1))
+        field_path = single_match.group(2)
+        resolved = _resolve_single(step_idx, field_path)
+        if resolved is not None:
+            return resolved
+
+    # Otherwise do string substitution (for paths like "/order/$step_1.id/:invoice")
     def replacer(match):
         step_idx = int(match.group(1))
         field_path = match.group(2)
@@ -258,18 +809,7 @@ def resolve_ref(value: str, results: dict):
         logger.warning(f"Could not resolve $step_{step_idx}.{field_path}")
         return match.group(0)
 
-    # If the entire string is a single reference, return typed value
-    single_match = re.fullmatch(pattern, value)
-    if single_match:
-        step_idx = int(single_match.group(1))
-        field_path = single_match.group(2)
-        resolved = _resolve_single(step_idx, field_path)
-        if resolved is not None:
-            return resolved
-
-    # Otherwise do string substitution
-    resolved = re.sub(pattern, replacer, value)
-    return resolved
+    return re.sub(pattern, replacer, value)
 
 
 def resolve_refs(obj, results: dict):
@@ -285,16 +825,14 @@ def resolve_refs(obj, results: dict):
 
 async def execute_plan(plan: dict, client: TripletexClient) -> dict:
     """Execute a structured plan of API calls.
-
-    Returns {"success": bool, "results": {step_idx: response}, "failed": [(idx, error)]}
-    """
+    Returns {success, results, failed}. No error fixing here — that's the LLM's job."""
     steps = plan.get("steps", [])
     results = {}
     failed = []
 
     for i, step in enumerate(steps):
         method = step["method"].upper()
-        path = resolve_ref(step["path"], results)
+        path = resolve_ref(step.get("path", ""), results)
         body = resolve_refs(step.get("body"), results) if step.get("body") else None
         params = resolve_refs(step.get("params"), results) if step.get("params") else None
 
@@ -303,394 +841,263 @@ async def execute_plan(plan: dict, client: TripletexClient) -> dict:
         results[i] = response
 
         if not response["ok"]:
-            # Try one programmatic retry
-            fixed_body, fixed_params = try_fix_error(response, step, body, params)
-            if fixed_body is not None or fixed_params is not None:
-                logger.info(f"Step {i}: Retrying with fix")
-                response = await client.request(
-                    method, path,
-                    body=fixed_body if fixed_body is not None else body,
-                    params=fixed_params if fixed_params is not None else params,
-                )
-                results[i] = response
-
-            if not response["ok"]:
-                failed.append((i, response))
-                logger.error(f"Step {i} failed: {response['status_code']}")
+            failed.append((i, response))
+            logger.error(f"Step {i} failed: {response['status_code']} - {response['data']}")
+            # Don't stop — continue with remaining steps (some may still work)
 
     return {
         "success": len(failed) == 0,
         "results": results,
         "failed": failed,
     }
-
-
-def try_fix_error(response: dict, step: dict, body: dict | None, params: dict | None) -> tuple:
-    """Attempt programmatic fix based on error response.
-    Returns (fixed_body, fixed_params) or (None, None)."""
-    status = response.get("status_code", 0)
-    data = response.get("data", {})
-    msg = str(data).lower()
-
-    # 422 validation errors — parse message for missing/invalid fields
-    if status == 422:
-        if "iscustomer" in msg and body:
-            return {**body, "isCustomer": True}, None
-        if "isinternal" in msg and body:
-            return {**body, "isInternal": False}, None
-        if "orderdate" in msg and body and "orderDate" not in body:
-            from datetime import date
-            return {**body, "orderDate": date.today().isoformat()}, None
-        if "deliverydate" in msg and body and "deliveryDate" not in body:
-            from datetime import date
-            return {**body, "deliveryDate": date.today().isoformat()}, None
-
-    # 404 not found — likely bad ID in path, cannot fix programmatically
-    # (will be handled by LLM recovery)
-
-    # 409 duplicate — entity already exists
-    if status == 409:
-        # Can't fix without a GET call — flag for LLM recovery
-        pass
-
-    # 401 auth — re-check auth header (unlikely to be fixable)
-    if status == 401:
-        logger.error("Authentication failed — check session token")
-
-    return None, None
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd tripletex && /opt/homebrew/bin/python3 -m pytest tests/test_executor.py -v`
-Expected: All 5 tests PASS.
+Expected: All 8 tests PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add tripletex/executor.py tripletex/tests/
-git commit -m "feat(tripletex): add execution engine with dependency resolution"
+git commit -m "feat(tripletex): add execution engine with nested dependency resolution"
 ```
 
 ---
 
-### Task 3: System Prompt Builder
+### Task 4: Prompts (Classifier + Planner)
 
 **Files:**
 - Create: `tripletex/prompts/__init__.py`
-- Create: `tripletex/prompts/system.py`
-- Verify: `tripletex/schemas/api_reference.json` (already created)
+- Create: `tripletex/prompts/classifier.py`
+- Create: `tripletex/prompts/planner.py`
 
-The system prompt with API reference, accounting glossary, few-shot examples, and output schema.
+Two-stage prompt system:
+- Stage 1 (classifier): Lightweight prompt to identify task type from the 20+ known types
+- Stage 2 (planner): Task-specific prompt with only relevant schemas + template to fill
 
 - [ ] **Step 1: Create prompts/__init__.py**
 
 Empty file.
 
-- [ ] **Step 2: Create prompts/system.py**
-
-This is the core system prompt. It must contain:
-1. Role + rules
-2. Compact API reference (loaded from api_reference.json)
-3. Norwegian accounting glossary
-4. Few-shot examples for each task category
-5. Output JSON schema
-
-The prompt should be in English (strongest LLM reasoning). Include Norwegian glossary so the model can map Norwegian terms to API fields.
+- [ ] **Step 2: Create prompts/classifier.py**
 
 ```python
-# tripletex/prompts/system.py
+# tripletex/prompts/classifier.py
+"""Stage 1: Classify the accounting task type.
+
+Lightweight prompt — no API reference needed.
+Returns just the task_type string.
+"""
+
+from templates import TEMPLATES, KEYWORD_HINTS
+
+TASK_LIST = "\n".join(
+    f"- {task_type}: {t['description']}"
+    for task_type, t in TEMPLATES.items()
+    if task_type != "unknown"
+)
+
+CLASSIFIER_PROMPT = f"""You are a task classifier for an accounting system. Given a task prompt (in any language: Norwegian, English, Spanish, Portuguese, Nynorsk, German, or French), identify which task type it belongs to.
+
+## Available Task Types
+{TASK_LIST}
+
+## Output
+Return ONLY a JSON object:
+{{"task_type": "<one of the task types above>"}}
+
+If the task doesn't match any known type, return:
+{{"task_type": "unknown"}}
+
+Do not include any other text, markdown, or explanation.
+"""
+```
+
+- [ ] **Step 3: Create prompts/planner.py**
+
+```python
+# tripletex/prompts/planner.py
+"""Stage 2: Fill a plan template with values extracted from the prompt.
+
+Only loads relevant entity schemas for the detected task type.
+"""
 import json
 from pathlib import Path
+from templates import TEMPLATES
 
 _SCHEMA_PATH = Path(__file__).parent.parent / "schemas" / "api_reference.json"
+_ALL_SCHEMAS: dict | None = None
 
-def _load_api_reference() -> str:
-    with open(_SCHEMA_PATH) as f:
-        return f.read()
 
-def build_system_prompt() -> str:
-    api_ref = _load_api_reference()
+def _load_schemas() -> dict:
+    global _ALL_SCHEMAS
+    if _ALL_SCHEMAS is None:
+        with open(_SCHEMA_PATH) as f:
+            _ALL_SCHEMAS = json.load(f)
+    return _ALL_SCHEMAS
 
-    return f"""You are an expert accounting agent. You receive accounting tasks in natural language (Norwegian, English, Spanish, Portuguese, Nynorsk, German, or French) and must produce a structured JSON plan of Tripletex API calls to complete the task.
 
-## Important
-Prompts may arrive in any of these 7 languages: Norwegian Bokmal (nb), Norwegian Nynorsk (nn), English (en), Spanish (es), Portuguese (pt), German (de), French (fr). Extract all field values regardless of input language. Always output your JSON plan in the same format.
+def _get_relevant_schemas(task_type: str) -> str:
+    """Load only the schemas relevant to this task type."""
+    all_schemas = _load_schemas()
+    template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+    relevant = {
+        name: all_schemas[name]
+        for name in template["relevant_schemas"]
+        if name in all_schemas
+    }
+    return json.dumps(relevant, indent=2, ensure_ascii=False)
+
+
+GLOSSARY = """## Norwegian Accounting Glossary
+- Faktura = Invoice | Kreditnota = Credit note | Innbetaling/Betaling = Payment
+- Kunde = Customer | Leverandor = Supplier | Ansatt = Employee
+- Produkt = Product | Prosjekt = Project | Avdeling = Department
+- Reiseregning = Travel expense | Ordrelinje = Order line
+- Bilag = Voucher | Kontoplan = Chart of accounts | Mva = VAT
+- Kontoadministrator = ALL_PRIVILEGES | Regnskapsfor = ACCOUNTANT
+- Lonnansvarlig = PERSONELL_MANAGER | Fakturaansvarlig = INVOICING_MANAGER
+- Revisor = AUDITOR | Avdelingsleder = DEPARTMENT_LEADER
+- Forfallsdato = Due date | Organisasjonsnummer = Org number
+"""
+
+ACTION_ENDPOINTS = """## Key Action Endpoints
+- PUT /order/{id}/:invoice — invoiceDate (required), sendToCustomer (optional)
+- PUT /invoice/{id}/:payment — paymentDate, paymentTypeId, paidAmount (all required)
+- PUT /invoice/{id}/:createCreditNote — date (required), comment
+- PUT /invoice/{id}/:send — sendType (required)
+- PUT /employee/entitlement/:grantEntitlementsByTemplate — employeeId, template (both required)
+- PUT /travelExpense/:deliver — id | PUT /travelExpense/:approve — id
+- PUT /ledger/voucher/{id}/:reverse — date (required)
+- DELETE /travelExpense/{id}
+
+## Entitlement Templates
+ALL_PRIVILEGES, INVOICING_MANAGER, PERSONELL_MANAGER, ACCOUNTANT, AUDITOR, DEPARTMENT_LEADER
+
+## Employee.userType
+STANDARD, EXTENDED, NO_ACCESS
+"""
+
+
+def build_planner_prompt(task_type: str) -> str:
+    """Build Stage 2 prompt with task-specific context."""
+    template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+    schemas = _get_relevant_schemas(task_type)
+    template_json = json.dumps(template["steps"], indent=2, ensure_ascii=False)
+
+    return f"""You are an expert accounting agent for Tripletex. You must complete an accounting task by producing a JSON plan of API calls.
+
+## Your Task Type: {task_type}
+{template["description"]}
+
+## Template Steps (adapt these — fill in values from the prompt)
+{template_json}
+
+## Fields to Extract from Prompt
+{json.dumps(template["extract_fields"])}
+
+## Relevant API Schemas (writable fields)
+{schemas}
+
+{GLOSSARY}
+
+{ACTION_ENDPOINTS}
 
 ## Rules
-1. Output ONLY valid JSON matching the schema below. No markdown, no explanation.
-2. Use POST response IDs via $step_N.id references for subsequent steps.
-3. Never guess field values — extract everything from the prompt.
-4. Minimize API calls — plan the optimal sequence upfront.
-5. Do NOT make GET calls to verify what you just created.
-6. For references to other entities, use {{"id": "$step_N.id"}} or {{"id": <known_id>}}.
-7. Dates should be in YYYY-MM-DD format. Use today's date if not specified.
-8. For orders/invoices: always create customer first, then order with orderLines, then invoice via action endpoint.
+1. Output ONLY valid JSON. No markdown, no explanation.
+2. Use $step_N.id to reference IDs from previous steps' responses.
+3. Extract ALL values from the prompt — never guess or leave placeholders.
+4. Dates in YYYY-MM-DD format. Use today's date if not specified in prompt.
+5. Remove optional fields that are not mentioned in the prompt.
+6. For entity references use {{"id": "$step_N.id"}} or {{"id": <known_id>}}.
 
 ## Output Schema
 ```json
 {{
-  "task_type": "string — e.g. create_employee, create_invoice, register_payment",
-  "reasoning": "Brief explanation of what the task requires",
+  "task_type": "{task_type}",
+  "reasoning": "Brief explanation",
   "steps": [
-    {{
-      "method": "POST|GET|PUT|DELETE",
-      "path": "/endpoint/path — use $step_N.id for dynamic IDs",
-      "body": {{}},
-      "params": {{}}
-    }}
-  ]
-}}
-```
-
-## Tripletex API Reference (writable fields per entity)
-
-{api_ref}
-
-## Key Action Endpoints
-
-- PUT /order/$order_id/:invoice — Convert order to invoice. Params: invoiceDate (required), sendToCustomer (optional, default false)
-- PUT /invoice/$id/:payment — Register payment. Params: paymentDate, paymentTypeId, paidAmount (all required)
-- PUT /invoice/$id/:createCreditNote — Credit note. Params: date (required), comment, creditNoteEmail
-- PUT /invoice/$id/:send — Send invoice. Params: sendType (required), overrideEmailAddress
-- PUT /employee/entitlement/:grantEntitlementsByTemplate — Set role. Params: employeeId (required), template (required)
-- PUT /travelExpense/:deliver — Deliver travel expense. Params: id
-- PUT /travelExpense/:approve — Approve travel expense. Params: id
-- PUT /ledger/voucher/$id/:reverse — Reverse voucher. Params: date (required)
-- DELETE /travelExpense/$id — Delete travel expense
-
-## Entitlement Templates (Employee Roles)
-ALL_PRIVILEGES, INVOICING_MANAGER, PERSONELL_MANAGER, ACCOUNTANT, AUDITOR, DEPARTMENT_LEADER, NONE_PRIVILEGES
-
-## Employee.userType
-STANDARD (normal user), EXTENDED (admin), NO_ACCESS
-
-## Norwegian Accounting Glossary
-- Faktura = Invoice (POST /order then PUT /order/:invoice)
-- Kreditnota = Credit note (PUT /invoice/:createCreditNote)
-- Innbetaling/Betaling = Payment (PUT /invoice/:payment)
-- Kunde = Customer (POST /customer)
-- Leverandor = Supplier (POST /supplier)
-- Ansatt = Employee (POST /employee)
-- Produkt = Product (POST /product)
-- Prosjekt = Project (POST /project)
-- Avdeling = Department (POST /department)
-- Reiseregning = Travel expense (POST /travelExpense)
-- Ordrelinje = Order line (part of order body)
-- Bilag = Voucher (POST /ledger/voucher)
-- Kontoplan = Chart of accounts (/ledger/account)
-- Mva = VAT (/ledger/vatType)
-- Kontoadministrator = Account administrator (ALL_PRIVILEGES template)
-- Regnskapsfor = Accountant (ACCOUNTANT template)
-- Lonnansvarlig = Payroll manager (PERSONELL_MANAGER template)
-- Fakturaansvarlig = Invoice manager (INVOICING_MANAGER template)
-- Revisor = Auditor (AUDITOR template)
-- Avdelingsleder = Department leader (DEPARTMENT_LEADER template)
-- Forfallsdato = Due date (invoiceDueDate)
-- Organisasjonsnummer = Organization number
-- Salgsinntekt = Sales revenue (account 3000)
-- Bankinnskudd = Bank deposits (account 1920)
-
-## Few-Shot Examples
-
-### Example 1: Create employee with admin role
-Prompt: "Opprett en ansatt med navn Ola Nordmann, e-post ola@example.org. Han skal vaere kontoadministrator."
-```json
-{{
-  "task_type": "create_employee",
-  "reasoning": "Create employee Ola Nordmann with email, then grant ALL_PRIVILEGES (kontoadministrator)",
-  "steps": [
-    {{
-      "method": "POST",
-      "path": "/employee",
-      "body": {{"firstName": "Ola", "lastName": "Nordmann", "email": "ola@example.org"}}
-    }},
-    {{
-      "method": "PUT",
-      "path": "/employee/entitlement/:grantEntitlementsByTemplate",
-      "params": {{"employeeId": "$step_0.id", "template": "ALL_PRIVILEGES"}}
-    }}
-  ]
-}}
-```
-
-### Example 2: Create invoice
-Prompt: "Opprett en faktura til kunde Acme AS for 10 timer konsulentarbeid a 1200 kr. Forfallsdato 2026-04-01."
-```json
-{{
-  "task_type": "create_invoice",
-  "reasoning": "Create customer Acme AS, then order with one order line (10 x 1200), then invoice the order",
-  "steps": [
-    {{
-      "method": "POST",
-      "path": "/customer",
-      "body": {{"name": "Acme AS", "isCustomer": true}}
-    }},
-    {{
-      "method": "POST",
-      "path": "/order",
-      "body": {{
-        "customer": {{"id": "$step_0.id"}},
-        "orderDate": "2026-03-19",
-        "deliveryDate": "2026-03-19",
-        "orderLines": [
-          {{"description": "Konsulentarbeid", "count": 10, "unitPriceExcludingVatCurrency": 1200}}
-        ]
-      }}
-    }},
-    {{
-      "method": "PUT",
-      "path": "/order/$step_1.id/:invoice",
-      "params": {{"invoiceDate": "2026-03-19", "sendToCustomer": false}}
-    }}
-  ]
-}}
-```
-
-### Example 3: Register payment on invoice
-Prompt: "Registrer en innbetaling pa faktura 1 pa 15000 kr, betalt i dag."
-```json
-{{
-  "task_type": "register_payment",
-  "reasoning": "Register payment of 15000 on invoice 1. Need to find paymentTypeId first.",
-  "steps": [
-    {{
-      "method": "GET",
-      "path": "/invoice/paymentType",
-      "params": {{"fields": "id,description"}}
-    }},
-    {{
-      "method": "PUT",
-      "path": "/invoice/1/:payment",
-      "params": {{"paymentDate": "2026-03-19", "paymentTypeId": "$step_0.values[0].id", "paidAmount": 15000}}
-    }}
-  ]
-}}
-```
-
-### Example 4: Create travel expense
-Prompt: "Registrer en reiseregning for reise fra Oslo til Bergen 15. mars 2026."
-```json
-{{
-  "task_type": "create_travel_expense",
-  "reasoning": "Create travel expense with travel details for Oslo-Bergen trip",
-  "steps": [
-    {{
-      "method": "POST",
-      "path": "/travelExpense",
-      "body": {{
-        "employee": {{"id": 1}},
-        "travelDetails": {{
-          "departureDate": "2026-03-15",
-          "returnDate": "2026-03-15",
-          "departureFrom": "Oslo",
-          "destination": "Bergen",
-          "isDayTrip": true,
-          "isForeignTravel": false,
-          "purpose": "Forretningsreise"
-        }},
-        "title": "Oslo - Bergen 15.03.2026"
-      }}
-    }}
-  ]
-}}
-```
-
-### Example 5: Create department
-Prompt: "Opprett avdeling Salg med avdelingsnummer 200."
-```json
-{{
-  "task_type": "create_department",
-  "reasoning": "Create department named Salg with number 200",
-  "steps": [
-    {{
-      "method": "POST",
-      "path": "/department",
-      "body": {{"name": "Salg", "departmentNumber": "200"}}
-    }}
-  ]
-}}
-```
-
-### Example 6: Delete travel expense
-Prompt: "Slett reiseregning med ID 5."
-```json
-{{
-  "task_type": "delete_travel_expense",
-  "reasoning": "Delete travel expense with ID 5",
-  "steps": [
-    {{
-      "method": "DELETE",
-      "path": "/travelExpense/5"
-    }}
-  ]
-}}
-```
-
-### Example 7: Create project for customer
-Prompt: "Opprett et prosjekt kalt 'Nettsideredesign' for kunde Bedrift AS. Prosjektet starter 1. april og slutter 30. juni 2026."
-```json
-{{
-  "task_type": "create_project",
-  "reasoning": "Create customer first, then project linked to that customer",
-  "steps": [
-    {{
-      "method": "POST",
-      "path": "/customer",
-      "body": {{"name": "Bedrift AS", "isCustomer": true}}
-    }},
-    {{
-      "method": "POST",
-      "path": "/project",
-      "body": {{
-        "name": "Nettsideredesign",
-        "customer": {{"id": "$step_0.id"}},
-        "startDate": "2026-04-01",
-        "endDate": "2026-06-30",
-        "isInternal": false
-      }}
-    }}
+    {{"method": "POST|GET|PUT|DELETE", "path": "/...", "body": {{}}, "params": {{}}}}
   ]
 }}
 ```
 """
 
 
-def build_recovery_prompt(original_prompt: str, plan: dict, results: dict, failed: list) -> str:
-    """Build a recovery prompt when execution fails."""
-    return f"""The following accounting task failed during execution. Analyze the errors and provide a corrected plan for the remaining steps.
+def build_self_repair_prompt(
+    task_type: str,
+    original_prompt: str,
+    plan: dict,
+    results: dict,
+    failed: list,
+) -> str:
+    """Build self-repair prompt: feed error back to LLM for correction."""
+    schemas = _get_relevant_schemas(task_type)
+
+    # Format results concisely
+    results_summary = {}
+    for idx, res in results.items():
+        results_summary[str(idx)] = {
+            "ok": res["ok"],
+            "status_code": res["status_code"],
+            "data": res["data"],
+        }
+
+    failed_summary = [
+        {"step": idx, "status_code": res["status_code"], "error": res["data"]}
+        for idx, res in failed
+    ]
+
+    return f"""An accounting task failed during execution. Analyze the errors and produce a CORRECTED complete plan.
 
 ## Original Task
 {original_prompt}
 
+## Task Type: {task_type}
+
 ## Original Plan
 {json.dumps(plan, indent=2, ensure_ascii=False)}
 
-## Execution Results
-{json.dumps({str(k): {{"ok": v["ok"], "status_code": v["status_code"], "data": v["data"]}} for k, v in results.items()}, indent=2, ensure_ascii=False)}
+## Execution Results (step index -> response)
+{json.dumps(results_summary, indent=2, ensure_ascii=False)}
 
 ## Failed Steps
-{json.dumps([(i, {{"status_code": r["status_code"], "data": r["data"]}}) for i, r in failed], indent=2, ensure_ascii=False)}
+{json.dumps(failed_summary, indent=2, ensure_ascii=False)}
 
-Provide a corrected plan in the same JSON format. Only include the steps that still need to be executed. You may reference results from already-completed steps using $step_N.field syntax (using the original step indices).
+## Relevant API Schemas
+{schemas}
+
+{ACTION_ENDPOINTS}
+
+## Instructions
+1. Analyze WHY each step failed (read the error messages carefully)
+2. Produce a corrected plan that fixes the errors
+3. You may reuse IDs from successful steps using $step_N.id (original indices)
+4. Output ONLY valid JSON in the same plan format
+5. Include ALL steps (both already-succeeded and corrected ones)
 """
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add tripletex/prompts/ tripletex/schemas/api_reference.json
-git commit -m "feat(tripletex): add system prompt with API ref, glossary, few-shots"
+git add tripletex/prompts/
+git commit -m "feat(tripletex): add two-stage prompts (classifier + planner + self-repair)"
 ```
 
 ---
 
-### Task 4: LLM Agent (Planning + Recovery)
+### Task 5: LLM Agent (Two-Stage + Self-Repair)
 
 **Files:**
 - Create: `tripletex/agent.py`
 
-The LLM integration that sends prompts to Gemini 3.1 Pro and parses structured JSON responses.
+Two-stage LLM agent:
+- Stage 1: Classify task type (lightweight, ~100 tokens out)
+- Stage 2: Fill template with task-specific context (focused, ~500 tokens out)
+- Self-repair: On execution failure, feed errors to LLM for corrected plan (max 1 retry)
 
 - [ ] **Step 1: Create agent.py**
 
@@ -704,111 +1111,135 @@ from datetime import date
 import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 
-from prompts.system import build_system_prompt, build_recovery_prompt
+from prompts.classifier import CLASSIFIER_PROMPT
+from prompts.planner import build_planner_prompt, build_self_repair_prompt
+from templates import TEMPLATES, KEYWORD_HINTS
 
 logger = logging.getLogger(__name__)
 
-# Initialize Vertex AI
 vertexai.init(project="ainm26osl-710", location="europe-north1")
 
 MODEL_ID = "gemini-3.1-pro"
 
-def _get_model() -> GenerativeModel:
-    return GenerativeModel(
-        MODEL_ID,
-        system_instruction=build_system_prompt(),
-    )
+
+def _get_model(system_instruction: str) -> GenerativeModel:
+    return GenerativeModel(MODEL_ID, system_instruction=system_instruction)
 
 
-def _parse_plan(text: str) -> dict:
-    """Parse LLM response text into a plan dict."""
-    # Strip markdown code fences if present
+def _parse_json(text: str) -> dict:
+    """Parse LLM response, stripping markdown fences if present."""
     text = text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        text = "\n".join(lines[1:])  # remove first ```json line
+        text = "\n".join(lines[1:])
         if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
-
     return json.loads(text)
 
 
+def _quick_classify(prompt: str) -> str | None:
+    """Try keyword-based classification before calling LLM."""
+    prompt_lower = prompt.lower()
+    for task_type, keywords in KEYWORD_HINTS.items():
+        for kw in keywords:
+            if kw.lower() in prompt_lower:
+                return task_type
+    return None
+
+
+async def classify_task(prompt: str) -> str:
+    """Stage 1: Classify the task type. Try keywords first, fall back to LLM."""
+    # Fast path: keyword match
+    quick = _quick_classify(prompt)
+    if quick:
+        logger.info(f"Quick classify: {quick}")
+        return quick
+
+    # Slow path: LLM classification
+    model = _get_model(CLASSIFIER_PROMPT)
+    response = model.generate_content(
+        prompt,
+        generation_config={"temperature": 0.0, "max_output_tokens": 100},
+    )
+    result = _parse_json(response.text)
+    task_type = result.get("task_type", "unknown")
+    logger.info(f"LLM classify: {task_type}")
+    return task_type
+
+
 async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
-    """Send prompt to Gemini and get a structured execution plan."""
-    model = _get_model()
+    """Two-stage planning: classify then fill template."""
+    # Stage 1: Classify
+    task_type = await classify_task(prompt)
 
-    # Build content parts
+    # Stage 2: Plan with task-specific context
+    planner_prompt = build_planner_prompt(task_type)
+    model = _get_model(planner_prompt)
+
     parts = []
-
-    # Add file contents if present (multimodal)
     if files:
         for f in files:
             file_data = base64.b64decode(f["content_base64"])
             parts.append(Part.from_data(data=file_data, mime_type=f["mime_type"]))
             parts.append(Part.from_text(f"[Attached file: {f['filename']}]"))
 
-    # Add the task prompt with today's date context
     today = date.today().isoformat()
     parts.append(Part.from_text(
         f"Today's date is {today}. Complete this accounting task:\n\n{prompt}"
     ))
 
-    logger.info(f"Sending to {MODEL_ID}: {prompt[:100]}...")
-
+    logger.info(f"Planning {task_type}: {prompt[:80]}...")
     response = model.generate_content(
         parts,
-        generation_config={
-            "temperature": 0.0,
-            "max_output_tokens": 4096,
-        },
+        generation_config={"temperature": 0.0, "max_output_tokens": 4096},
     )
 
-    plan = _parse_plan(response.text)
-    logger.info(f"Plan: {plan.get('task_type')} with {len(plan.get('steps', []))} steps")
+    plan = _parse_json(response.text)
+    plan["task_type"] = plan.get("task_type", task_type)
+    logger.info(f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps")
     return plan
 
 
-async def create_recovery_plan(
+async def self_repair(
     original_prompt: str,
-    original_plan: dict,
+    plan: dict,
     results: dict,
     failed: list,
 ) -> dict:
-    """Send recovery prompt to Gemini for corrected plan."""
-    model = _get_model()
+    """Self-repair: feed errors to LLM for a corrected plan."""
+    task_type = plan.get("task_type", "unknown")
+    repair_prompt = build_self_repair_prompt(
+        task_type, original_prompt, plan, results, failed
+    )
+    model = _get_model("You are an expert Tripletex API debugger. Fix the failed plan.")
 
-    recovery_prompt = build_recovery_prompt(original_prompt, original_plan, results, failed)
-    logger.info("Sending recovery prompt to LLM...")
-
+    logger.info("Self-repair: sending errors to LLM...")
     response = model.generate_content(
-        recovery_prompt,
-        generation_config={
-            "temperature": 0.0,
-            "max_output_tokens": 4096,
-        },
+        repair_prompt,
+        generation_config={"temperature": 0.0, "max_output_tokens": 4096},
     )
 
-    plan = _parse_plan(response.text)
-    logger.info(f"Recovery plan: {len(plan.get('steps', []))} steps")
-    return plan
+    repaired = _parse_json(response.text)
+    logger.info(f"Repaired plan: {len(repaired.get('steps', []))} steps")
+    return repaired
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add tripletex/agent.py
-git commit -m "feat(tripletex): add LLM agent with Gemini 3.1 Pro planning + recovery"
+git commit -m "feat(tripletex): add two-stage LLM agent with self-repair"
 ```
 
 ---
 
-### Task 5: FastAPI Application (main.py)
+### Task 6: FastAPI Application
 
 **Files:**
 - Create: `tripletex/main.py`
 
-The main application that wires together the agent, executor, and client.
+Wires together: classify → plan → execute → self-repair → execute again.
 
 - [ ] **Step 1: Create main.py**
 
@@ -818,7 +1249,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from agent import create_plan, create_recovery_plan
+from agent import create_plan, self_repair
 from executor import execute_plan
 from tripletex_client import TripletexClient
 
@@ -846,34 +1277,34 @@ async def solve(request: Request):
     base_url = creds["base_url"]
     session_token = creds["session_token"]
 
-    logger.info(f"Received task: {prompt[:100]}...")
+    logger.info(f"Task: {prompt[:100]}...")
 
     client = TripletexClient(base_url, session_token)
 
     try:
-        # Phase 1: Plan
+        # Phase 1: Plan (two-stage: classify + fill template)
         plan = await create_plan(prompt, files)
-        logger.info(f"Plan created: {plan.get('task_type')} ({len(plan.get('steps', []))} steps)")
+        logger.info(f"Plan: {plan.get('task_type')} ({len(plan.get('steps', []))} steps)")
 
         # Phase 2: Execute
         result = await execute_plan(plan, client)
 
-        # Phase 3: Recovery (if needed)
+        # Phase 3: Self-repair (if any step failed)
         if not result["success"]:
-            logger.warning(f"Execution had {len(result['failed'])} failed steps, attempting recovery...")
+            logger.warning(f"{len(result['failed'])} steps failed, self-repairing...")
             try:
-                recovery_plan = await create_recovery_plan(
+                repaired_plan = await self_repair(
                     prompt, plan, result["results"], result["failed"]
                 )
-                recovery_result = await execute_plan(recovery_plan, client)
-                if recovery_result["success"]:
-                    logger.info("Recovery succeeded")
+                repair_result = await execute_plan(repaired_plan, client)
+                if repair_result["success"]:
+                    logger.info("Self-repair succeeded")
                 else:
-                    logger.error(f"Recovery also failed: {len(recovery_result['failed'])} steps")
+                    logger.error(f"Self-repair failed: {len(repair_result['failed'])} steps still failing")
             except Exception as e:
-                logger.error(f"Recovery failed with exception: {e}")
+                logger.error(f"Self-repair exception: {e}")
         else:
-            logger.info("Execution completed successfully")
+            logger.info("All steps succeeded")
 
     except Exception as e:
         logger.error(f"Agent error: {e}", exc_info=True)
@@ -887,12 +1318,12 @@ async def solve(request: Request):
 
 ```bash
 git add tripletex/main.py
-git commit -m "feat(tripletex): add FastAPI /solve endpoint with plan-execute-recover loop"
+git commit -m "feat(tripletex): add FastAPI /solve with plan-execute-repair loop"
 ```
 
 ---
 
-### Task 6: Dockerfile + requirements.txt
+### Task 7: Dockerfile + Requirements + Deploy
 
 **Files:**
 - Create: `tripletex/Dockerfile`
@@ -922,46 +1353,45 @@ COPY . .
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Create .dockerignore**
 
-```bash
-git add tripletex/Dockerfile tripletex/requirements.txt
-git commit -m "feat(tripletex): add Dockerfile and requirements for Cloud Run"
+```
+openapi.json
+api-paths-relevant.json
+api-reference-compact.json
+api-reference-agent.json
+api-schemas-key.json
+api-schemas-writable.json
+docs/
+tests/
+__pycache__/
+*.pyc
+.git/
 ```
 
----
-
-### Task 7: Local Testing + Deploy
-
-**Files:**
-- No new files — integration testing and deployment
-
-- [ ] **Step 1: Test locally**
+- [ ] **Step 4: Commit**
 
 ```bash
-cd tripletex
-pip install -r requirements.txt
+git add tripletex/Dockerfile tripletex/requirements.txt tripletex/.dockerignore
+git commit -m "feat(tripletex): add Dockerfile, requirements, .dockerignore"
+```
+
+- [ ] **Step 5: Test locally**
+
+```bash
+cd tripletex && pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-Then in another terminal:
-```bash
-curl -X POST http://localhost:8080/solve \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Opprett en ansatt med navn Test Testesen, test@test.no", "files": [], "tripletex_credentials": {"base_url": "https://tx-proxy.ainm.no/v2", "session_token": "test-token"}}'
-```
-
-Expected: Returns `{"status": "completed"}` (API calls will fail with auth error but the flow works).
-
-- [ ] **Step 2: Test /health**
-
+In another terminal:
 ```bash
 curl http://localhost:8080/health
+curl -X POST http://localhost:8080/solve \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Opprett en ansatt Ola Nordmann, ola@test.no", "files": [], "tripletex_credentials": {"base_url": "https://tx-proxy.ainm.no/v2", "session_token": "test"}}'
 ```
 
-Expected: `{"status": "ok"}`
-
-- [ ] **Step 3: Deploy to Cloud Run**
+- [ ] **Step 6: Deploy to Cloud Run**
 
 ```bash
 cd tripletex
@@ -974,50 +1404,50 @@ gcloud run deploy tripletex-agent \
   --min-instances 1
 ```
 
-Expected: URL like `https://tripletex-agent-xxxxx-lz.a.run.app`
-
-- [ ] **Step 4: Test deployed endpoint**
+- [ ] **Step 7: Test deployed endpoint**
 
 ```bash
 curl https://<CLOUD_RUN_URL>/health
 ```
 
-Expected: `{"status": "ok"}`
-
-- [ ] **Step 5: Submit URL on platform**
+- [ ] **Step 8: Submit URL at app.ainm.no**
 
 Go to https://app.ainm.no/submit/tripletex and submit the Cloud Run URL.
 
-- [ ] **Step 6: Commit any fixes**
+- [ ] **Step 9: Commit any deployment fixes**
 
 ```bash
-git add -A tripletex/
-git commit -m "fix(tripletex): fixes from deployment testing"
+git add tripletex/
+git commit -m "fix(tripletex): deployment fixes"
 ```
 
 ---
 
-### Task 8: Iterate Based on Submission Results
+### Task 8: Iterate Based on Submissions
 
-After initial deployment, analyze submission logs and improve:
+After initial deployment, analyze results and improve:
 
-- [ ] **Step 1: Check submission logs on app.ainm.no**
+- [ ] **Step 1: Review submission logs at app.ainm.no**
 
-Review which tasks pass/fail and which fields are incorrect.
+Check which task types pass/fail and which fields are incorrect.
 
-- [ ] **Step 2: Add more few-shot examples**
+- [ ] **Step 2: Add templates for failing task types**
 
-For task types that fail, add specific few-shot examples to `prompts/system.py`.
+For tasks not covered by templates, add new entries in `templates.py`.
 
-- [ ] **Step 3: Improve error handling in executor.py**
+- [ ] **Step 3: Refine planner prompts**
 
-Add more programmatic fixes for common Tripletex validation errors.
+If the LLM extracts wrong values, add task-specific hints in `planner.py`.
 
-- [ ] **Step 4: Optimize for efficiency bonus**
+- [ ] **Step 4: Add more keyword hints**
 
-Remove any unnecessary GET calls. Ensure POST response IDs are used everywhere.
+Expand `KEYWORD_HINTS` in `templates.py` for faster classification.
 
-- [ ] **Step 5: Commit improvements**
+- [ ] **Step 5: Test with sandbox credentials**
+
+Use the sandbox account to manually test specific task types before resubmitting.
+
+- [ ] **Step 6: Commit improvements**
 
 ```bash
 git add tripletex/
