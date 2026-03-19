@@ -17,11 +17,11 @@ from templates import TEMPLATES, KEYWORD_HINTS
 
 logger = logging.getLogger(__name__)
 
-vertexai.init(project="ainm26osl-710", location="europe-north1")
+vertexai.init(project="ainm26osl-710", location="global")
 
 # ---------- Model IDs ----------
-MODEL_PRO = "gemini-2.5-pro"
-MODEL_FLASH_LITE = "gemini-2.5-flash"
+MODEL_PRO = "gemini-3.1-pro-preview"
+MODEL_FLASH_LITE = "gemini-3.1-flash-lite-preview"
 
 # ---------- Tier mapping ----------
 TIER_MAP: dict[str, int] = {
