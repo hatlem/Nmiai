@@ -49,16 +49,16 @@ GLOSSARY = """## Norwegian Accounting Glossary (Bokmal / Nynorsk / English)
 """
 
 ACTION_ENDPOINTS = """## Key Action Endpoints (use query params, NOT body)
-- PUT /order/{id}/:invoice — invoiceDate (REQUIRED), sendToCustomer (optional)
-- PUT /invoice/{id}/:payment — paymentDate, paymentTypeId, paidAmount (ALL REQUIRED)
-- PUT /invoice/{id}/:createCreditNote — date (REQUIRED), comment (optional)
-- PUT /invoice/{id}/:send — sendType (REQUIRED: EMAIL, EHF, EFAKTURA, LETTER, MANUAL)
-- PUT /invoice/{id}/:createReminder — type (REQUIRED), date (REQUIRED), comment (optional)
+- PUT /order/{{id}}/:invoice — invoiceDate (REQUIRED), sendToCustomer (optional)
+- PUT /invoice/{{id}}/:payment — paymentDate, paymentTypeId, paidAmount (ALL REQUIRED)
+- PUT /invoice/{{id}}/:createCreditNote — date (REQUIRED), comment (optional)
+- PUT /invoice/{{id}}/:send — sendType (REQUIRED: EMAIL, EHF, EFAKTURA, LETTER, MANUAL)
+- PUT /invoice/{{id}}/:createReminder — type (REQUIRED), date (REQUIRED), comment (optional)
 - PUT /employee/entitlement/:grantEntitlementsByTemplate — employeeId, template (REQUIRED)
 - PUT /travelExpense/:deliver — id (REQUIRED)
 - PUT /travelExpense/:approve — id (REQUIRED)
-- PUT /ledger/voucher/{id}/:reverse — date (REQUIRED)
-- DELETE /travelExpense/{id}
+- PUT /ledger/voucher/{{id}}/:reverse — date (REQUIRED)
+- DELETE /travelExpense/{{id}}
 
 ## Entitlement Templates
 ALL_PRIVILEGES, INVOICING_MANAGER, PERSONELL_MANAGER, ACCOUNTANT, AUDITOR, DEPARTMENT_LEADER
@@ -291,7 +291,7 @@ To fix field mismatches:
 7. Account number as ID -> Must GET /ledger/account?number=X first
 8. 422 "bankkontonummer" -> Company needs bank account. Fix: GET /company/1 to get version, then PUT /company/1 with bankAccountNumber (e.g. "15031750204")
 9. 422 "Brukertype" on employee -> Add "userType": "STANDARD" to body
-10. 422 "department" on employee -> GET /department first, include "department": {"id": <id>} in body
+10. 422 "department" on employee -> GET /department first, include "department": {{"id": <id>}} in body
 11. 422 "deliveryDate" or "orderDate" null on order -> Add deliveryDate and orderDate (use invoiceDate or today)
 
 ## Instructions

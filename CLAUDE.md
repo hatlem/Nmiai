@@ -17,7 +17,7 @@ Vi har en dedikert GCP-konto uten kreditgrenser — bruk det vi trenger.
 |---|---|
 | Prosjekt | `ainm26osl-710` |
 | E-post | devstar7101@gcplab.me |
-| Passord | ucyx4KaQu5 |
+| Passord | Se `.env` eller team credentials (IKKE commit passord) |
 | Region | `europe-north1` (Finland, lavest latency til validatorer) |
 
 ### Tilgjengelige tjenester
