@@ -22,7 +22,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_employee": {
         "entity_path": "/employee",
-        "id_from_step": 0,
+        "id_from_step": 1,
         "search_params": {"fields": "id,firstName,lastName,email,phoneNumberMobile"},
         "check_fields": {
             "firstName": "extract:firstName",

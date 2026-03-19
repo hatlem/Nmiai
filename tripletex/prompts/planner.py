@@ -109,6 +109,7 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 8. Empty sandbox: Each submission starts fresh — no pre-existing entities.
 9. Supplier creation: Set name (required). Do NOT set isSupplier on /supplier endpoint.
 10. Travel expense employee: Always GET /employee first for the employee ID.
+11. Department on employee: If GET /department returns results, include "department": {"id": <first_dept_id>} in POST /employee body.
 """
 
 

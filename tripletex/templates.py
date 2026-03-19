@@ -13,10 +13,15 @@ TEMPLATES: dict[str, dict] = {
     # ===== EMPLOYEES =====
 
     "create_employee": {
-        "description": "Create an employee, optionally assign a role/entitlement",
+        "description": "Create an employee, optionally assign a role/entitlement. If departments exist, include department in body.",
         "relevant_schemas": ["Employee"],
         "extract_fields": ["firstName", "lastName", "email", "dateOfBirth", "phoneNumberMobile", "role"],
         "steps": [
+            {
+                "method": "GET",
+                "path": "/department",
+                "params": {"fields": "id,name", "count": 1},
+            },
             {
                 "method": "POST",
                 "path": "/employee",
@@ -31,7 +36,7 @@ TEMPLATES: dict[str, dict] = {
             "if_role": {
                 "method": "PUT",
                 "path": "/employee/entitlement/:grantEntitlementsByTemplate",
-                "params": {"employeeId": "$step_0.id", "template": "{{role}}"},
+                "params": {"employeeId": "$step_1.id", "template": "{{role}}"},
             },
         },
     },
