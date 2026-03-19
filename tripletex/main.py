@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Tripletex AI Agent")
 
 MAX_REPAIR_ATTEMPTS = 3
-REPAIR_DEADLINE_SECONDS = 260  # leave 40s buffer for verification + response
+REPAIR_DEADLINE_SECONDS = 270  # leave 30s buffer for verification + response
 
 # Simple tasks where recovery cost > benefit
 SKIP_RECOVERY_TYPES = {
@@ -142,30 +142,43 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             new_steps.append(fixed_step)
             continue
 
-        # 422 with "bankkontonummer" - company needs bank account number
-        # Fix: GET /company to find ID+version, PUT to set bankAccountNumber, retry original step
-        if status == 422 and "bankkontonummer" in error_msg:
-            logger.info("Quick-fix: setting bankAccountNumber on company")
-            new_steps.append({
-                "method": "GET",
-                "path": "/company",
-                "params": {"fields": "id,version,bankAccountNumber"},
-                "note": "quick-fix: fetch company for bank account update",
-            })
-            step_idx = len(new_steps) - 1
-            new_steps.append({
-                "method": "PUT",
-                "path": f"/company/$step_{step_idx}.values[0].id",
-                "body": {
-                    "id": f"$step_{step_idx}.values[0].id",
-                    "version": f"$step_{step_idx}.values[0].version",
-                    "bankAccountNumber": "15031750204",
-                },
-                "note": "quick-fix: set bank account number",
-            })
-            # Retry the original failed step
-            new_steps.append(dict(original_step))
+        # 422 with "invoiceDueDate" - retry with invoiceDueDate = invoiceDate + 14 days
+        if status == 422 and "invoiceduedate" in error_msg:
+            fixed_step = dict(original_step)
+            fixed_params = dict(fixed_step.get("params", {}))
+            fixed_body = dict(fixed_step.get("body", {}))
+            from datetime import date as date_cls, timedelta as td
+            invoice_date = fixed_params.get("invoiceDate") or fixed_body.get("invoiceDate") or date_cls.today().isoformat()
+            try:
+                from datetime import datetime as dt
+                due = dt.strptime(invoice_date, "%Y-%m-%d") + td(days=14)
+                due_str = due.strftime("%Y-%m-%d")
+            except (ValueError, TypeError):
+                due_str = date_cls.today().isoformat()
+            fixed_params["invoiceDueDate"] = due_str
+            fixed_step["params"] = fixed_params
+            fixed_step["body"] = fixed_body
+            new_steps.append(fixed_step)
             continue
+
+        # 422 with "orderDate" - retry with orderDate = today
+        if status == 422 and "orderdate" in error_msg:
+            from datetime import date as date_cls
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            today = date_cls.today().isoformat()
+            fixed_body["orderDate"] = today
+            if "deliveryDate" not in fixed_body:
+                fixed_body["deliveryDate"] = today
+            fixed_step["body"] = fixed_body
+            new_steps.append(fixed_step)
+            continue
+
+        # 422 with "bankkontonummer" - company needs bank account number
+        # PUT /company returns 405 in dev sandbox. Competition sandboxes have this pre-configured.
+        if status == 422 and "bankkontonummer" in error_msg:
+            logger.warning("Quick-fix: bankkontonummer error — cannot fix via API, competition sandboxes have this pre-configured")
+            return None
 
         # 400 "already exists" - search for existing entity instead of creating
         if status == 400 and any(kw in error_msg for kw in ("already exists", "allerede", "finnes allerede")):
@@ -174,7 +187,6 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             body = original_step.get("body", {})
 
             if method == "POST":
-                # Map entity paths to their search parameter names
                 entity_search_map = {
                     "/customer": ("name", "name"),
                     "/supplier": ("name", "name"),
@@ -193,16 +205,12 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
                     new_steps.append({
                         "method": "GET",
                         "path": entity_path,
-                        "params": {query_param: search_value, "count": "1"},
-                        "note": f"quick-fix: search existing entity instead of creating duplicate",
+                        "params": {query_param: search_value, "count": "1", "fields": "id,name,version"},
+                        "note": "quick-fix: search existing entity instead of creating duplicate",
                     })
                     logger.info(f"Quick-fix: 400 already-exists, searching {entity_path} by {query_param}={search_value}")
                     continue
-                else:
-                    logger.warning("Quick-fix: 400 already-exists but entity pattern not recognized")
-                    return None
-            else:
-                return None
+            return None
 
         # 409 conflict - same as 422 version: GET to fetch version, then retry PUT
         if status == 409:
@@ -237,29 +245,6 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
         "steps": new_steps,
         "extracted_values": plan.get("extracted_values", {}),
     }
-
-
-async def _ensure_bank_account(client: TripletexClient):
-    """Pre-flight: check if company has a bank account number.
-    Competition sandboxes should have this pre-configured.
-    We can't fix it via API (PUT /company returns 405), but we log a warning."""
-    try:
-        emp_resp = await client.get("/employee", params={"count": "1", "fields": "id,companyId"})
-        employees = emp_resp.get("values", [])
-        if not employees:
-            return
-        company_id = employees[0].get("companyId")
-        if not company_id:
-            return
-        company_resp = await client.get(f"/company/{company_id}")
-        company = company_resp.get("value", company_resp)
-        if not company or not isinstance(company, dict):
-            return
-        # The CompanyDTO may not expose bankAccountNumber field directly.
-        # In competition sandboxes, bank accounts are pre-configured.
-        logger.info(f"Pre-flight: company {company.get('name', company_id)} loaded OK")
-    except Exception as e:
-        logger.warning(f"Pre-flight company check failed (non-fatal): {e}")
 
 
 @app.post("/solve")
