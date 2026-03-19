@@ -324,7 +324,18 @@ async def self_repair(
         generation_config={"temperature": 0.0, "max_output_tokens": 4096},
     )
 
-    repaired = _parse_json(response.text)
+    try:
+        repaired = _parse_json(response.text)
+    except (json.JSONDecodeError, Exception) as e:
+        logger.error(f"Self-repair JSON parse failed: {e}. Raw: {response.text[:200]}")
+        # Return empty plan so the repair loop knows to stop
+        return {
+            "task_type": task_type,
+            "reasoning": "Self-repair JSON parse failed",
+            "steps": [],
+            "extracted_values": plan.get("extracted_values", {}),
+        }
+
     repaired.setdefault("extracted_values", plan.get("extracted_values", {}))
     logger.info(f"Repaired plan: {len(repaired.get('steps', []))} steps")
     return repaired
