@@ -90,9 +90,10 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_invoice_with_payment": {
         "entity_path": "/invoice",
         "id_from_step": 2,
-        "search_params": {"fields": "id,invoiceNumber,amount,amountOutstanding,customer"},
+        "search_params": {"fields": "id,invoiceNumber,amount,amountOutstanding,amountCurrency,customer"},
         "check_fields": {
             "exists:invoiceNumber": "exists",
+            "amountOutstanding": "literal:0.0",
         },
     },
 
@@ -100,6 +101,16 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         "entity_path": "/invoice",
         "id_from_step": None,
         "id_from_extract": "invoice_id",
+        "search_params": {"fields": "id,invoiceNumber,amount,amountOutstanding"},
+        "check_fields": {
+            "exists:id": "exists",
+        },
+    },
+
+    "register_payment_by_search": {
+        "entity_path": "/invoice",
+        "id_from_step": None,
+        "id_from_search_step": 0,
         "search_params": {"fields": "id,invoiceNumber,amount,amountOutstanding"},
         "check_fields": {
             "exists:id": "exists",
@@ -124,6 +135,15 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "approve_travel_expense": {"skip_verify": True},
 
     "create_project": {
+        "entity_path": "/project",
+        "id_from_step": 2,
+        "search_params": {"fields": "id,name,startDate,endDate,isInternal,customer"},
+        "check_fields": {
+            "name": "extract:project_name",
+        },
+    },
+
+    "create_project_existing_customer": {
         "entity_path": "/project",
         "id_from_step": 1,
         "search_params": {"fields": "id,name,startDate,endDate,isInternal,customer"},
@@ -167,6 +187,33 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         "check_fields": {
             "name": "extract:name",
         },
+    },
+
+    "update_supplier": {
+        "entity_path": "/supplier",
+        "id_from_step": None,
+        "id_from_search_step": 0,
+        "search_params": {"fields": "id,name,email,organizationNumber,phoneNumber"},
+        "check_fields": {},
+        "dynamic_checks": True,
+    },
+
+    "update_department": {
+        "entity_path": "/department",
+        "id_from_step": None,
+        "id_from_search_step": 0,
+        "search_params": {"fields": "id,name,departmentNumber"},
+        "check_fields": {},
+        "dynamic_checks": True,
+    },
+
+    "update_product": {
+        "entity_path": "/product",
+        "id_from_step": None,
+        "id_from_search_step": 0,
+        "search_params": {"fields": "id,name,number,priceExcludingVatCurrency"},
+        "check_fields": {},
+        "dynamic_checks": True,
     },
 
     "create_contact": {

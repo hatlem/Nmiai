@@ -180,6 +180,34 @@ TEMPLATES: dict[str, dict] = {
         ],
     },
 
+    "register_payment_by_search": {
+        "description": "Register a payment on an invoice found by searching (by invoice number or customer)",
+        "relevant_schemas": ["Invoice"],
+        "extract_fields": ["invoiceNumber", "customer_name", "amount", "paymentDate"],
+        "optimal_calls": 3,
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/invoice",
+                "params": {"invoiceNumber": "{{invoiceNumber}}", "fields": "id,invoiceNumber,amount"},
+            },
+            {
+                "method": "GET",
+                "path": "/invoice/paymentType",
+                "params": {"fields": "id,description"},
+            },
+            {
+                "method": "PUT",
+                "path": "/invoice/$step_0.values[0].id/:payment",
+                "params": {
+                    "paymentDate": "{{paymentDate}}",
+                    "paymentTypeId": "$step_1.values[0].id",
+                    "paidAmount": "{{amount}}",
+                },
+            },
+        ],
+    },
+
     "create_credit_note": {
         "description": "Create a credit note for an existing invoice",
         "relevant_schemas": ["Invoice"],
@@ -284,10 +312,15 @@ TEMPLATES: dict[str, dict] = {
     # ===== PROJECTS =====
 
     "create_project": {
-        "description": "Create a project, optionally linked to a customer",
+        "description": "Create a project linked to a customer. Must set projectManager.",
         "relevant_schemas": ["Project", "Customer"],
         "extract_fields": ["name", "customer_name", "startDate", "endDate", "isInternal", "projectManager", "description"],
         "steps": [
+            {
+                "method": "GET",
+                "path": "/employee",
+                "params": {"fields": "id", "count": 1},
+            },
             {
                 "method": "POST",
                 "path": "/customer",
@@ -301,7 +334,33 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/project",
                 "body": {
                     "name": "{{project_name}}",
-                    "customer": {"id": "$step_0.id"},
+                    "customer": {"id": "$step_1.id"},
+                    "startDate": "{{startDate}}",
+                    "endDate": "{{endDate}}",
+                    "isInternal": False,
+                    "projectManager": {"id": "$step_0.values[0].id"},
+                },
+            },
+        ],
+    },
+
+    "create_project_existing_customer": {
+        "description": "Create a project linked to an existing customer (search by name first)",
+        "relevant_schemas": ["Project", "Customer"],
+        "extract_fields": ["project_name", "customer_name", "startDate", "endDate", "description"],
+        "optimal_calls": 2,
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/customer",
+                "params": {"name": "{{customer_name}}", "fields": "id,name"},
+            },
+            {
+                "method": "POST",
+                "path": "/project",
+                "body": {
+                    "name": "{{project_name}}",
+                    "customer": {"id": "$step_0.values[0].id"},
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
                     "isInternal": False,
@@ -311,10 +370,15 @@ TEMPLATES: dict[str, dict] = {
     },
 
     "create_internal_project": {
-        "description": "Create an internal project (no customer)",
+        "description": "Create an internal project (no customer). Must set projectManager.",
         "relevant_schemas": ["Project"],
         "extract_fields": ["name", "startDate", "endDate", "description"],
         "steps": [
+            {
+                "method": "GET",
+                "path": "/employee",
+                "params": {"fields": "id", "count": 1},
+            },
             {
                 "method": "POST",
                 "path": "/project",
@@ -323,6 +387,7 @@ TEMPLATES: dict[str, dict] = {
                     "isInternal": True,
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
+                    "projectManager": {"id": "$step_0.values[0].id"},
                 },
             },
         ],
@@ -360,6 +425,69 @@ TEMPLATES: dict[str, dict] = {
                     "name": "{{name}}",
                     "email": "{{email}}",
                 },
+            },
+        ],
+    },
+
+    # ===== UPDATE SUPPLIER =====
+
+    "update_supplier": {
+        "description": "Update an existing supplier's details",
+        "relevant_schemas": ["Supplier"],
+        "extract_fields": ["supplier_name", "fields_to_update"],
+        "optimal_calls": 2,
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/supplier",
+                "params": {"name": "{{supplier_name}}", "fields": "id,name,version"},
+            },
+            {
+                "method": "PUT",
+                "path": "/supplier/$step_0.values[0].id",
+                "body": "{{fields_to_update}}",
+            },
+        ],
+    },
+
+    # ===== UPDATE DEPARTMENT =====
+
+    "update_department": {
+        "description": "Update an existing department's details",
+        "relevant_schemas": ["Department"],
+        "extract_fields": ["department_name", "fields_to_update"],
+        "optimal_calls": 2,
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/department",
+                "params": {"name": "{{department_name}}", "fields": "id,name,departmentNumber,version"},
+            },
+            {
+                "method": "PUT",
+                "path": "/department/$step_0.values[0].id",
+                "body": "{{fields_to_update}}",
+            },
+        ],
+    },
+
+    # ===== UPDATE PRODUCT =====
+
+    "update_product": {
+        "description": "Update an existing product's details",
+        "relevant_schemas": ["Product"],
+        "extract_fields": ["product_name", "fields_to_update"],
+        "optimal_calls": 2,
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/product",
+                "params": {"name": "{{product_name}}", "fields": "id,name,number,version"},
+            },
+            {
+                "method": "PUT",
+                "path": "/product/$step_0.values[0].id",
+                "body": "{{fields_to_update}}",
             },
         ],
     },
@@ -520,9 +648,18 @@ TEMPLATES: dict[str, dict] = {
     # ===== BANK RECONCILIATION =====
 
     "bank_reconciliation": {
-        "description": "Create a bank reconciliation. May involve importing a bank statement (CSV) and matching transactions. IMPORTANT: first GET /bank to find the bank account, then create the reconciliation.",
+        "description": (
+            "Create a bank reconciliation. This is a COMPLEX multi-step process:\n"
+            "1. GET /bank to find the bank account ID\n"
+            "2. POST /bank/reconciliation to create the reconciliation period\n"
+            "3. For each transaction: POST /bank/reconciliation/match or create vouchers for unmatched items\n"
+            "4. If a bank statement (CSV/file) is attached, use POST /bank/statement/import to import it first\n"
+            "5. Unmatched transactions may need manual vouchers via POST /ledger/voucher\n"
+            "IMPORTANT: The accounting period must be open for the reconciliation date range. "
+            "If the task specifies a closing balance, the sum of matched transactions must equal it."
+        ),
         "relevant_schemas": ["Voucher", "Posting"],
-        "extract_fields": ["date_from", "date_to", "bank_account_number", "transactions"],
+        "extract_fields": ["date_from", "date_to", "bank_account_number", "transactions", "closing_balance"],
         "steps": [
             {
                 "method": "GET",
@@ -581,22 +718,29 @@ TEMPLATES: dict[str, dict] = {
     # ===== OPENING BALANCE =====
 
     "create_opening_balance": {
-        "description": "Set opening balance entries for the company. Each entry has an account and an amount.",
+        "description": (
+            "Set opening balance entries for the company. Each entry has an account and an amount.\n"
+            "IMPORTANT: Do NOT fetch all accounts — only GET the specific accounts mentioned in the task "
+            "using GET /ledger/account?number=X for each account number. This is much more efficient.\n"
+            "CRITICAL: All postings MUST sum to zero (total debit = total credit). If the task only "
+            "specifies asset/liability accounts, you may need a balancing entry on an equity account (e.g. 2050).\n"
+            "Postings format: [{\"account\": {\"id\": <id>}, \"amountGross\": <positive_for_debit_negative_for_credit>}]"
+        ),
         "relevant_schemas": ["Voucher", "Posting"],
         "extract_fields": ["date", "entries"],
         "steps": [
             {
                 "method": "GET",
                 "path": "/ledger/account",
-                "params": {"fields": "id,number,name", "count": 1000},
-                "note": "Fetch all accounts to map numbers to IDs",
+                "params": {"number": "{{account_number_1}}", "fields": "id,number,name"},
+                "note": "Fetch ONLY the specific accounts needed — repeat this step for each account number in the task",
             },
             {
                 "method": "POST",
                 "path": "/ledger/voucher/openingBalance",
                 "body": {
                     "date": "{{date}}",
-                    "postings": "{{postings_using_account_ids_from_step_0}}",
+                    "postings": "{{postings_using_account_ids — must sum to zero}}",
                 },
             },
         ],
@@ -842,10 +986,14 @@ KEYWORD_HINTS: dict[str, list[str]] = {
     "deliver_travel_expense": ["lever reiseregning", "deliver travel expense", "send inn reiseregning"],
     "approve_travel_expense": ["godkjenn reiseregning", "approve travel expense"],
     "create_project": ["prosjekt", "project", "proyecto", "projeto", "Projekt", "projet"],
+    "create_project_existing_customer": ["prosjekt for eksisterende kunde", "project for existing customer", "prosjekt eksisterende"],
     "create_internal_project": ["internt prosjekt", "internal project", "proyecto interno"],
     "update_project": ["oppdater prosjekt", "endre prosjekt", "update project"],
     "create_department": ["avdeling", "department", "departamento", "Abteilung", "departement"],
     "create_supplier": ["leverandor", "supplier", "proveedor", "fornecedor", "Lieferant", "fournisseur"],
+    "update_supplier": ["oppdater leverandor", "endre leverandor", "update supplier"],
+    "update_department": ["oppdater avdeling", "endre avdeling", "update department"],
+    "update_product": ["oppdater produkt", "endre produkt", "update product"],
     "create_contact": ["kontaktperson", "contact person", "persona de contacto", "Kontaktperson"],
     "create_voucher": ["bilag", "voucher", "Beleg", "piece comptable"],
     "reverse_voucher": ["reverser", "reverse", "tilbakefor"],
