@@ -110,6 +110,19 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 9. Supplier creation: Set name (required). Do NOT set isSupplier on /supplier endpoint.
 10. Travel expense employee: Always GET /employee first for the employee ID.
 11. Department on employee: If GET /department returns results, include "department": {"id": <first_dept_id>} in POST /employee body.
+
+## TIER 3 PITFALLS (complex tasks)
+12. Opening balance — postings MUST sum to zero: Total debit must equal total credit. If you only have
+    asset accounts, add a balancing equity posting (e.g. account 2050). Format each posting as:
+    {"account": {"id": <id>}, "amountGross": <amount>} where positive = debit, negative = credit.
+    Do NOT fetch all accounts (count=1000) — only GET the specific account numbers mentioned in the task.
+13. Bank reconciliation — accounting period must be open: The reconciliation date range must fall within
+    an open accounting period. If you get a 422 error about closed period, the dates are wrong.
+    After creating the reconciliation, you may need to POST individual payment/match entries.
+14. Invoice with payment — the /:invoice action returns the created invoice: When you PUT
+    /order/{id}/:invoice, the response contains the invoice ID. Use $step_N.id from that response
+    for the subsequent /:payment call. Do NOT try to search for the invoice separately.
+15. Bank account for invoicing: If invoice creation fails with "bankkontonummer" error, the company needs a bank account. This is usually pre-configured in competition sandboxes but may need: PUT /company with bankAccountNumber field.
 """
 
 

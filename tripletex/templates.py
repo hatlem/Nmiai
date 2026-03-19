@@ -99,7 +99,7 @@ TEMPLATES: dict[str, dict] = {
     # ===== INVOICING =====
 
     "create_invoice": {
-        "description": "Create an invoice: customer -> order with orderLines -> invoice",
+        "description": "Create an invoice: customer -> order with orderLines -> invoice. NOTE: Company must have bankAccountNumber registered. If 422 about 'bankkontonummer', the sandbox is not properly set up.",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email"],
         "steps": [
