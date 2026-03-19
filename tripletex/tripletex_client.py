@@ -19,6 +19,7 @@ class TripletexClient:
             auth=self.auth,
             timeout=httpx.Timeout(45.0, connect=10.0),
             headers={"Content-Type": "application/json"},
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
         )
         self.call_count = 0
         self.error_count = 0
@@ -37,7 +38,7 @@ class TripletexClient:
             param_str = "&".join(f"{k}={v}" for k, v in sorted((params or {}).items()))
             candidate_key = f"{path}?{param_str}"
             # Only cache specific stable endpoints
-            cacheable_paths = ("/invoice/paymentType", "/activity", "/salary/type")
+            cacheable_paths = ("/invoice/paymentType", "/activity", "/salary/type", "/ledger/vatType")
             if any(path == cp for cp in cacheable_paths):
                 cache_key = candidate_key
             elif path == "/employee" and params and params.get("count") in (1, "1") and "firstName" not in (params or {}):
@@ -49,6 +50,9 @@ class TripletexClient:
                 cache_key = candidate_key
             # Cache bank lookups
             elif path == "/bank":
+                cache_key = candidate_key
+            # Cache company lookups by ID
+            elif path.startswith("/company/") and not params:
                 cache_key = candidate_key
 
             if cache_key and cache_key in self._cache:

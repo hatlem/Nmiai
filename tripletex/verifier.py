@@ -299,6 +299,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_reminder": {"skip_verify": True},
     "create_employment": {"skip_verify": True},
+    "enable_modules": {"skip_verify": True},
 }
 
 
@@ -322,6 +323,22 @@ def _extract_entity_id(execution_results: dict, step_idx: int) -> int | None:
         return value["id"]
     if "id" in data:
         return data["id"]
+    return None
+
+
+def _find_entity_id_from_any_step(execution_results: dict, methods: tuple[str, ...] = ("POST", "PUT")) -> int | None:
+    """Fallback: scan all steps backwards for the last successful POST/PUT that returned an ID.
+    Used when the hardcoded id_from_step doesn't find an entity (e.g. LLM reordered steps)."""
+    for idx in sorted(execution_results.keys(), reverse=True):
+        step = execution_results[idx]
+        if not step.get("ok"):
+            continue
+        data = step.get("data", {})
+        value = data.get("value")
+        if isinstance(value, dict) and "id" in value:
+            return value["id"]
+        if "id" in data:
+            return data["id"]
     return None
 
 
@@ -427,8 +444,22 @@ async def verify_execution(
                 pass
     elif config.get("id_from_step") is not None:
         entity_id = _extract_entity_id(execution_results, config["id_from_step"])
+        # Fallback: if hardcoded step index didn't work (LLM reordered steps),
+        # scan all steps for entity ID
+        if entity_id is None:
+            entity_id = _find_entity_id_from_any_step(execution_results)
+            if entity_id is not None:
+                logger.info(f"Verify: used fallback entity ID {entity_id} (hardcoded step {config['id_from_step']} failed)")
     elif config.get("id_from_search_step") is not None:
         entity_id = _extract_entity_id_from_search(execution_results, config["id_from_search_step"])
+        if entity_id is None:
+            # Try other search steps
+            for idx in sorted(execution_results.keys()):
+                candidate = _extract_entity_id_from_search(execution_results, idx)
+                if candidate is not None:
+                    entity_id = candidate
+                    logger.info(f"Verify: used fallback search step {idx} for entity ID {entity_id}")
+                    break
 
     # --- GET the entity ---
     entity: dict | None = None

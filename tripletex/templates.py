@@ -16,6 +16,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create an employee, optionally assign a role/entitlement. If departments exist, include department in body.",
         "relevant_schemas": ["Employee"],
         "extract_fields": ["firstName", "lastName", "email", "dateOfBirth", "phoneNumberMobile", "role"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
@@ -49,6 +50,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Update an existing employee's details (phone, email, address, etc.)",
         "relevant_schemas": ["Employee"],
         "extract_fields": ["search_name", "fields_to_update"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
@@ -69,6 +71,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a customer with contact details",
         "relevant_schemas": ["Customer"],
         "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "isSupplier"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "POST",
@@ -90,6 +93,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a product with price and VAT settings",
         "relevant_schemas": ["Product"],
         "extract_fields": ["name", "number", "priceExcludingVatCurrency", "priceIncludingVatCurrency", "description"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "POST",
@@ -110,6 +114,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create an invoice: customer -> order with orderLines -> invoice. NOTE: Company must have bankAccountNumber registered. If 422 about 'bankkontonummer', the sandbox is not properly set up.",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email", "orderDate", "deliveryDate"],
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "POST",
@@ -146,6 +151,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create invoice for an existing customer (search by name first)",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate"],
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "GET",
@@ -178,6 +184,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Register a payment on an existing invoice",
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "amount", "paymentDate"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
@@ -228,6 +235,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a credit note for an existing invoice",
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "date", "comment"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "PUT",
@@ -244,6 +252,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Send an invoice to the customer",
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "sendType", "email"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "PUT",
@@ -261,6 +270,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Register a travel expense report with travel details. If costs are mentioned, add them as perDiemCompensations or mileageAllowances within travelDetails, or as individual cost entries via POST /travelExpense/cost after creating the expense.",
         "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost"],
         "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
@@ -291,6 +301,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Delete a travel expense report",
         "relevant_schemas": ["TravelExpense"],
         "extract_fields": ["travel_expense_id"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "DELETE",
@@ -303,6 +314,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Deliver (submit) a travel expense for approval",
         "relevant_schemas": ["TravelExpense"],
         "extract_fields": ["travel_expense_id"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "PUT",
@@ -316,6 +328,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Approve a travel expense",
         "relevant_schemas": ["TravelExpense"],
         "extract_fields": ["travel_expense_id"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "PUT",
@@ -331,6 +344,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a project linked to a customer. Must set projectManager.",
         "relevant_schemas": ["Project", "Customer"],
         "extract_fields": ["name", "customer_name", "startDate", "endDate", "isInternal", "projectManager", "description"],
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "GET",
@@ -397,6 +411,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create an internal project (no customer). Must set projectManager.",
         "relevant_schemas": ["Project"],
         "extract_fields": ["name", "startDate", "endDate", "description"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
@@ -424,6 +439,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a department",
         "relevant_schemas": ["Department"],
         "extract_fields": ["name", "departmentNumber", "departmentManager"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "POST",
@@ -443,6 +459,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a supplier",
         "relevant_schemas": ["Supplier"],
         "extract_fields": ["name", "organizationNumber", "email", "phoneNumber"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "POST",
@@ -526,6 +543,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a contact person for a customer",
         "relevant_schemas": ["Contact", "Customer"],
         "extract_fields": ["firstName", "lastName", "email", "phoneNumber", "customer_name"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
@@ -549,14 +567,22 @@ TEMPLATES: dict[str, dict] = {
     # ===== LEDGER / VOUCHERS =====
 
     "create_voucher": {
-        "description": "Create a ledger voucher with postings. IMPORTANT: account numbers (e.g. 1920) are NOT IDs — you must first GET /ledger/account?number=X to find the real account ID.",
+        "description": (
+            "Create a ledger voucher with postings. IMPORTANT: account numbers (e.g. 1920) are NOT IDs — "
+            "you must first GET /ledger/account?number=X to find the real account ID.\n"
+            "For vouchers with MORE than 2 accounts, add additional GET /ledger/account steps. "
+            "Each posting needs the account ID from the GET response. If parsing a file, "
+            "each line in the file becomes a posting — parse EVERY line."
+        ),
         "relevant_schemas": ["Voucher", "Posting", "Account"],
         "extract_fields": ["date", "description", "postings_with_account_numbers"],
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "GET",
                 "path": "/ledger/account",
                 "params": {"number": "{{debit_account_number}}", "fields": "id,number,name"},
+                "note": "Add one GET step per unique account number. For 3+ accounts, add more GET steps.",
             },
             {
                 "method": "GET",
@@ -579,6 +605,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Reverse a voucher",
         "relevant_schemas": ["Voucher"],
         "extract_fields": ["voucher_id", "date"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "PUT",
@@ -594,6 +621,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Delete an entity by type and ID",
         "relevant_schemas": [],
         "extract_fields": ["entity_type", "entity_id"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "DELETE",
@@ -608,6 +636,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, due date, and voucher postings.",
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
         "extract_fields": ["supplier_name", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description"],
+        "optimal_calls": 4,
         "steps": [
             {
                 "method": "POST",
@@ -654,6 +683,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a purchase order to a supplier",
         "relevant_schemas": ["Supplier"],
         "extract_fields": ["supplier_name", "deliveryDate", "orderLines", "ourContact"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "POST",
@@ -679,21 +709,24 @@ TEMPLATES: dict[str, dict] = {
     "bank_reconciliation": {
         "description": (
             "Create a bank reconciliation. This is a COMPLEX multi-step process:\n"
-            "1. GET /bank to find the bank account ID\n"
-            "2. POST /bank/reconciliation to create the reconciliation period\n"
+            "1. GET /bank to find the bank account ID (look for matching accountNumber)\n"
+            "2. POST /bank/reconciliation to create the reconciliation period (MUST include dateFrom, dateTo, type=MANUAL)\n"
             "3. For each transaction: POST /bank/reconciliation/match or create vouchers for unmatched items\n"
             "4. If a bank statement (CSV/file) is attached, use POST /bank/statement/import to import it first\n"
             "5. Unmatched transactions may need manual vouchers via POST /ledger/voucher\n"
             "IMPORTANT: The accounting period must be open for the reconciliation date range. "
+            "Use type=MANUAL for manual reconciliation. dateFrom and dateTo must be within the same open period.\n"
             "If the task specifies a closing balance, the sum of matched transactions must equal it."
         ),
         "relevant_schemas": ["Voucher", "Posting"],
         "extract_fields": ["date_from", "date_to", "bank_account_number", "transactions", "closing_balance"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
                 "path": "/bank",
                 "params": {"fields": "id,accountNumber,name"},
+                "note": "Find the bank account. Match by accountNumber if specified in the task.",
             },
             {
                 "method": "POST",
@@ -701,8 +734,10 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "account": {"id": "$step_0.values[0].id"},
                     "type": "MANUAL",
+                    "dateFrom": "{{date_from}}",
                     "dateTo": "{{date_to}}",
                 },
+                "note": "dateFrom is required — must be within an open accounting period.",
             },
         ],
     },
@@ -713,6 +748,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Register hours/timesheet entry for an employee on a project/activity",
         "relevant_schemas": ["Employee", "Project", "Activity"],
         "extract_fields": ["employee_name", "project_name", "activity_name", "date", "hours", "comment"],
+        "optimal_calls": 4,
         "steps": [
             {
                 "method": "GET",
@@ -749,20 +785,24 @@ TEMPLATES: dict[str, dict] = {
     "create_opening_balance": {
         "description": (
             "Set opening balance entries for the company. Each entry has an account and an amount.\n"
-            "IMPORTANT: Do NOT fetch all accounts — only GET the specific accounts mentioned in the task "
-            "using GET /ledger/account?number=X for each account number. This is much more efficient.\n"
+            "IMPORTANT: You MUST add one GET /ledger/account?number=X step for EACH account number "
+            "mentioned in the prompt. Opening balance typically involves 2-5 accounts. Then create "
+            "ONE POST /ledger/voucher/openingBalance with ALL postings.\n"
+            "Do NOT fetch all accounts — only GET the specific accounts mentioned in the task.\n"
             "CRITICAL: All postings MUST sum to zero (total debit = total credit). If the task only "
-            "specifies asset/liability accounts, you may need a balancing entry on an equity account (e.g. 2050).\n"
+            "specifies asset/liability accounts, you MUST add a balancing entry on an equity account "
+            "(e.g. 2050 Annen egenkapital). GET this equity account too.\n"
             "Postings format: [{\"account\": {\"id\": <id>}, \"amountGross\": <positive_for_debit_negative_for_credit>}]"
         ),
         "relevant_schemas": ["Voucher", "Posting"],
         "extract_fields": ["date", "entries"],
+        "optimal_calls": 4,
         "steps": [
             {
                 "method": "GET",
                 "path": "/ledger/account",
                 "params": {"number": "{{account_number_1}}", "fields": "id,number,name"},
-                "note": "Fetch ONLY the specific accounts needed — repeat this step for each account number in the task",
+                "note": "Repeat this GET for EACH account number in the task (e.g. 1920, 2400, 3000, 2050). Typically 2-5 accounts.",
             },
             {
                 "method": "POST",
@@ -781,6 +821,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Register a fixed asset (anleggsmiddel)",
         "relevant_schemas": ["Voucher", "Posting"],
         "extract_fields": ["name", "description", "acquisitionDate", "acquisitionCost", "account_number", "depreciationAccount_number"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "POST",
@@ -801,6 +842,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a salary transaction / salary payment for an employee",
         "relevant_schemas": ["Employee"],
         "extract_fields": ["employee_name", "date", "year", "month", "amount", "salary_type"],
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "GET",
@@ -833,6 +875,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create an entity that is both customer and supplier",
         "relevant_schemas": ["Customer", "Supplier"],
         "extract_fields": ["name", "email", "organizationNumber", "phoneNumber"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "POST",
@@ -855,6 +898,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create a payment reminder (purring) for an overdue invoice",
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "date", "comment"],
+        "optimal_calls": 1,
         "steps": [
             {
                 "method": "PUT",
@@ -874,6 +918,7 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create or update employment details for an employee (ansettelsesforhold)",
         "relevant_schemas": ["Employee"],
         "extract_fields": ["employee_name", "startDate", "employmentType", "percentageOfFullTimeEquivalent"],
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
@@ -990,6 +1035,23 @@ TEMPLATES: dict[str, dict] = {
         ],
     },
 
+    # ===== ENABLE MODULES =====
+
+    "enable_modules": {
+        "description": "Enable accounting modules on the company (e.g., invoicing, project, travel expense, salary modules)",
+        "relevant_schemas": [],
+        "extract_fields": ["modules"],
+        "optimal_calls": 1,
+        "steps": [
+            {
+                "method": "PUT",
+                "path": "/company/modules",
+                "body": "{{modules_to_enable}}",
+                "note": "Enable requested modules. Module names: ACCOUNTING, INVOICE, PROJECT, EMPLOYEE, TRAVEL_EXPENSE, SALARY, etc.",
+            },
+        ],
+    },
+
     # ===== FALLBACK =====
 
     "unknown": {
@@ -1041,4 +1103,5 @@ KEYWORD_HINTS: dict[str, list[str]] = {
     "create_customer_supplier": ["kunde og leverandor", "kunde og leverandør", "customer and supplier", "both customer and supplier"],
     "create_reminder": ["purring", "reminder", "betalingspaaminnelse", "Zahlungserinnerung", "rappel"],
     "create_employment": ["ansettelse", "employment", "arbeidsforhold", "empleo", "Beschaeftigung"],
+    "enable_modules": ["aktiver modul", "enable module", "aktivere", "modul", "module"],
 }

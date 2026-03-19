@@ -64,10 +64,11 @@ TIER_MAP: dict[str, int] = {
     "create_customer_supplier": 1,
     "create_reminder": 2,
     "create_employment": 2,
+    "enable_modules": 1,
     "unknown": 3,
 }
 
-CONFIDENCE_THRESHOLD = 0.7
+CONFIDENCE_THRESHOLD = 0.55
 
 
 def _get_model(model_id: str, system_instruction: str) -> GenerativeModel:
@@ -105,6 +106,13 @@ def _parse_json(text: str) -> dict:
         candidate = re.sub(r',\s*([}\]])', r'\1', candidate)
         try:
             return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+        # Try replacing single quotes with double quotes
+        candidate2 = candidate.replace("'", '"')
+        try:
+            return json.loads(candidate2)
         except json.JSONDecodeError:
             pass
 
@@ -151,6 +159,10 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
     ))
     if _has_payment and _has_invoice_number:
         return "register_payment_by_search", 0.92
+
+    # Detect timesheet patterns: "N timer" or "N.N timer" (must come before "prosjekt" match)
+    if re.search(r'\d+[\.,]?\d*\s*timer\b', prompt_lower):
+        return "create_timesheet_entry", 0.90
 
     high_conf_keywords = {
         # Existing entity detection - must come BEFORE generic patterns
@@ -216,7 +228,10 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "betaling på faktura": ("register_payment_by_search", 0.90),
         "pay invoice number": ("register_payment_by_search", 0.90),
         "purring": ("create_reminder", 0.90),
-        "reminder": ("create_reminder", 0.85),
+        "send purring": ("create_reminder", 0.92),
+        "payment reminder": ("create_reminder", 0.88),
+        "betalingspaminnelse": ("create_reminder", 0.90),
+        "betalingspåminnelse": ("create_reminder", 0.90),
         "ansettelse": ("create_employment", 0.85),
         "employment": ("create_employment", 0.85),
         # Nynorsk patterns
@@ -298,13 +313,82 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "timeforing": ("create_timesheet_entry", 0.85),
         "timeføring": ("create_timesheet_entry", 0.85),
         "register hours": ("create_timesheet_entry", 0.85),
-        # Salary extras
-        "lonn": ("create_salary_payment", 0.85),
-        "lønn": ("create_salary_payment", 0.85),
+        "timer på prosjekt": ("create_timesheet_entry", 0.92),
+        "timer pa prosjekt": ("create_timesheet_entry", 0.92),
+        "hours on project": ("create_timesheet_entry", 0.92),
+        "timer på": ("create_timesheet_entry", 0.88),
+        "timer pa": ("create_timesheet_entry", 0.88),
+        # Salary extras — require longer phrases to avoid matching "lonnansvarlig" etc.
+        "utbetal lonn": ("create_salary_payment", 0.88),
+        "utbetal lønn": ("create_salary_payment", 0.88),
+        "registrer lonn": ("create_salary_payment", 0.88),
+        "registrer lønn": ("create_salary_payment", 0.88),
         # Invoice with payment (multilingual)
         "factura con pago": ("create_invoice_with_payment", 0.90),
         "rechnung mit zahlung": ("create_invoice_with_payment", 0.90),
         "facture avec paiement": ("create_invoice_with_payment", 0.90),
+        # "opprette" (create) + entity patterns
+        "opprette kunde": ("create_customer", 0.90),
+        "opprette faktura": ("create_invoice", 0.90),
+        "opprette ansatt": ("create_employee", 0.90),
+        "opprette leverandor": ("create_supplier", 0.90),
+        "opprette leverandør": ("create_supplier", 0.90),
+        "opprette produkt": ("create_product", 0.90),
+        "opprette prosjekt": ("create_project", 0.90),
+        "opprette avdeling": ("create_department", 0.90),
+        "opprette kontakt": ("create_contact", 0.90),
+        # "lag" (make) patterns
+        "lag faktura": ("create_invoice", 0.88),
+        "lag kunde": ("create_customer", 0.88),
+        "lag ansatt": ("create_employee", 0.88),
+        "lag leverandor": ("create_supplier", 0.88),
+        "lag leverandør": ("create_supplier", 0.88),
+        "lag produkt": ("create_product", 0.88),
+        "lag prosjekt": ("create_project", 0.88),
+        "lag avdeling": ("create_department", 0.88),
+        # "ny" (new) patterns
+        "ny kunde": ("create_customer", 0.88),
+        "ny faktura": ("create_invoice", 0.88),
+        "ny ansatt": ("create_employee", 0.88),
+        "ny leverandor": ("create_supplier", 0.88),
+        "ny leverandør": ("create_supplier", 0.88),
+        "ny produkt": ("create_product", 0.88),
+        "nytt prosjekt": ("create_project", 0.88),
+        "ny avdeling": ("create_department", 0.88),
+        # "registrer" (register) patterns
+        "registrer kunde": ("create_customer", 0.90),
+        "registrer ansatt": ("create_employee", 0.90),
+        "registrer leverandor": ("create_supplier", 0.90),
+        "registrer leverandør": ("create_supplier", 0.90),
+        "registrer produkt": ("create_product", 0.88),
+        # "new" patterns (English)
+        "new employee": ("create_employee", 0.88),
+        "new customer": ("create_customer", 0.88),
+        "new supplier": ("create_supplier", 0.88),
+        "new product": ("create_product", 0.88),
+        "new invoice": ("create_invoice", 0.88),
+        "new project": ("create_project", 0.88),
+        "new department": ("create_department", 0.88),
+        # "create" patterns (English)
+        "create employee": ("create_employee", 0.90),
+        "create customer": ("create_customer", 0.90),
+        "create supplier": ("create_supplier", 0.90),
+        "create product": ("create_product", 0.90),
+        "create invoice": ("create_invoice", 0.90),
+        "create project": ("create_project", 0.90),
+        "create department": ("create_department", 0.90),
+        # "register" patterns (English)
+        "register supplier": ("create_supplier", 0.88),
+        "register customer": ("create_customer", 0.88),
+        "register employee": ("create_employee", 0.88),
+        # Portuguese patterns
+        "criar fornecedor": ("create_supplier", 0.90),
+        "criar produto": ("create_product", 0.90),
+        "criar projeto": ("create_project", 0.90),
+        # Enable modules
+        "aktiver modul": ("enable_modules", 0.90),
+        "enable module": ("enable_modules", 0.90),
+        "aktivere modul": ("enable_modules", 0.90),
     }
     for phrase, (task_type, conf) in high_conf_keywords.items():
         if phrase in prompt_lower:
@@ -326,6 +410,9 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
     if best_type and best_len > second_best_len + 2:
         return best_type, 0.75
     if best_type and best_len >= 5:
+        # Longer keyword matches are more trustworthy
+        if best_len >= 8:
+            return best_type, 0.70
         return best_type, 0.65
     return None
 
@@ -337,8 +424,14 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         task_type, confidence = quick
         if confidence >= CONFIDENCE_THRESHOLD:
             logger.info(f"Quick classify: {task_type} (conf={confidence:.2f})")
+            # FAST PATH: skip LLM for keyword matches with decent confidence
+            # High confidence (>=0.85) always skips regardless of prompt length
+            # Medium confidence (>=0.60) skips for shorter prompts
+            if confidence >= 0.85 or (len(prompt) < 200 and confidence >= 0.60):
+                logger.info(f"Fast path (conf={confidence:.2f}, {len(prompt)} chars): skipping LLM")
             return task_type, confidence
 
+    # Flash-Lite classification
     model = _get_model(MODEL_FLASH_LITE, CLASSIFIER_PROMPT)
     try:
         response = await model.generate_content_async(
@@ -353,8 +446,9 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         logger.error(f"Flash-Lite classification failed: {e}")
         task_type, confidence = "unknown", 0.0
 
-    if confidence < CONFIDENCE_THRESHOLD:
-        logger.info(f"Low confidence ({confidence:.2f}), escalating to Pro")
+    # Only escalate to Pro if Flash-Lite is very uncertain (< 0.45)
+    if confidence < 0.45:
+        logger.info(f"Very low Flash-Lite confidence ({confidence:.2f}), escalating to Pro")
         pro_model = _get_model(MODEL_PRO, CLASSIFIER_PROMPT_PRO)
         try:
             response = await pro_model.generate_content_async(
@@ -427,10 +521,12 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     task_text += f"Complete this accounting task:\n\n{prompt}"
     parts.append(Part.from_text(task_text))
 
+    # More tokens for complex tasks (tier 3 = opening_balance, bank_reconciliation, etc.)
+    max_tokens = 8192 if tier >= 3 else 4096
     logger.info(f"Planning {task_type} (tier={tier}): {prompt[:80]}...")
     response = await model.generate_content_async(
         parts,
-        generation_config={"temperature": 0.0, "max_output_tokens": 4096},
+        generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
     )
 
     try:

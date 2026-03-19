@@ -8,6 +8,7 @@ import asyncio
 import re
 import time
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from tripletex_client import TripletexClient
@@ -54,6 +55,7 @@ def resolve_ref(value: Any, results: dict[int, dict]) -> Any:
         step_data = results.get(step_idx, {}).get("data", {})
         parts = field_path.split(".")
 
+        # Try resolving from the "value" object first (POST/PUT responses)
         val = step_data.get("value", {})
         if isinstance(val, dict):
             resolved = _deep_get(val, parts)
@@ -64,9 +66,15 @@ def resolve_ref(value: Any, results: dict[int, dict]) -> Any:
                 if resolved is not None:
                     return resolved
 
+        # Try from the raw response data
         resolved = _deep_get(step_data, parts)
         if resolved is not None:
             return resolved
+
+        # Shortcut: $step_N.id should resolve from value.id
+        if parts == ["id"] and isinstance(val, dict) and "id" in val:
+            return val["id"]
+
         return None
 
     single_match = re.fullmatch(pattern, value)
@@ -101,13 +109,20 @@ def resolve_refs(obj: Any, results: dict[int, dict]) -> Any:
 
 
 def _strip_unresolved_placeholders(obj: Any) -> Any:
-    """Remove fields that still contain {{placeholder}} values."""
+    """Remove fields that still contain {{placeholder}} or unresolved $step_N values."""
     if isinstance(obj, dict):
         cleaned = {}
         for k, v in obj.items():
             v = _strip_unresolved_placeholders(v)
             if isinstance(v, str) and re.search(r'\{\{.*?\}\}', v):
                 logger.warning(f"Stripping unresolved placeholder field '{k}': {v}")
+                continue
+            if isinstance(v, str) and re.search(r'\$step_\d+', v):
+                logger.warning(f"Stripping unresolved $step_N reference field '{k}': {v}")
+                continue
+            # Strip dict/list that became empty after recursive cleaning
+            if isinstance(v, dict) and not v:
+                logger.warning(f"Stripping empty dict field '{k}' (likely unresolved reference)")
                 continue
             cleaned[k] = v
         return cleaned
@@ -221,6 +236,18 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
             v = [_pre_validate_body(method, path, item, None) if isinstance(item, dict) else item for item in v]
         cleaned[k] = v
 
+    # Smart date defaults for invoice-related fields
+    if "orderDate" in cleaned and "deliveryDate" not in cleaned:
+        cleaned["deliveryDate"] = cleaned["orderDate"]
+    if "invoiceDate" in cleaned and "invoiceDueDate" not in cleaned:
+        try:
+            inv_date = datetime.strptime(cleaned["invoiceDate"], "%Y-%m-%d")
+            cleaned["invoiceDueDate"] = (inv_date + timedelta(days=14)).strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            pass
+    if "invoiceDate" in cleaned and "orderDate" not in cleaned:
+        cleaned["orderDate"] = cleaned["invoiceDate"]
+
     return cleaned
 
 
@@ -233,7 +260,7 @@ def _pre_validate_params(params: dict | None) -> dict | None:
         if v is None or v == "":
             continue
         # Amount params should be numbers
-        if k in ("paidAmount",):
+        if k in ("paidAmount", "amount"):
             if isinstance(v, str):
                 try:
                     v = float(v)
@@ -243,6 +270,10 @@ def _pre_validate_params(params: dict | None) -> dict | None:
         if k in ("sendToCustomer",):
             if isinstance(v, str):
                 v = v.lower() in ("true", "1", "yes")
+        # Integer params (IDs)
+        if k in ("paymentTypeId", "employeeId", "id"):
+            if isinstance(v, str) and v.isdigit():
+                v = int(v)
         cleaned[k] = v
     return cleaned
 

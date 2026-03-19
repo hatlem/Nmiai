@@ -479,6 +479,7 @@ tr:hover td{background:#14141f}
 </div>
 
 <script>
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 async function r(){
   try{
     const s=await(await fetch('/stats')).json();
@@ -510,7 +511,7 @@ async function r(){
         <td class="mono">${e.api_calls}</td>
         <td class="mono">${e.errors}</td>
         <td class="mono">${e.repairs}</td>
-        <td class="prompt" title="${e.prompt}">${e.prompt}</td>
+        <td class="prompt" title="${esc(e.prompt)}">${esc(e.prompt)}</td>
       </tr>`).join('');
     }
   }catch(e){}

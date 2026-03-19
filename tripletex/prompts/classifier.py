@@ -63,6 +63,7 @@ CLASSIFIER_PROMPT = f"""You are a task classifier for a Norwegian accounting sys
 - "Purring" -> create_reminder
 - "Ansettelse" / "arbeidsforhold" -> create_employment
 - "Leverandorfaktura" / "inngaende faktura" -> create_supplier_invoice
+- "Aktiver modul" / "Enable module" -> enable_modules
 
 ### Confidence Scoring
 - 0.95-1.0: Exact keyword match, unambiguous

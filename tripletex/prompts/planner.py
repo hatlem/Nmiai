@@ -90,6 +90,7 @@ EXCEPTIONS (GET-before-create IS correct):
 - Payment types -> GET /invoice/paymentType (required for register_payment)
 - Employee ID -> GET /employee when needed for travel expenses, timesheets, salary
 - Department ID -> GET /department when creating employees (include if results exist)
+- For create_invoice_with_payment: GET /invoice/paymentType can run PARALLEL with POST /customer (no dependency)
 """
 
 VERIFICATION_AWARENESS = """## Verification Awareness
@@ -105,6 +106,11 @@ After execution, the system verifies EVERY field against expected values.
 - Include description if mentioned (for products, projects)
 - For updates: ALWAYS include the version field from the GET response in the PUT body
 - Amounts with MVA/VAT: Extract the gross amount and let the API handle VAT calculation
+- For customer creation: ALWAYS include isCustomer: true
+- For employee creation: ALWAYS include userType: 'STANDARD'
+- For orders: ALWAYS include both orderDate AND deliveryDate (use same date if only one is given)
+- For invoices: ALWAYS include invoiceDueDate (default: invoiceDate + 14 days if not specified)
+- Phone numbers: Include as-is, preserve formatting (e.g., '+47 99887766', '99887766')
 """
 
 KNOWN_PITFALLS = """## CRITICAL PITFALLS
@@ -136,6 +142,36 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
     for the subsequent /:payment call. Do NOT try to search for the invoice separately.
 16. Bank account for invoicing: If invoice creation fails with "bankkontonummer" error, the company needs a bank account. This is usually pre-configured in competition sandboxes but may need: PUT /company with bankAccountNumber field.
 17. deliveryDate on orders: REQUIRED field. If not specified in the prompt, use the same date as orderDate.
+"""
+
+
+TIER_3_GUIDANCE = """## TIER 3 COMPLEX TASK GUIDANCE (READ CAREFULLY)
+These tasks are scored with a 3x multiplier — getting them right matters enormously.
+
+### Opening Balance
+- Postings MUST be balanced: total debit = total credit (sum to zero).
+- If the task only mentions asset accounts (1xxx), you MUST add a balancing equity posting on account 2050 (Annen egenkapital).
+- Each account number needs its own GET /ledger/account?number=X step. Do NOT skip any.
+- Positive amountGross = debit, negative amountGross = credit.
+- Example: 1920 bank 100000 (debit) + 1500 inventory 50000 (debit) -> 2050 equity -150000 (credit).
+
+### Bank Reconciliation
+- The date range (dateFrom, dateTo) MUST fall within an open accounting period.
+- Always use type: "MANUAL" for the reconciliation.
+- If you get a 422 about closed period, adjust dates to the current open period.
+- dateFrom is REQUIRED in the POST /bank/reconciliation body.
+
+### Complex Invoicing (Invoice with Payment)
+- Follow the EXACT sequence: customer -> order (with orderLines + deliveryDate) -> PUT /:invoice -> PUT /:payment.
+- The /:invoice action returns the invoice. Use $step_N.id from that response for /:payment.
+- GET /invoice/paymentType can run in PARALLEL with POST /customer (step 0 and step 1 have no dependency).
+- paidAmount must match the invoice total for full payment.
+
+### Vouchers from Files
+- Parse EVERY line from the attached file. Each line typically becomes one posting.
+- Each unique account number needs its own GET /ledger/account?number=X step.
+- Postings must balance (sum of debit amounts = sum of credit amounts).
+- Do NOT skip lines or summarize — the scoring checks each individual posting.
 """
 
 
@@ -175,6 +211,10 @@ If the prompt mentions a role, entitlement, or permission — append the matchin
 If not mentioned, omit entirely.
 """
 
+    tier_3_section = ""
+    if tier >= 3:
+        tier_3_section = TIER_3_GUIDANCE
+
     return f"""You are an expert accounting agent for Tripletex. Produce a JSON plan of API calls AND extract all values from the prompt.
 
 ## Task Type: {task_type}
@@ -196,6 +236,7 @@ If not mentioned, omit entirely.
 {EFFICIENCY_RULES}
 {VERIFICATION_AWARENESS}
 {KNOWN_PITFALLS}
+{tier_3_section}
 {unknown_guidance}
 ## Rules
 1. Output ONLY valid JSON. No markdown, no explanation.
@@ -309,7 +350,7 @@ To fix field mismatches:
 5. 422 "invalid value" -> Check field types
 6. Field mismatch -> GET entity, PUT with correct value + version
 7. Account number as ID -> Must GET /ledger/account?number=X first
-8. 422 "bankkontonummer" -> Company needs bank account. Fix: GET /company (no ID!) to get values[0].id and version, then PUT /company/{{id}} with bankAccountNumber (e.g. "15031750204")
+8. 422 "bankkontonummer" -> Company needs bank account. Fix: GET /employee?count=1&fields=id,companyId to find companyId, then GET /company/{{companyId}} for version, then PUT /company/{{companyId}} with bankAccountNumber (e.g. "15031750204")
 9. 422 "Brukertype" on employee -> Add "userType": "STANDARD" to body
 10. 422 "department" on employee -> GET /department first, include "department": {{"id": <id>}} in body
 11. 422 "deliveryDate" or "orderDate" null on order -> Add deliveryDate and orderDate (use invoiceDate or today)
