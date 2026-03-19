@@ -61,8 +61,8 @@ def simulate(round_id: str, seed_index: int, x: int, y: int, w: int, h: int):
         "seed_index": seed_index,
         "viewport_x": x,
         "viewport_y": y,
-        "viewport_width": w,
-        "viewport_height": h,
+        "viewport_w": w,
+        "viewport_h": h,
     }
     r = requests.post(f"{API_BASE}/simulate", headers=headers(),
                       json=payload)
@@ -151,7 +151,7 @@ def process_round(round_info: dict):
 
                 # Store settlement data
                 if sett_list:
-                    settlements_data[seed_idx].append(sett_list)
+                    settlements_data[seed_idx].append({"settlements": sett_list})
 
                 if (qi + 1) % 10 == 0 or qi == len(plan) - 1:
                     print(f"  Query {qi+1}/{len(plan)} done "

@@ -14,6 +14,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+
+# Patch torch.load for PyTorch 2.6+ / ultralytics 8.1.0 compatibility
+_original_torch_load = torch.load
+def _patched_torch_load(f, *args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _original_torch_load(f, *args, **kwargs)
+torch.load = _patched_torch_load
+
 from ultralytics import YOLO
 
 from src.utils import enhance_retail_image

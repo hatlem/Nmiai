@@ -117,6 +117,9 @@ def _soft_nms_single_class(
         scores = scores[mask]
         indices = indices[mask]
 
+        if len(scores) == 0:
+            break
+
     if len(keep_indices) == 0:
         return np.array([], dtype=np.intp), np.array([], dtype=np.float64)
 
