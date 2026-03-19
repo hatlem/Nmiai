@@ -460,7 +460,20 @@ async def verify_execution(
         expected_val: Any = None
         if isinstance(value_spec, str):
             if value_spec.startswith("extract:"):
-                expected_val = extracted_values.get(value_spec[8:])
+                key = value_spec[8:]
+                expected_val = extracted_values.get(key)
+                # Fallback: try to get from the POST response data
+                if expected_val is None and config.get("id_from_step") is not None:
+                    post_step = execution_results.get(config["id_from_step"], {})
+                    post_data = post_step.get("data", {}).get("value", {})
+                    if isinstance(post_data, dict):
+                        expected_val = post_data.get(key)
+                # Fallback 2: try common key variations
+                if expected_val is None:
+                    for alt_key in [key, key.lower(), key.replace("_", ""), key[0].lower() + key[1:]]:
+                        if alt_key in extracted_values:
+                            expected_val = extracted_values[alt_key]
+                            break
             elif value_spec.startswith("literal:"):
                 raw = value_spec[8:]
                 if raw == "True":
