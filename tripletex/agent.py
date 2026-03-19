@@ -81,8 +81,8 @@ def get_tier(task_type: str) -> int:
 def _parse_json(text: str) -> dict:
     """Parse LLM response, handling various markdown/fence formats."""
     text = text.strip()
-    text = re.sub(r'^```\w*\n?', '', text)
-    text = re.sub(r'\n?```$', '', text)
+    # Remove all markdown code fences (possibly multiple)
+    text = re.sub(r'```\w*\s*', '', text)
     text = text.strip()
 
     try:
@@ -90,21 +90,8 @@ def _parse_json(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
+    # Find the outermost { ... } using rfind for the closing brace
     start = text.find("{")
-    if start >= 0:
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start:i + 1])
-                    except json.JSONDecodeError:
-                        pass
-                    break
-
     end = text.rfind("}") + 1
     if start >= 0 and end > start:
         try:
@@ -112,7 +99,17 @@ def _parse_json(text: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    logger.error(f"Could not parse JSON from: {text[:200]}")
+    # Try fixing common LLM issues: trailing commas, single quotes
+    if start >= 0 and end > start:
+        candidate = text[start:end]
+        # Remove trailing commas before } or ]
+        candidate = re.sub(r',\s*([}\]])', r'\1', candidate)
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    logger.error(f"Could not parse JSON from ({len(text)} chars): {text[:300]}")
     raise json.JSONDecodeError("No valid JSON found", text, 0)
 
 
@@ -436,13 +433,13 @@ async def self_repair(
     logger.info(f"Self-repair (verification_errors={bool(verification_errors)}, files={len(files or [])})")
     response = await model.generate_content_async(
         parts,
-        generation_config={"temperature": 0.0, "max_output_tokens": 4096},
+        generation_config={"temperature": 0.0, "max_output_tokens": 8192},
     )
 
     try:
         repaired = _parse_json(response.text)
     except (json.JSONDecodeError, Exception) as e:
-        logger.error(f"Self-repair JSON parse failed: {e}. Raw: {response.text[:200]}")
+        logger.error(f"Self-repair JSON parse failed: {e}. Raw ({len(response.text or '')} chars): {(response.text or '')[:400]}")
         # Return empty plan so the repair loop knows to stop
         return {
             "task_type": task_type,
