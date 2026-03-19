@@ -1,0 +1,8 @@
+models/*.onnx
+models/*.pt
+test_output.jpg
+test_enhanced.jpg
+detections.json
+__pycache__/
+*.pyc
+.venv/
