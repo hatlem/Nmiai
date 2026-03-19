@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+openapi.json
+api-paths-relevant.json
+api-reference-compact.json
+api-reference-agent.json
+api-schemas-key.json
+api-schemas-writable.json
