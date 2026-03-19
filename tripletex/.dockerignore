@@ -1,0 +1,11 @@
+openapi.json
+api-paths-relevant.json
+api-reference-compact.json
+api-reference-agent.json
+api-schemas-key.json
+api-schemas-writable.json
+docs/
+tests/
+__pycache__/
+*.pyc
+.git/
