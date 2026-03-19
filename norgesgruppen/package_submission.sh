@@ -27,33 +27,57 @@ cp src/utils.py submission_pkg/src/    # CLAHE preprocessing
 cp src/wbf.py submission_pkg/src/      # Weighted Boxes Fusion
 
 if [ "$MODE" = "best" ]; then
-    # Full pipeline: SAHI + Soft-NMS + Ensemble + Classifier
+    # Full pipeline: SAHI + Soft-NMS + Ensemble + Classifier + ONNX
     cp src/sahi.py submission_pkg/src/
     cp src/soft_nms.py submission_pkg/src/
     cp src/ensemble.py submission_pkg/src/
+    cp src/classifier.py submission_pkg/src/
 
-    if [ ! -f "best.pt" ]; then
-        echo "ERROR: best.pt not found. Train model first."
+    # Copy ONNX detector if available
+    if [ -f "src/onnx_detector.py" ]; then
+        cp src/onnx_detector.py submission_pkg/src/
+        echo "  Included: src/onnx_detector.py"
+    fi
+
+    # Primary model: prefer ONNX, fall back to .pt
+    if [ -f "best.onnx" ]; then
+        cp best.onnx submission_pkg/
+        echo "  Primary model: best.onnx (ONNX)"
+    elif [ -f "best.pt" ]; then
+        cp best.pt submission_pkg/
+        echo "  Primary model: best.pt"
+    else
+        echo "ERROR: No primary model found (best.onnx or best.pt)."
         exit 1
     fi
 
     # Copy run script as run.py (sandbox expects run.py)
     cp run_best.py submission_pkg/run.py
-    cp best.pt submission_pkg/
 
-    # Optional: classifier files
+    # Classifier files — placed in models/ subdirectory
+    mkdir -p submission_pkg/models
     for f in "models/product_embeddings.npy" "models/embedding_config.json" "models/efficientnet_b3_weights.pt"; do
         if [ -f "$f" ]; then
-            cp "$f" submission_pkg/
+            cp "$f" submission_pkg/models/
             echo "  Included: $f"
         fi
     done
 
-    # Optional: secondary model for ensemble
-    if [ -f "rtdetr_best.pt" ]; then
-        cp rtdetr_best.pt submission_pkg/
-        echo "  Included: rtdetr_best.pt (ensemble)"
-    fi
+    # DINOv2 classifier files (if available)
+    for f in "models/dinov2_classifier_weights.pt" "models/dinov2_embeddings_weights.pt" "models/dinov2_product_embeddings.npy"; do
+        if [ -f "$f" ]; then
+            cp "$f" submission_pkg/models/
+            echo "  Included: $f"
+        fi
+    done
+
+    # Optional: secondary models for ensemble
+    for f in "rtdetr_best.pt" "yolo11_best.pt" "yolo26_best.pt" "rtdetr_best.onnx" "yolo11_best.onnx" "yolo26_best.onnx"; do
+        if [ -f "$f" ]; then
+            cp "$f" submission_pkg/
+            echo "  Included: $f (ensemble)"
+        fi
+    done
 
 elif [ "$MODE" = "twostage" ]; then
     # Two-stage: detector + classifier + embeddings

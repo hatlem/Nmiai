@@ -947,6 +947,11 @@ TEMPLATES: dict[str, dict] = {
         "optimal_calls": 5,
         "steps": [
             {
+                "method": "GET",
+                "path": "/invoice/paymentType",
+                "params": {"fields": "id,description"},
+            },
+            {
                 "method": "POST",
                 "path": "/customer",
                 "body": {
@@ -958,7 +963,7 @@ TEMPLATES: dict[str, dict] = {
                 "method": "POST",
                 "path": "/order",
                 "body": {
-                    "customer": {"id": "$step_0.id"},
+                    "customer": {"id": "$step_1.id"},
                     "orderDate": "{{orderDate}}",
                     "deliveryDate": "{{deliveryDate}}",
                     "orderLines": "{{orderLines}}",
@@ -966,7 +971,7 @@ TEMPLATES: dict[str, dict] = {
             },
             {
                 "method": "PUT",
-                "path": "/order/$step_1.id/:invoice",
+                "path": "/order/$step_2.id/:invoice",
                 "params": {
                     "invoiceDate": "{{invoiceDate}}",
                     "invoiceDueDate": "{{invoiceDueDate}}",
@@ -974,16 +979,11 @@ TEMPLATES: dict[str, dict] = {
                 },
             },
             {
-                "method": "GET",
-                "path": "/invoice/paymentType",
-                "params": {"fields": "id,description"},
-            },
-            {
                 "method": "PUT",
-                "path": "/invoice/$step_2.id/:payment",
+                "path": "/invoice/$step_3.id/:payment",
                 "params": {
                     "paymentDate": "{{paymentDate}}",
-                    "paymentTypeId": "$step_3.values[0].id",
+                    "paymentTypeId": "$step_0.values[0].id",
                     "paidAmount": "{{paymentAmount}}",
                 },
             },

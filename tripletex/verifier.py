@@ -70,6 +70,8 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         "check_fields": {
             "name": "extract:name",
             "priceExcludingVatCurrency": "extract:priceExcludingVatCurrency",
+            "number": "extract:number",
+            "description": "extract:description",
         },
     },
 
@@ -93,7 +95,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_invoice_with_payment": {
         "entity_path": "/invoice",
-        "id_from_step": 2,
+        "id_from_step": 3,
         "search_params": {"fields": "id,invoiceNumber,amount,amountOutstanding,amountCurrency,customer"},
         "check_fields": {
             "exists:invoiceNumber": "exists",
@@ -178,7 +180,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_department": {
         "entity_path": "/department",
         "id_from_step": 0,
-        "search_params": {"fields": "id,name,departmentNumber"},
+        "search_params": {"fields": "id,name,departmentNumber,departmentManager"},
         "check_fields": {
             "name": "extract:name",
             "departmentNumber": "extract:departmentNumber",
@@ -193,6 +195,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
             "name": "extract:name",
             "email": "extract:email",
             "organizationNumber": "extract:organizationNumber",
+            "phoneNumber": "extract:phoneNumber",
         },
     },
 

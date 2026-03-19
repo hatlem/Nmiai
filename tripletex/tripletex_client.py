@@ -22,12 +22,39 @@ class TripletexClient:
         )
         self.call_count = 0
         self.error_count = 0
+        self._cache: dict[str, dict] = {}
 
     async def request(
         self, method: str, path: str, body: dict | None = None, params: dict | None = None
     ) -> dict:
         url = f"{self.base_url}{path}"
         self.call_count += 1
+
+        # Cache specific GET endpoints that return constant data within a session
+        cache_key = None
+        if method == "GET":
+            # Normalize cache key from path + sorted params
+            param_str = "&".join(f"{k}={v}" for k, v in sorted((params or {}).items()))
+            candidate_key = f"{path}?{param_str}"
+            # Only cache specific stable endpoints
+            cacheable_paths = ("/invoice/paymentType", "/activity", "/salary/type")
+            if any(path == cp for cp in cacheable_paths):
+                cache_key = candidate_key
+            elif path == "/employee" and params and params.get("count") in (1, "1") and "firstName" not in (params or {}):
+                cache_key = candidate_key
+            elif path == "/department" and params and params.get("count") in (1, "1") and "name" not in (params or {}):
+                cache_key = candidate_key
+            # Cache ledger account lookups by number (constant within a session)
+            elif path == "/ledger/account" and params and "number" in params:
+                cache_key = candidate_key
+            # Cache bank lookups
+            elif path == "/bank":
+                cache_key = candidate_key
+
+            if cache_key and cache_key in self._cache:
+                self.call_count -= 1  # Don't count cached responses
+                logger.debug(f"Cache hit: {method} {path}")
+                return self._cache[cache_key]
 
         for attempt in range(MAX_RETRIES + 1):
             try:
@@ -73,6 +100,10 @@ class TripletexClient:
             if not response.is_success:
                 self.error_count += 1
                 logger.warning(f"{method} {path} -> {response.status_code}: {result['data']}")
+
+            # Cache successful GET responses for stable endpoints
+            if cache_key and result["ok"]:
+                self._cache[cache_key] = result
 
             return result
 

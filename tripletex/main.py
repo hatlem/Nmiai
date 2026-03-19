@@ -86,6 +86,127 @@ async def dashboard():
     return DASHBOARD_HTML
 
 
+def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
+    """Try to fix common errors without calling LLM for self-repair.
+    Returns a repaired plan or None if no quick fix available."""
+    if not failed:
+        return None
+
+    steps = plan.get("steps", [])
+    new_steps = []
+
+    for fail_idx, fail_res in failed:
+        status = fail_res.get("status_code", 0)
+        data = fail_res.get("data", {})
+        error_msg = str(data).lower()
+
+        if fail_idx >= len(steps):
+            continue
+        original_step = steps[fail_idx]
+
+        # 422 with "version" - need to GET first then retry with version
+        if status == 422 and "version" in error_msg:
+            path = original_step.get("path", "")
+            # Extract the base entity path for a GET
+            # e.g., /employee/123 -> GET /employee/123 for version
+            new_steps.append({
+                "method": "GET",
+                "path": path,
+                "params": {"fields": "id,version"},
+                "note": "quick-fix: fetch version for PUT",
+            })
+            # Then retry the PUT with version from GET
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            fixed_body["version"] = f"$step_{len(new_steps) - 1}.value.version"
+            fixed_step["body"] = fixed_body
+            new_steps.append(fixed_step)
+            continue
+
+        # 422 with "userType" / "brukertype" - retry with userType: STANDARD
+        if status == 422 and ("usertype" in error_msg or "brukertype" in error_msg):
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            fixed_body["userType"] = "STANDARD"
+            fixed_step["body"] = fixed_body
+            new_steps.append(fixed_step)
+            continue
+
+        # 422 with "deliveryDate" - retry with deliveryDate = orderDate or today
+        if status == 422 and "deliverydate" in error_msg:
+            from datetime import date as date_cls
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            fixed_body["deliveryDate"] = fixed_body.get("orderDate", date_cls.today().isoformat())
+            fixed_step["body"] = fixed_body
+            new_steps.append(fixed_step)
+            continue
+
+        # 422 with "bankkontonummer" - fix company bank account then retry
+        if status == 422 and "bankkontonummer" in error_msg:
+            # Add steps to fix bank account, then retry the failed step
+            new_steps.append({
+                "method": "GET",
+                "path": "/company",
+                "params": {"fields": "id,version"},
+                "note": "quick-fix: get company for bank account",
+            })
+            new_steps.append({
+                "method": "PUT",
+                "path": "/company/$step_{}.value.id".format(len(new_steps) - 1),
+                "body": {
+                    "id": "$step_{}.value.id".format(len(new_steps) - 1),
+                    "version": "$step_{}.value.version".format(len(new_steps) - 1),
+                    "bankAccountNumber": "15031750204",
+                },
+                "note": "quick-fix: set bank account number",
+            })
+            # Retry the original failed step
+            new_steps.append(dict(original_step))
+            continue
+
+        # No quick fix available for this error
+        return None
+
+    if not new_steps:
+        return None
+
+    return {
+        "task_type": plan.get("task_type", "unknown"),
+        "reasoning": "Quick-fix: common 422 error",
+        "steps": new_steps,
+        "extracted_values": plan.get("extracted_values", {}),
+    }
+
+
+async def _ensure_bank_account(client: TripletexClient):
+    """Pre-flight: ensure the sandbox company has a bank account number.
+    Without it, invoicing returns 422 'bankkontonummer'."""
+    try:
+        resp = await client.get("/company", params={"fields": "id,bankAccountNumber,version"})
+        values = resp.get("values") or resp.get("value")
+        if isinstance(values, list):
+            company = values[0] if values else None
+        else:
+            company = values
+        if not company:
+            logger.warning("Pre-flight: could not fetch company")
+            return
+        if company.get("bankAccountNumber"):
+            return  # already set
+        logger.info("Pre-flight: setting bankAccountNumber on company")
+        await client.put(
+            f"/company/{company['id']}",
+            body={
+                "id": company["id"],
+                "version": company.get("version", 0),
+                "bankAccountNumber": "15031750204",
+            },
+        )
+    except Exception as e:
+        logger.warning(f"Pre-flight bank account check failed: {e}")
+
+
 @app.post("/solve")
 async def solve(request: Request):
     start = time.monotonic()
@@ -110,6 +231,9 @@ async def solve(request: Request):
         task_type = plan.get("task_type", "unknown")
         extracted_values = plan.get("extracted_values", {})
         logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
+
+        # NOTE: Bank account pre-flight moved to quick-fix repair
+        # to avoid unnecessary API calls on the happy path
 
         # Phase 2: Execute
         result = await execute_plan(plan, client, start)
@@ -190,12 +314,18 @@ async def solve(request: Request):
                     idx: res for idx, res in current_result["results"].items()
                     if res["ok"]
                 }
-                repaired_plan = await self_repair(
-                    prompt, current_plan, current_result["results"],
-                    current_result.get("failed", []),
-                    verification_errors=verification_errors,
-                    files=files,
-                )
+                # Try quick fix first (no LLM call needed)
+                quick_fix = _try_quick_fix(current_plan, current_result["results"], current_result.get("failed", []))
+                if quick_fix:
+                    logger.info("Applied quick-fix repair (no LLM call)")
+                    repaired_plan = quick_fix
+                else:
+                    repaired_plan = await self_repair(
+                        prompt, current_plan, current_result["results"],
+                        current_result.get("failed", []),
+                        verification_errors=verification_errors,
+                        files=files,
+                    )
 
                 # If repaired plan has no steps, nothing to fix
                 if not repaired_plan.get("steps"):

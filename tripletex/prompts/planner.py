@@ -145,6 +145,26 @@ def build_planner_prompt(task_type: str, tier: int = 1) -> str:
     schemas = _get_relevant_schemas(task_type)
     template_json = json.dumps(template["steps"], indent=2, ensure_ascii=False)
 
+    unknown_guidance = ""
+    if task_type == "unknown":
+        unknown_guidance = """
+## UNKNOWN TASK TYPE — Extra Guidance
+This task could not be automatically classified. You must:
+1. Read the prompt VERY carefully in whatever language it's written
+2. Identify the PRIMARY action: create, update, delete, register, send, approve, reverse
+3. Identify the PRIMARY entity: employee, customer, invoice, project, etc.
+4. Plan the MINIMUM number of API calls needed
+5. Common patterns:
+   - Creating something: POST /entity with required fields
+   - Updating something: GET /entity first (need ID + version), then PUT
+   - Deleting something: DELETE /entity/{id}
+   - Action on entity: PUT /entity/{id}/:action with query params
+6. Remember: sandbox starts EMPTY — create prerequisites first
+7. For invoicing: customer -> order (with orderLines) -> PUT /order/{id}/:invoice
+8. For payments: GET invoice first, GET /invoice/paymentType, then PUT /:payment
+9. For vouchers: GET /ledger/account?number=X for each account, then POST /ledger/voucher
+"""
+
     conditional_section = ""
     if template.get("conditional_steps"):
         conditional_json = json.dumps(template["conditional_steps"], indent=2, ensure_ascii=False)
@@ -176,7 +196,7 @@ If not mentioned, omit entirely.
 {EFFICIENCY_RULES}
 {VERIFICATION_AWARENESS}
 {KNOWN_PITFALLS}
-
+{unknown_guidance}
 ## Rules
 1. Output ONLY valid JSON. No markdown, no explanation.
 2. Use $step_N.id to reference IDs from previous steps.
@@ -289,7 +309,7 @@ To fix field mismatches:
 5. 422 "invalid value" -> Check field types
 6. Field mismatch -> GET entity, PUT with correct value + version
 7. Account number as ID -> Must GET /ledger/account?number=X first
-8. 422 "bankkontonummer" -> Company needs bank account. Fix: GET /company/1 to get version, then PUT /company/1 with bankAccountNumber (e.g. "15031750204")
+8. 422 "bankkontonummer" -> Company needs bank account. Fix: GET /company (no ID!) to get values[0].id and version, then PUT /company/{{id}} with bankAccountNumber (e.g. "15031750204")
 9. 422 "Brukertype" on employee -> Add "userType": "STANDARD" to body
 10. 422 "department" on employee -> GET /department first, include "department": {{"id": <id>}} in body
 11. 422 "deliveryDate" or "orderDate" null on order -> Add deliveryDate and orderDate (use invoiceDate or today)

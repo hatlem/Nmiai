@@ -27,8 +27,17 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-NUM_CLASSES = 6
-PROB_FLOOR = 0.01
+from priors import (
+    CALIBRATED_PRIORS,
+    MOUNTAIN_PRIOR,
+    OCEAN_PRIOR,
+    get_domain_prior,
+    NUM_CLASSES,
+    PROB_FLOOR,
+    STATIC_FLOOR,
+    REMOTE_FLOOR,
+)
+
 TERRAIN_TO_CLASS = {10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
 
 # ── Base Agent ───────────────────────────────────────────────────────────────
@@ -86,27 +95,25 @@ class StatisticalAgent(SwarmAgent):
 
     def predict(self, seed_idx, initial_state, W, H, counts, observations,
                 settlements_data, inferred_params) -> np.ndarray:
-        pred = np.full((H, W, NUM_CLASSES), 1.0 / NUM_CLASSES)
         init_grid = np.asarray(initial_state["grid"], dtype=np.int64)
+        settlements = initial_state.get("settlements", [])
         cell_counts = counts[:, :, :NUM_CLASSES].astype(np.float64)
         n_obs = cell_counts.sum(axis=2)
 
-        # KT estimator for observed cells
-        kt_alpha = 0.5
-        observed = n_obs > 0
-        kt_denom = n_obs[observed] + NUM_CLASSES * kt_alpha
-        pred[observed] = (cell_counts[observed] + kt_alpha) / kt_denom[:, np.newaxis]
+        # KT estimator with informative Dirichlet priors
+        pred = _build_kt_with_priors(init_grid, cell_counts, n_obs, settlements, H, W)
 
         # Hard constraints for static terrain
-        pred[init_grid == 5] = _mountain_prior()
-        pred[init_grid == 10] = _ocean_prior()
+        pred[init_grid == 5] = MOUNTAIN_PRIOR
+        pred[init_grid == 10] = OCEAN_PRIOR
 
         # Domain priors for unobserved non-static cells
+        observed = n_obs > 0
         unobs = ~observed & (init_grid != 5) & (init_grid != 10)
         if unobs.any():
             for y, x in zip(*np.where(unobs)):
                 ic = _classify(int(init_grid[y, x]))
-                pred[y, x] = _domain_prior(ic)
+                pred[y, x] = get_domain_prior(ic)
 
         pred = np.maximum(pred, PROB_FLOOR)
         pred /= pred.sum(axis=2, keepdims=True)
@@ -146,8 +153,8 @@ class TransitionAgent(SwarmAgent):
             pred[mask] = trans_probs[ic]
 
         # Hard constraints
-        pred[init_grid == 5] = _mountain_prior()
-        pred[init_grid == 10] = _ocean_prior()
+        pred[init_grid == 5] = MOUNTAIN_PRIOR
+        pred[init_grid == 10] = OCEAN_PRIOR
 
         pred = np.maximum(pred, PROB_FLOOR)
         pred /= pred.sum(axis=2, keepdims=True)
@@ -166,24 +173,22 @@ class SpatialAgent(SwarmAgent):
     def predict(self, seed_idx, initial_state, W, H, counts, observations,
                 settlements_data, inferred_params) -> np.ndarray:
         init_grid = np.asarray(initial_state["grid"], dtype=np.int64)
+        settlements = initial_state.get("settlements", [])
         cell_counts = counts[:, :, :NUM_CLASSES].astype(np.float64)
         n_obs = cell_counts.sum(axis=2)
         observed = n_obs > 0
 
-        # Start from KT for observed, domain prior for unobserved
-        pred = np.full((H, W, NUM_CLASSES), 1.0 / NUM_CLASSES)
-        kt_alpha = 0.5
-        kt_denom = n_obs[observed] + NUM_CLASSES * kt_alpha
-        pred[observed] = (cell_counts[observed] + kt_alpha) / kt_denom[:, np.newaxis]
+        # KT estimator with informative Dirichlet priors
+        pred = _build_kt_with_priors(init_grid, cell_counts, n_obs, settlements, H, W)
 
         init_cls = _classify_grid(init_grid)
         unobs = ~observed & (init_grid != 5) & (init_grid != 10)
         for y, x in zip(*np.where(unobs)):
-            pred[y, x] = _domain_prior(int(init_cls[y, x]))
+            pred[y, x] = get_domain_prior(int(init_cls[y, x]))
 
         # Hard constraints
-        pred[init_grid == 5] = _mountain_prior()
-        pred[init_grid == 10] = _ocean_prior()
+        pred[init_grid == 5] = MOUNTAIN_PRIOR
+        pred[init_grid == 10] = OCEAN_PRIOR
 
         # Gaussian spatial smoothing per class channel
         sigma = 1.5
@@ -202,8 +207,8 @@ class SpatialAgent(SwarmAgent):
             result[update] = (1 - blend) * pred[update] + blend * smoothed[update]
 
         # Re-apply hard constraints
-        result[init_grid == 5] = _mountain_prior()
-        result[init_grid == 10] = _ocean_prior()
+        result[init_grid == 5] = MOUNTAIN_PRIOR
+        result[init_grid == 10] = OCEAN_PRIOR
 
         result = np.maximum(result, PROB_FLOOR)
         result /= result.sum(axis=2, keepdims=True)
@@ -243,13 +248,13 @@ class HeuristicAgent(SwarmAgent):
                 ic = int(init_cls[y, x])
 
                 if raw == 5:
-                    pred[y, x] = _mountain_prior()
+                    pred[y, x] = MOUNTAIN_PRIOR
                     continue
                 if raw == 10:
-                    pred[y, x] = _ocean_prior()
+                    pred[y, x] = OCEAN_PRIOR
                     continue
 
-                dist = _domain_prior(ic).copy()
+                dist = get_domain_prior(ic).copy()
                 food = food_map[y, x]
                 sd = sett_dist[y, x]
                 is_coast = coastal[y, x]
@@ -323,24 +328,23 @@ class SettlementTrajectoryAgent(SwarmAgent):
     def predict(self, seed_idx, initial_state, W, H, counts, observations,
                 settlements_data, inferred_params) -> np.ndarray:
         init_grid = np.asarray(initial_state["grid"], dtype=np.int64)
+        settlements = initial_state.get("settlements", [])
         cell_counts = counts[:, :, :NUM_CLASSES].astype(np.float64)
         n_obs = cell_counts.sum(axis=2)
 
-        # Start from KT for observed, domain prior for unobserved
-        pred = np.full((H, W, NUM_CLASSES), 1.0 / NUM_CLASSES)
-        observed = n_obs > 0
-        kt_alpha = 0.5
-        kt_denom = n_obs[observed] + NUM_CLASSES * kt_alpha
-        pred[observed] = (cell_counts[observed] + kt_alpha) / kt_denom[:, np.newaxis]
+        # KT estimator with informative Dirichlet priors
+        pred = _build_kt_with_priors(init_grid, cell_counts, n_obs, settlements, H, W)
 
+        # Domain priors for unobserved non-static cells
+        observed = n_obs > 0
         init_cls = _classify_grid(init_grid)
         unobs = ~observed & (init_grid != 5) & (init_grid != 10)
         for y, x in zip(*np.where(unobs)):
-            pred[y, x] = _domain_prior(int(init_cls[y, x]))
+            pred[y, x] = get_domain_prior(int(init_cls[y, x]))
 
         # Hard constraints
-        pred[init_grid == 5] = _mountain_prior()
-        pred[init_grid == 10] = _ocean_prior()
+        pred[init_grid == 5] = MOUNTAIN_PRIOR
+        pred[init_grid == 10] = OCEAN_PRIOR
 
         # Overlay settlement trajectory data
         from collections import defaultdict
@@ -473,10 +477,10 @@ class ContextualPoolingAgent(SwarmAgent):
             for x in range(W):
                 raw = int(init_grid[y, x])
                 if raw == 5:
-                    pred[y, x] = _mountain_prior()
+                    pred[y, x] = MOUNTAIN_PRIOR
                     continue
                 if raw == 10:
-                    pred[y, x] = _ocean_prior()
+                    pred[y, x] = OCEAN_PRIOR
                     continue
 
                 ic = int(init_cls[y, x])
@@ -496,7 +500,7 @@ class ContextualPoolingAgent(SwarmAgent):
                             pred[y, x] = self.ctx_distributions[key2]
                             break
                     else:
-                        pred[y, x] = _domain_prior(ic)
+                        pred[y, x] = get_domain_prior(ic)
 
         pred = np.maximum(pred, PROB_FLOOR)
         pred /= pred.sum(axis=2, keepdims=True)
@@ -611,11 +615,14 @@ class SwarmCoordinator:
             n_obs = cell_counts.sum(axis=2)
             combined = self._calibrate(combined, n_obs)
 
-            # Final safety
+            # Final safety with class-conditional floors
             init_grid = np.asarray(self.initial_states[seed_idx]["grid"], dtype=np.int64)
-            combined[init_grid == 5] = _mountain_prior()
-            combined[init_grid == 10] = _ocean_prior()
-            combined = np.maximum(combined, PROB_FLOOR)
+            combined[init_grid == 5] = MOUNTAIN_PRIOR
+            combined[init_grid == 10] = OCEAN_PRIOR
+            settlements = self.initial_states[seed_idx].get("settlements", [])
+            sett_dist = _settlement_distance(init_grid, settlements, self.W, self.H)
+            cell_floors = _get_cell_floors_swarm(init_grid, sett_dist)
+            combined = np.maximum(combined, cell_floors)
             combined /= combined.sum(axis=-1, keepdims=True)
 
             predictions[seed_idx] = combined
@@ -650,31 +657,9 @@ class SwarmCoordinator:
         result /= result.sum(axis=-1, keepdims=True)
         return result
 
-    def _calibrate(
-        self,
-        pred: np.ndarray,
-        n_obs: np.ndarray,
-    ) -> np.ndarray:
-        """Light calibration — do NOT shrink unobserved toward uniform.
-
-        The domain priors are already well-calibrated. Shrinking toward uniform
-        destroys the strong Empty-stays-Empty signal and causes catastrophic KL.
-        Only apply mild shrinkage for cells with very few (1-2) observations.
-        """
-        uniform = np.full(NUM_CLASSES, 1.0 / NUM_CLASSES)
-        result = pred.copy()
-
-        # Unobserved: NO shrinkage. Domain priors from ensemble are our best guess.
-
-        # Few observations (1-2): very mild shrinkage
-        few = (n_obs > 0) & (n_obs <= 2)
-        if few.any():
-            n_few = n_obs[few]
-            alpha = 2.0
-            w_obs = (n_few / (n_few + alpha))[:, np.newaxis]
-            result[few] = w_obs * pred[few] + (1 - w_obs) * uniform
-
-        return result
+    def _calibrate(self, pred: np.ndarray, n_obs: np.ndarray) -> np.ndarray:
+        """No calibration needed — ensemble + informative priors handle uncertainty."""
+        return pred
 
 
 # ── Helper functions ─────────────────────────────────────────────────────────
@@ -691,32 +676,9 @@ def _classify_grid(grid: np.ndarray) -> np.ndarray:
     return out
 
 
-def _mountain_prior() -> np.ndarray:
-    p = np.full(NUM_CLASSES, PROB_FLOOR)
-    p[5] = 1.0 - 5 * PROB_FLOOR
-    return p
 
+# _mountain_prior, _ocean_prior, _domain_prior removed — now imported from priors.py
 
-def _ocean_prior() -> np.ndarray:
-    p = np.full(NUM_CLASSES, PROB_FLOOR)
-    p[0] = 1.0 - 5 * PROB_FLOOR
-    return p
-
-
-def _domain_prior(init_cls: int) -> np.ndarray:
-    # Calibrated from Round 1 ground truth analysis
-    priors = {
-        0: np.array([0.82, 0.13, 0.012, 0.010, 0.028, 0.01]),  # Empty: 13% become settlement!
-        1: np.array([0.37, 0.41, 0.008, 0.031, 0.181, 0.01]),  # Settlement: only 41% survive, 37% vanish
-        2: np.array([0.36, 0.12, 0.319, 0.021, 0.176, 0.01]),  # Port: 32% survive, 36% vanish
-        3: np.array([0.17, 0.17, 0.17, 0.17, 0.17, 0.15]),     # Ruin: near-uniform (rare terrain)
-        4: np.array([0.07, 0.16, 0.014, 0.012, 0.744, 0.01]),  # Forest: 74% stable, 16% become settlement
-        5: np.array([0.005, 0.005, 0.005, 0.005, 0.005, 0.975]), # Mountain: never changes
-    }
-    p = priors.get(init_cls, priors[0]).copy()
-    p = np.maximum(p, PROB_FLOOR)
-    p /= p.sum()
-    return p
 
 
 def _coastal_mask(grid: np.ndarray) -> np.ndarray:
@@ -758,3 +720,131 @@ def _settlement_distance(grid: np.ndarray, settlements: list,
             d = np.abs(xx - sx) + np.abs(yy - sy)
             dist = np.minimum(dist, d)
     return dist
+
+
+def _get_cell_floors_swarm(init_grid: np.ndarray, sett_dist: np.ndarray) -> np.ndarray:
+    """Compute per-cell, per-class probability floors for swarm predictions."""
+    H, W = init_grid.shape
+    floors = np.full((H, W, NUM_CLASSES), PROB_FLOOR, dtype=np.float64)
+
+    mountain_mask = (init_grid == 5)
+    if mountain_mask.any():
+        floors[mountain_mask, :5] = STATIC_FLOOR
+
+    ocean_mask = (init_grid == 10)
+    if ocean_mask.any():
+        floors[ocean_mask, 1:] = STATIC_FLOOR
+
+    init_cls = _classify_grid(init_grid)
+
+    remote_empty = (init_cls == 0) & (sett_dist > 8) & ~ocean_mask
+    if remote_empty.any():
+        floors[remote_empty, 1] = REMOTE_FLOOR
+        floors[remote_empty, 2] = REMOTE_FLOOR
+        floors[remote_empty, 3] = REMOTE_FLOOR
+
+    remote_forest = (init_cls == 4) & (sett_dist > 8)
+    if remote_forest.any():
+        floors[remote_forest, 1] = REMOTE_FLOOR
+        floors[remote_forest, 2] = REMOTE_FLOOR
+        floors[remote_forest, 3] = REMOTE_FLOOR
+
+    return floors
+
+
+def _neighbor_settlements(grid: np.ndarray, H: int, W: int) -> np.ndarray:
+    """Count settlement/port neighbors within radius 2."""
+    sett_mask = np.isin(grid, [1, 2]).astype(np.int32)
+    n_sett = np.zeros((H, W), dtype=np.int32)
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            if dy == 0 and dx == 0:
+                continue
+            shifted = np.zeros_like(sett_mask)
+            sy = slice(max(0, -dy), min(H, H - dy))
+            sx = slice(max(0, -dx), min(W, W - dx))
+            ty = slice(max(0, dy), min(H, H + dy))
+            tx = slice(max(0, dx), min(W, W + dx))
+            shifted[ty, tx] = sett_mask[sy, sx]
+            n_sett += shifted
+    return n_sett
+
+
+def _get_cell_prior(init_cls: int, sett_dist: float, food: float,
+                    coastal: bool, neighbor_sett: int) -> np.ndarray:
+    """Return informative Dirichlet prior (6,) for a cell based on context."""
+    base = get_domain_prior(init_cls).copy()
+
+    if coastal and init_cls in (1, 2):
+        base[2] += 0.08
+        base[0] -= 0.04
+
+    if food >= 2 and init_cls == 1:
+        base[1] += 0.10
+        base[0] -= 0.05
+        base[3] -= 0.03
+
+    if sett_dist > 6 and init_cls == 0:
+        base = np.array([0.92, 0.01, 0.01, 0.01, 0.04, 0.01])
+
+    if sett_dist > 6 and init_cls == 4:
+        base = np.array([0.04, 0.01, 0.01, 0.01, 0.90, 0.01])
+
+    if sett_dist <= 3 and init_cls == 0:
+        base[1] += 0.06
+        base[3] += 0.03
+        base[0] -= 0.06
+
+    if neighbor_sett >= 2 and init_cls == 0 and sett_dist <= 4:
+        base[1] += 0.04
+        base[0] -= 0.03
+
+    base = np.maximum(base, PROB_FLOOR)
+    base /= base.sum()
+    return base
+
+
+def _get_prior_strength(init_cls: int, sett_dist: float, n_obs: float) -> float:
+    """Return prior strength that decays with observations."""
+    if init_cls == 5:
+        base = 4.0
+    elif init_cls == 0 and sett_dist > 6:
+        base = 3.0
+    elif init_cls in (1, 2):
+        base = 1.5
+    elif sett_dist <= 3:
+        base = 2.0
+    else:
+        base = 2.5
+
+    if n_obs > 0:
+        base = base / (1.0 + n_obs / base)
+
+    return base
+
+
+def _build_kt_with_priors(init_grid: np.ndarray, cell_counts: np.ndarray,
+                           n_obs: np.ndarray, settlements: list,
+                           H: int, W: int) -> np.ndarray:
+    """Build KT estimate with informative Dirichlet priors for all cells."""
+    init_cls = _classify_grid(init_grid)
+    coastal = _coastal_mask(init_grid)
+    food_map = _food_map(init_grid)
+    sett_dist = _settlement_distance(init_grid, settlements, W, H)
+    nsett = _neighbor_settlements(init_grid, H, W)
+
+    prior_grid = np.zeros((H, W, NUM_CLASSES), dtype=np.float64)
+    strength_grid = np.zeros((H, W), dtype=np.float64)
+    for y in range(H):
+        for x in range(W):
+            ic = int(init_cls[y, x])
+            sd = float(sett_dist[y, x])
+            fd = float(food_map[y, x])
+            cs = bool(coastal[y, x])
+            ns = int(nsett[y, x])
+            prior_grid[y, x] = _get_cell_prior(ic, sd, fd, cs, ns)
+            strength_grid[y, x] = _get_prior_strength(ic, sd, float(n_obs[y, x]))
+
+    strength_3d = strength_grid[:, :, np.newaxis]
+    kt_pred = (cell_counts + prior_grid * strength_3d) / (n_obs[:, :, np.newaxis] + strength_3d)
+    return kt_pred

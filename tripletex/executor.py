@@ -180,6 +180,74 @@ def _topological_layers(graph: dict[int, set[int]], num_steps: int) -> list[list
 
 
 # ---------------------------------------------------------------------------
+# Pre-validation helpers
+# ---------------------------------------------------------------------------
+
+def _pre_validate_body(method: str, path: str, body: dict | None, params: dict | None) -> dict | None:
+    """Pre-validate and clean request body/params to prevent 4xx errors.
+    Returns cleaned body (or None if no body)."""
+    if body is None:
+        return None
+
+    cleaned = {}
+    for k, v in body.items():
+        # Skip None values - API will reject them
+        if v is None:
+            continue
+        # Skip empty strings for optional fields
+        if v == "" and k not in ("name", "firstName", "lastName"):
+            continue
+        # Ensure amounts are numbers, not strings
+        if k in ("amount", "amountGross", "paidAmount", "priceExcludingVatCurrency",
+                  "priceIncludingVatCurrency", "acquisitionCost", "hours",
+                  "percentageOfFullTimeEquivalent"):
+            if isinstance(v, str):
+                try:
+                    v = float(v)
+                    if v == int(v):
+                        v = int(v)
+                except (ValueError, TypeError):
+                    pass
+        # Ensure boolean fields are actual booleans
+        if k in ("isCustomer", "isSupplier", "isInternal", "isDayTrip",
+                  "isForeignTravel", "sendToCustomer"):
+            if isinstance(v, str):
+                v = v.lower() in ("true", "1", "yes", "ja")
+        # Clean nested dicts recursively
+        if isinstance(v, dict):
+            v = _pre_validate_body(method, path, v, None) or v
+        # Clean lists of dicts
+        if isinstance(v, list):
+            v = [_pre_validate_body(method, path, item, None) if isinstance(item, dict) else item for item in v]
+        cleaned[k] = v
+
+    return cleaned
+
+
+def _pre_validate_params(params: dict | None) -> dict | None:
+    """Clean query params - ensure proper types."""
+    if params is None:
+        return None
+    cleaned = {}
+    for k, v in params.items():
+        if v is None or v == "":
+            continue
+        # Amount params should be numbers
+        if k in ("paidAmount",):
+            if isinstance(v, str):
+                try:
+                    v = float(v)
+                except (ValueError, TypeError):
+                    pass
+        # Boolean params
+        if k in ("sendToCustomer",):
+            if isinstance(v, str):
+                v = v.lower() in ("true", "1", "yes")
+        cleaned[k] = v
+    return cleaned
+
+
+# ---------------------------------------------------------------------------
 # Step execution
 # ---------------------------------------------------------------------------
 
@@ -205,6 +273,11 @@ async def _execute_step(
         body = _strip_unresolved_placeholders(body)
     if params:
         params = _strip_unresolved_placeholders(params)
+
+    if body:
+        body = _pre_validate_body(method, path, body, params)
+    if params:
+        params = _pre_validate_params(params)
 
     logger.info(f"Step {idx}: {method} {path}")
 

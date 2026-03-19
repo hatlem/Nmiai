@@ -28,11 +28,9 @@ from priors import (
     get_domain_prior,
     NUM_CLASSES,
     PROB_FLOOR,
+    STATIC_FLOOR,
+    REMOTE_FLOOR,
 )
-
-# Additional floor constants used locally in prediction layers
-STATIC_FLOOR = 0.002  # Tighter floor for near-impossible transitions (mountain/ocean)
-REMOTE_FLOOR = 0.003  # Floor for unlikely transitions on remote cells
 
 TERRAIN_TO_CLASS: dict[int, int] = {10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
 
@@ -332,11 +330,22 @@ class PredictionEngine:
 
         pred = np.zeros((H, W, NUM_CLASSES), dtype=np.float64)
 
-        # === Layer 1: Direct observation (KT estimator) ===
-        # KT: p_i = (count_i + 0.5) / (total + K * 0.5)
-        kt_alpha = 0.5
-        kt_denom = n_obs + NUM_CLASSES * kt_alpha
-        kt_pred = (cell_counts + kt_alpha) / kt_denom[:, :, np.newaxis]
+        # === Layer 1: Direct observation (KT with informative Dirichlet prior) ===
+        # Bayes-optimal for KL: p_i = (count_i + prior_i * strength) / (total + strength)
+        prior_grid = np.zeros((H, W, NUM_CLASSES), dtype=np.float64)
+        strength_grid = np.zeros((H, W), dtype=np.float64)
+        for y in range(H):
+            for x in range(W):
+                ic = int(init_cls[y, x])
+                sd = float(sett_dist[y, x])
+                fd = float(food_map[y, x])
+                cs = bool(coastal[y, x])
+                ns = int(neighbor_sett[y, x])
+                prior_grid[y, x] = self._get_cell_prior(ic, sd, fd, cs, ns)
+                strength_grid[y, x] = self._get_prior_strength(ic, sd, float(n_obs[y, x]))
+
+        strength_3d = strength_grid[:, :, np.newaxis]
+        kt_pred = (cell_counts + prior_grid * strength_3d) / (n_obs[:, :, np.newaxis] + strength_3d)
 
         # For cells with observations, start from KT estimate
         obs_cells = observed_mask
@@ -362,12 +371,16 @@ class PredictionEngine:
                 for ic_val in range(NUM_CLASSES):
                     ic_mask = (init_cls == ic_val)
                     domain_prior_grid[ic_mask] = DOMAIN_PRIORS.get(ic_val, DOMAIN_PRIORS[0])
-                # Blend: 30% simulator, 70% domain prior for unobserved
-                sim_weight_unobs = 0.30
-                pred[unobs] = (
-                    sim_weight_unobs * simulator_pred[unobs] +
-                    (1.0 - sim_weight_unobs) * domain_prior_grid[unobs]
-                )
+                # Class-aware simulator weights: lower for forest
+                sim_weights = np.full(NUM_CLASSES, 0.30)
+                sim_weights[4] = 0.15  # Forest: halved sim weight due to systematic overestimate
+                for c in range(NUM_CLASSES):
+                    pred[unobs, c] = (
+                        sim_weights[c] * simulator_pred[unobs, c] +
+                        (1.0 - sim_weights[c]) * domain_prior_grid[unobs, c]
+                    )
+                # Renormalize
+                pred[unobs] /= pred[unobs].sum(axis=1, keepdims=True)
             # Mark simulator-covered cells so we skip lower layers
             has_prediction = np.ones((H, W), dtype=bool)
         else:
@@ -436,14 +449,17 @@ class PredictionEngine:
         # Belief propagation spatial smoothing
         pred = self._belief_propagation(pred, observed_mask, init_grid)
 
+        # Compute class-conditional probability floors
+        cell_floors = _get_cell_floors(init_grid, sett_dist)
+
         # Hard constraints
-        pred = self._apply_hard_constraints(pred, init_grid, coastal)
+        pred = self._apply_hard_constraints(pred, init_grid, coastal, cell_floors)
 
         # Calibrate for KL minimization
         pred = self._calibrate_predictions(pred, observed_mask, n_obs)
 
-        # Final floor and normalize
-        pred = np.maximum(pred, PROB_FLOOR)
+        # Final floor and normalize using class-conditional floors
+        pred = np.maximum(pred, cell_floors)
         pred /= pred.sum(axis=2, keepdims=True)
 
         obs_pct = 100 * observed_mask.sum() / (W * H)
@@ -650,6 +666,7 @@ class PredictionEngine:
         pred: np.ndarray,
         init_grid: np.ndarray,
         coastal: np.ndarray,
+        cell_floors: np.ndarray,
     ) -> np.ndarray:
         """Apply hard physical constraints after soft predictions."""
         H, W = self.H, self.W
@@ -664,12 +681,12 @@ class PredictionEngine:
         if ocean_mask.any():
             pred[ocean_mask] = OCEAN_PRIOR[np.newaxis, :]
 
-        # Non-coastal cells: port probability = floor
+        # Non-coastal cells: port probability = cell-specific floor
         non_coastal = ~coastal
-        pred[non_coastal, 2] = PROB_FLOOR
+        pred[non_coastal, 2] = cell_floors[non_coastal, 2]
 
-        # Normalize
-        pred = np.maximum(pred, PROB_FLOOR)
+        # Apply class-conditional floors and normalize
+        pred = np.maximum(pred, cell_floors)
         pred /= pred.sum(axis=2, keepdims=True)
 
         return pred
@@ -680,39 +697,8 @@ class PredictionEngine:
         observed_mask: np.ndarray,
         n_observations: np.ndarray,
     ) -> np.ndarray:
-        """
-        Calibrate predictions to minimize expected KL divergence.
-
-        IMPORTANT: For unobserved cells we do NOT shrink toward uniform.
-        The domain priors are already well-calibrated from validation data.
-        Shrinking toward uniform destroys the strong Empty-stays-Empty signal
-        and causes catastrophic KL loss.
-
-        For observed cells with few observations, use very mild shrinkage.
-        """
-        H, W = self.H, self.W
-        uniform = np.full(NUM_CLASSES, 1.0 / NUM_CLASSES)
-
-        calibrated = pred.copy()
-
-        # Unobserved cells: NO shrinkage toward uniform.
-        # The domain priors and heuristics already encode our best guess.
-        # Shrinking toward uniform makes Empty cells ~0.11 per class which is terrible.
-
-        # Few observations (1-2): very mild shrinkage
-        alpha = 2.0
-        few_obs_mask = (n_observations > 0) & (n_observations <= 2)
-        if few_obs_mask.any():
-            n_few = n_observations[few_obs_mask]
-            weight_obs = (n_few / (n_few + alpha))[:, np.newaxis]
-            weight_prior = 1.0 - weight_obs
-            calibrated[few_obs_mask] = (
-                weight_obs * pred[few_obs_mask] + weight_prior * uniform[np.newaxis, :]
-            )
-
-        # n > 2: trust empirical (KT already handles this well)
-
-        return calibrated
+        """No post-hoc calibration — informative Dirichlet priors handle uncertainty."""
+        return pred
 
     def _ensemble_blend(
         self,

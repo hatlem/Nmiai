@@ -490,54 +490,151 @@ def main():
     # Model
     # ------------------------------------------------------------------
     print("\n--- Loading model ---")
-    model = load_model(WEIGHTS_IN, num_classes=NUM_CLASSES)
-    model = model.to(device)
 
-    # Count params
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Parameters: {total_params:,} total, {trainable:,} trainable")
+    if USE_ARCFACE:
+        # ArcFace mode: backbone (num_classes=0) + ArcFace head
+        print("Using ArcFace loss for better embedding discrimination")
+        model = load_backbone(WEIGHTS_IN)
+        model = model.to(device)
 
-    # ------------------------------------------------------------------
-    # Training
-    # ------------------------------------------------------------------
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
+        # Get embedding dim
+        with torch.no_grad():
+            dummy = torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE, device=device)
+            emb_dim = model(dummy).shape[1]
+        print(f"Embedding dim: {emb_dim}")
 
-    best_val_acc = 0.0
-    best_state = None
+        arcface_head = ArcFaceLoss(emb_dim, NUM_CLASSES, s=ARCFACE_S, m=ARCFACE_M).to(device)
 
-    print(f"\n--- Training for {EPOCHS} epochs ---")
-    print(f"Batch size: {BATCH_SIZE}, LR: {LR}")
+        # Count params
+        total_params = sum(p.numel() for p in model.parameters()) + sum(p.numel() for p in arcface_head.parameters())
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad) + sum(p.numel() for p in arcface_head.parameters() if p.requires_grad)
+        print(f"Parameters: {total_params:,} total, {trainable:,} trainable")
 
-    for epoch in range(1, EPOCHS + 1):
-        t0 = time.time()
-        train_loss, train_acc = train_epoch(model, train_loader, optimizer, criterion, device)
-        val_loss, val_acc = val_epoch(model, val_loader, criterion, device)
-        scheduler.step()
+        all_params = list(model.parameters()) + list(arcface_head.parameters())
+        optimizer = torch.optim.AdamW(all_params, lr=LR, weight_decay=WEIGHT_DECAY)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
-        elapsed = time.time() - t0
-        lr_now = scheduler.get_last_lr()[0]
+        best_val_acc = 0.0
+        best_state = None
+        patience_counter = 0
+        patience_limit = 15
 
-        print(
-            f"Epoch {epoch:3d}/{EPOCHS}  "
-            f"train_loss={train_loss:.4f}  train_acc={train_acc:.3f}  "
-            f"val_loss={val_loss:.4f}  val_acc={val_acc:.3f}  "
-            f"lr={lr_now:.2e}  time={elapsed:.1f}s"
-        )
+        print(f"\n--- Training for {EPOCHS} epochs (ArcFace s={ARCFACE_S}, m={ARCFACE_M}) ---")
+        print(f"Batch size: {BATCH_SIZE}, LR: {LR}")
 
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            # Save backbone state_dict only (strip classifier head)
-            import timm
-            backbone = timm.create_model("efficientnet_b3", pretrained=False, num_classes=0)
-            # Copy all matching weights from classifier model to backbone
-            classifier_sd = model.state_dict()
-            backbone_sd = {k: v for k, v in classifier_sd.items() if k in backbone.state_dict()}
-            backbone.load_state_dict(backbone_sd, strict=False)
-            best_state = {k: v.clone() for k, v in backbone.state_dict().items()}
-            print(f"  *** New best val_acc={best_val_acc:.3f} — saving backbone weights ***")
+        for epoch in range(1, EPOCHS + 1):
+            t0 = time.time()
+
+            # Train epoch (ArcFace)
+            model.train()
+            arcface_head.train()
+            total_loss, correct, total = 0.0, 0, 0
+            for batch_idx, (images, labels) in enumerate(train_loader):
+                images, labels = images.to(device), labels.to(device)
+                optimizer.zero_grad()
+                embeddings = model(images)
+                loss = arcface_head(embeddings, labels)
+                loss.backward()
+                optimizer.step()
+
+                total_loss += loss.item() * len(labels)
+                # Compute accuracy using cosine similarity (no margin)
+                with torch.no_grad():
+                    emb_norm = F.normalize(embeddings, dim=1)
+                    W_norm = F.normalize(arcface_head.W, dim=1)
+                    preds = (emb_norm @ W_norm.T).argmax(dim=1)
+                    correct += (preds == labels).sum().item()
+                total += len(labels)
+
+                if (batch_idx + 1) % 50 == 0:
+                    print(f"    batch {batch_idx+1}/{len(train_loader)}  loss={total_loss/total:.4f}  acc={correct/total:.3f}")
+
+            train_loss = total_loss / total
+            train_acc = correct / total
+
+            # Val epoch (ArcFace — evaluate with cosine similarity, no margin)
+            model.eval()
+            val_loss_total, val_correct, val_total = 0.0, 0, 0
+            with torch.no_grad():
+                for images, labels in val_loader:
+                    images, labels = images.to(device), labels.to(device)
+                    embeddings = model(images)
+                    loss = arcface_head(embeddings, labels)
+                    val_loss_total += loss.item() * len(labels)
+                    emb_norm = F.normalize(embeddings, dim=1)
+                    W_norm = F.normalize(arcface_head.W, dim=1)
+                    preds = (emb_norm @ W_norm.T).argmax(dim=1)
+                    val_correct += (preds == labels).sum().item()
+                    val_total += len(labels)
+
+            val_loss = val_loss_total / val_total
+            val_acc = val_correct / val_total
+
+            scheduler.step()
+            elapsed = time.time() - t0
+            lr_now = scheduler.get_last_lr()[0]
+
+            print(
+                f"Epoch {epoch:3d}/{EPOCHS}  "
+                f"train_loss={train_loss:.4f}  train_acc={train_acc:.3f}  "
+                f"val_loss={val_loss:.4f}  val_acc={val_acc:.3f}  "
+                f"lr={lr_now:.2e}  time={elapsed:.1f}s"
+            )
+
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                best_state = {k: v.clone().cpu() for k, v in model.state_dict().items()}
+                patience_counter = 0
+                print(f"  *** New best val_acc={best_val_acc:.3f} — saving backbone weights ***")
+            else:
+                patience_counter += 1
+                if patience_counter >= patience_limit:
+                    print(f"  Early stopping after {patience_limit} epochs without improvement")
+                    break
+    else:
+        # Standard CrossEntropy mode
+        model = load_model(WEIGHTS_IN, num_classes=NUM_CLASSES)
+        model = model.to(device)
+
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Parameters: {total_params:,} total, {trainable:,} trainable")
+
+        criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
+
+        best_val_acc = 0.0
+        best_state = None
+
+        print(f"\n--- Training for {EPOCHS} epochs ---")
+        print(f"Batch size: {BATCH_SIZE}, LR: {LR}")
+
+        for epoch in range(1, EPOCHS + 1):
+            t0 = time.time()
+            train_loss, train_acc = train_epoch(model, train_loader, optimizer, criterion, device)
+            val_loss, val_acc = val_epoch(model, val_loader, criterion, device)
+            scheduler.step()
+
+            elapsed = time.time() - t0
+            lr_now = scheduler.get_last_lr()[0]
+
+            print(
+                f"Epoch {epoch:3d}/{EPOCHS}  "
+                f"train_loss={train_loss:.4f}  train_acc={train_acc:.3f}  "
+                f"val_loss={val_loss:.4f}  val_acc={val_acc:.3f}  "
+                f"lr={lr_now:.2e}  time={elapsed:.1f}s"
+            )
+
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                import timm
+                backbone = timm.create_model("efficientnet_b3", pretrained=False, num_classes=0)
+                classifier_sd = model.state_dict()
+                backbone_sd = {k: v for k, v in classifier_sd.items() if k in backbone.state_dict()}
+                backbone.load_state_dict(backbone_sd, strict=False)
+                best_state = {k: v.clone() for k, v in backbone.state_dict().items()}
+                print(f"  *** New best val_acc={best_val_acc:.3f} — saving backbone weights ***")
 
     total_time = time.time() - t_start
     print(f"\nTraining complete in {total_time/60:.1f} min")

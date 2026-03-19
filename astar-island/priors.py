@@ -18,7 +18,9 @@ from pathlib import Path
 import numpy as np
 
 NUM_CLASSES = 6
-PROB_FLOOR = 0.01
+PROB_FLOOR = 0.01  # Default floor for dynamic terrain
+STATIC_FLOOR = 0.002  # Tighter floor for near-impossible transitions (mountain/ocean)
+REMOTE_FLOOR = 0.003  # Floor for unlikely transitions on remote cells
 MIN_FLOOR = 0.005  # Floor for zeros in calibration data (lower than PROB_FLOOR to save mass)
 
 # ── Load calibration data ─────────────────────────────────────────────────────
@@ -55,21 +57,61 @@ CALIBRATED_PRIORS: dict[int, np.ndarray] = _load_calibration()
 
 # ── Hard constraint priors ────────────────────────────────────────────────────
 
-MOUNTAIN_PRIOR = np.full(NUM_CLASSES, PROB_FLOOR)
-MOUNTAIN_PRIOR[5] = 1.0 - 5 * PROB_FLOOR
+# Use tight floors for static terrain — mountains/ocean never change
+MOUNTAIN_PRIOR = np.full(NUM_CLASSES, STATIC_FLOOR)
+MOUNTAIN_PRIOR[5] = 1.0 - 5 * STATIC_FLOOR
 
-OCEAN_PRIOR = np.full(NUM_CLASSES, PROB_FLOOR)
-OCEAN_PRIOR[0] = 1.0 - 5 * PROB_FLOOR
+OCEAN_PRIOR = np.full(NUM_CLASSES, STATIC_FLOOR)
+OCEAN_PRIOR[0] = 1.0 - 5 * STATIC_FLOOR
+
+
+def get_class_conditional_floor(init_cls: int, is_ocean: bool = False) -> np.ndarray:
+    """
+    Return per-class probability floors based on initial terrain class.
+
+    Avoids wasting probability mass on near-impossible transitions.
+    Class indices: 0=ocean/empty, 1=settlement, 2=port, 3=ruin, 4=forest, 5=mountain
+
+    Note: class 0 covers both Ocean and Empty. Use is_ocean=True for ocean cells.
+    """
+    floors = np.full(NUM_CLASSES, PROB_FLOOR, dtype=np.float64)
+
+    if init_cls == 5:
+        # Mountain: stays mountain, all other transitions near-impossible
+        floors[:] = STATIC_FLOOR
+    elif init_cls == 0 and is_ocean:
+        # Ocean: stays ocean, all other transitions near-impossible
+        floors[:] = STATIC_FLOOR
+    elif init_cls == 0:
+        # Empty: mountain never appears, rest uses default floor
+        floors[5] = STATIC_FLOOR
+    elif init_cls == 4:
+        # Forest: mountain never appears, settlement/port/ruin unlikely
+        floors[1] = REMOTE_FLOOR
+        floors[2] = REMOTE_FLOOR
+        floors[3] = REMOTE_FLOOR
+        floors[5] = STATIC_FLOOR
+    elif init_cls in (1, 2):
+        # Settlement/Port: mountains never appear
+        floors[5] = STATIC_FLOOR
+    elif init_cls == 3:
+        # Ruin: mountains never appear
+        floors[5] = STATIC_FLOOR
+    else:
+        floors[5] = STATIC_FLOOR
+
+    return floors
 
 
 def get_domain_prior(init_cls: int) -> np.ndarray:
     """
     Return calibrated prior for a given initial terrain class.
 
-    Returns a copy with PROB_FLOOR applied and normalized.
+    Returns a copy with class-conditional floors applied and normalized.
     Always returns a valid probability distribution (sums to 1).
     """
     p = CALIBRATED_PRIORS.get(init_cls, CALIBRATED_PRIORS[0]).copy()
-    p = np.maximum(p, PROB_FLOOR)
+    floors = get_class_conditional_floor(init_cls)
+    p = np.maximum(p, floors)
     p /= p.sum()
     return p

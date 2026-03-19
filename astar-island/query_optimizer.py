@@ -1,21 +1,20 @@
 """
-Astar Island — 3-Phase Settlement-Focused Query Optimizer
+Astar Island — Information-Theoretic Query Optimizer
 
 Scoring uses entropy-weighted KL divergence. Only dynamic cells (near settlements)
 contribute meaningfully to score. Static terrain has ~0 entropy → ~0 score weight.
 
 Strategy (50 queries, 5 seeds):
-  Phase 1 (20 queries): Full 9-tile coverage of primary seed (most settlements).
-    Then 11 queries on 2 other seeds targeting settlement-dense viewports.
-  Phase 2 (20 queries): Fill coverage for remaining 2 seeds (~7 tiles each),
-    prioritizing viewports with more settlements.
-  Phase 3 (10 queries): Re-observe the highest-value viewports across ALL seeds
-    to get 2+ observations per dynamic cell for better Jeffreys estimates.
+  Phase 1 (60% budget): Cover each settlement viewport at least 2x per seed,
+    plus expansion zone viewports (3-6 manhattan distance from settlements).
+  Phase 2 (40% budget): Adaptive — pick highest information gain viewport
+    across all seeds using entropy-based scoring.
 
-Why re-observation beats broader coverage:
-  - 2 observations → Jeffreys estimate with ~0.15 std error
-  - 1 observation → binary, no probability info beyond prior
-  - Dynamic cells dominate the score; accuracy there matters most
+Key improvements over previous version:
+  - Information-theoretic gain weighting per cell
+  - Expansion zone viewports (Empty→Settlement is 13%!)
+  - Unequal seed allocation weighted by settlement count
+  - Two-phase strategy: coverage first, then adaptive info gain
 """
 
 from __future__ import annotations
@@ -26,6 +25,15 @@ import numpy as np
 
 NUM_CLASSES = 6
 TERRAIN_TO_CLASS = {10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
+
+# Entropy priors by terrain type and proximity to settlements
+_ENTROPY_SETTLEMENT = 1.5   # Settlement/Port: most dynamic
+_ENTROPY_RUIN = 1.5         # Ruin: also very dynamic
+_ENTROPY_EMPTY_NEAR = 1.0   # Empty near settlements (expansion zone)
+_ENTROPY_FOREST_NEAR = 0.5  # Forest near settlements
+_ENTROPY_EMPTY_FAR = 0.3    # Empty far from settlements
+_ENTROPY_FOREST_FAR = 0.2   # Forest far from settlements
+_ENTROPY_STATIC = 0.0       # Mountain/Ocean: never change
 
 
 class QueryOptimizer:
@@ -61,9 +69,19 @@ class QueryOptimizer:
                     coords.append((sx, sy))
             self.settlement_coords.append(coords)
 
+        # Precompute entropy prior maps per seed
+        self._entropy_prior: list[np.ndarray] = [
+            self._compute_entropy_prior(i) for i in range(seeds_count)
+        ]
+
         # Precompute settlement viewports per seed
         self._seed_viewports: list[list[tuple[int, int, int, int]]] = [
             self._find_settlement_viewports(i) for i in range(seeds_count)
+        ]
+
+        # Precompute expansion zone viewports per seed
+        self._expansion_viewports: list[list[tuple[int, int, int, int]]] = [
+            self._find_expansion_viewports(i) for i in range(seeds_count)
         ]
 
         # Full coverage viewports (9-tile grid for 40x40 with 15x15 viewport)
@@ -76,8 +94,61 @@ class QueryOptimizer:
             reverse=True,
         )
 
+        # Settlement count weights for unequal allocation
+        total_sett = sum(max(len(c), 1) for c in self.settlement_coords)
+        self._seed_weights = [
+            max(len(self.settlement_coords[i]), 1) / total_sett
+            for i in range(seeds_count)
+        ]
+
+    def _compute_entropy_prior(self, seed_idx: int) -> np.ndarray:
+        """
+        Compute per-cell entropy prior based on terrain type and proximity
+        to settlements. Higher entropy = more dynamic = more score contribution.
+        """
+        grid = self.grids[seed_idx]
+        H, W = grid.shape
+        entropy_map = np.zeros((H, W), dtype=np.float64)
+        coords = self.settlement_coords[seed_idx]
+
+        # Compute manhattan distance to nearest settlement for each cell
+        if coords:
+            dist_map = np.full((H, W), 999, dtype=np.int32)
+            for sx, sy in coords:
+                for y in range(H):
+                    for x in range(W):
+                        d = abs(x - sx) + abs(y - sy)
+                        if d < dist_map[y, x]:
+                            dist_map[y, x] = d
+        else:
+            dist_map = np.full((H, W), 999, dtype=np.int32)
+
+        near_threshold = 6  # cells within 6 manhattan distance are "near"
+
+        for y in range(H):
+            for x in range(W):
+                cell = grid[y, x]
+                near = dist_map[y, x] <= near_threshold
+
+                if cell == 10 or cell == 11:  # Ocean
+                    entropy_map[y, x] = _ENTROPY_STATIC
+                elif cell == 5:  # Mountain
+                    entropy_map[y, x] = _ENTROPY_STATIC
+                elif cell in (1, 2):  # Settlement, Port
+                    entropy_map[y, x] = _ENTROPY_SETTLEMENT
+                elif cell == 3:  # Ruin
+                    entropy_map[y, x] = _ENTROPY_RUIN
+                elif cell == 4:  # Forest
+                    entropy_map[y, x] = _ENTROPY_FOREST_NEAR if near else _ENTROPY_FOREST_FAR
+                elif cell == 0:  # Empty
+                    entropy_map[y, x] = _ENTROPY_EMPTY_NEAR if near else _ENTROPY_EMPTY_FAR
+                else:
+                    entropy_map[y, x] = _ENTROPY_EMPTY_FAR
+
+        return entropy_map
+
     def _compute_full_coverage_tiles(self) -> list[tuple[int, int, int, int]]:
-        """Compute minimal set of tiles to cover entire W×H map."""
+        """Compute minimal set of tiles to cover entire W x H map."""
         tiles = []
         y = 0
         while y < self.H:
@@ -146,6 +217,107 @@ class QueryOptimizer:
 
         return viewports
 
+    def _find_expansion_viewports(
+        self, seed_idx: int
+    ) -> list[tuple[int, int, int, int]]:
+        """
+        Find viewports covering expansion zones: cells 3-6 manhattan distance
+        from settlements. These are where new settlements appear (Empty->Settlement
+        happens ~13% of the time in calibration data).
+        """
+        coords = self.settlement_coords[seed_idx]
+        if not coords:
+            return []
+
+        grid = self.grids[seed_idx]
+        H, W = grid.shape
+
+        # Find expansion zone cells
+        expansion_cells: list[tuple[int, int]] = []
+        for y in range(H):
+            for x in range(W):
+                cell = grid[y, x]
+                # Only empty cells can become settlements
+                if cell not in (0, 4):  # Empty or Forest
+                    continue
+                # Skip static terrain
+                if cell in (10, 11, 5):
+                    continue
+
+                min_dist = 999
+                for sx, sy in coords:
+                    d = abs(x - sx) + abs(y - sy)
+                    if d < min_dist:
+                        min_dist = d
+
+                if 3 <= min_dist <= 6:
+                    expansion_cells.append((x, y))
+
+        if not expansion_cells:
+            return []
+
+        # Greedy set cover of expansion cells with viewports
+        uncovered = set(range(len(expansion_cells)))
+        viewports = []
+
+        # Limit to 3 expansion viewports per seed to avoid over-allocation
+        max_expansion_vps = 3
+
+        while uncovered and len(viewports) < max_expansion_vps:
+            best_vp = None
+            best_covered: set = set()
+            best_count = 0
+
+            # Try centering on each uncovered expansion cell
+            # Sample to avoid O(n^2)
+            sample_indices = list(uncovered)
+            if len(sample_indices) > 20:
+                sample_indices = list(np.random.choice(
+                    list(uncovered), size=20, replace=False
+                ))
+
+            for i in sample_indices:
+                ex, ey = expansion_cells[i]
+                vx = max(0, min(ex - self.viewport_max // 2,
+                                self.W - self.viewport_max))
+                vy = max(0, min(ey - self.viewport_max // 2,
+                                self.H - self.viewport_max))
+                vw = min(self.viewport_max, self.W - vx)
+                vh = min(self.viewport_max, self.H - vy)
+
+                contained = set()
+                for j in uncovered:
+                    cx, cy = expansion_cells[j]
+                    if vx <= cx < vx + vw and vy <= cy < vy + vh:
+                        contained.add(j)
+
+                # Also count how many settlement viewport cells this overlaps
+                # (re-using settlement viewports is efficient)
+                entropy_score = float(
+                    self._entropy_prior[seed_idx][vy:vy+vh, vx:vx+vw].sum()
+                )
+
+                count = len(contained) + entropy_score * 0.1
+                if count > best_count:
+                    best_vp = (vx, vy, vw, vh)
+                    best_covered = contained
+                    best_count = count
+
+            if best_vp and best_covered:
+                # Skip if this viewport is a duplicate of a settlement viewport
+                is_dup = False
+                for svp in self._seed_viewports[seed_idx]:
+                    if svp == best_vp:
+                        is_dup = True
+                        break
+                if not is_dup:
+                    viewports.append(best_vp)
+                uncovered -= best_covered
+            else:
+                break
+
+        return viewports
+
     def _viewport_dynamic_score(
         self, seed_idx: int, x: int, y: int, w: int, h: int
     ) -> float:
@@ -158,6 +330,33 @@ class QueryOptimizer:
         forest_cells = float(np.sum(region == 4))
 
         return dynamic + sett_cells * 5 + forest_cells * 0.5
+
+    def _viewport_info_gain(
+        self,
+        seed_idx: int,
+        x: int, y: int, w: int, h: int,
+        counts: Optional[dict] = None,
+    ) -> float:
+        """
+        Compute expected information gain for a viewport using the formula:
+            expected_info_gain per cell = entropy_prior(cell) * (K-1) / (2*(n+1)*(n+2))
+        where K=6 classes and n=number of existing observations for that cell.
+
+        Cells with higher entropy prior and fewer observations contribute more.
+        """
+        entropy_region = self._entropy_prior[seed_idx][y:y+h, x:x+w]
+
+        if counts is not None and seed_idx in counts:
+            seed_counts = counts[seed_idx]
+            n_obs = seed_counts[y:y+h, x:x+w].sum(axis=2).astype(np.float64)
+        else:
+            n_obs = np.zeros((h, w), dtype=np.float64)
+
+        # Information gain formula: entropy_prior * (K-1) / (2*(n+1)*(n+2))
+        K = NUM_CLASSES
+        gain_per_cell = entropy_region * (K - 1) / (2.0 * (n_obs + 1) * (n_obs + 2))
+
+        return float(gain_per_cell.sum())
 
     def _rank_viewports_by_value(
         self, seed_idx: int, viewports: list[tuple[int, int, int, int]]
@@ -173,117 +372,158 @@ class QueryOptimizer:
 
     def plan_queries(self) -> list[tuple[int, int, int, int, int]]:
         """
-        3-phase query plan optimized for entropy-weighted KL divergence scoring.
+        Two-phase query plan optimized for entropy-weighted KL divergence scoring.
 
-        Phase 1 (40% budget): Full coverage of primary seed + settlement viewports
-            on 2 secondary seeds.
-        Phase 2 (40% budget): Fill coverage gaps on remaining seeds, prioritizing
-            settlement-dense viewports.
-        Phase 3 (20% budget): Re-observe highest-value viewports across all seeds
-            for 2+ observations on dynamic cells.
+        Phase 1 (60% budget): Cover each settlement viewport at least twice per
+            seed, plus expansion zone viewports. Seeds with more settlements get
+            proportionally more queries (unequal allocation).
+        Phase 2 (40% budget): Adaptive — pick highest information gain viewport
+            across all seeds using entropy-based scoring.
 
         Returns: list of (seed_idx, x, y, w, h)
         """
-        phase1_budget = max(1, int(self.budget * 0.40))
-        phase3_budget = max(1, int(self.budget * 0.20))
-        phase2_budget = self.budget - phase1_budget - phase3_budget
+        phase1_budget = max(1, int(self.budget * 0.60))
+        phase2_budget = self.budget - phase1_budget
 
         plan: list[tuple[int, int, int, int, int]] = []
 
-        # Track which tiles have been covered per seed
-        covered_tiles: dict[int, set[tuple[int, int, int, int]]] = {
-            i: set() for i in range(self.seeds_count)
+        # Track observation counts for info gain computation
+        # Simulated counts: how many times each cell has been observed in our plan
+        sim_counts: dict[int, np.ndarray] = {
+            i: np.zeros((self.H, self.W), dtype=np.float64)
+            for i in range(self.seeds_count)
         }
 
-        # ── Phase 1: Primary seed full coverage + secondary settlement viewports
-        primary = self._seed_rank[0]
-        secondary_seeds = self._seed_rank[1:3] if len(self._seed_rank) > 1 else []
+        def record_query(seed_idx: int, x: int, y: int, w: int, h: int):
+            sim_counts[seed_idx][y:y+h, x:x+w] += 1.0
 
-        # Full 9-tile coverage of primary seed
-        primary_tiles = self._full_coverage_tiles[:]
-        # Sort by dynamic score so we get the best tiles first if we run out
-        primary_ranked = self._rank_viewports_by_value(primary, primary_tiles)
+        # ── Phase 1: Coverage with unequal seed allocation ──────────────
+
+        # Compute per-seed budget based on settlement weights
+        seed_budgets = {}
+        for i in range(self.seeds_count):
+            seed_budgets[i] = max(2, int(phase1_budget * self._seed_weights[i]))
+
+        # Ensure total doesn't exceed phase1_budget
+        total_allocated = sum(seed_budgets.values())
+        if total_allocated > phase1_budget:
+            # Scale down proportionally
+            scale = phase1_budget / total_allocated
+            for i in seed_budgets:
+                seed_budgets[i] = max(1, int(seed_budgets[i] * scale))
 
         phase1_used = 0
-        for _score, vp in primary_ranked:
-            if phase1_used >= phase1_budget:
-                break
-            plan.append((primary, *vp))
-            covered_tiles[primary].add(vp)
-            phase1_used += 1
 
-        # Remaining phase 1 budget on secondary seeds' settlement viewports
-        remaining_p1 = phase1_budget - phase1_used
-        if remaining_p1 > 0 and secondary_seeds:
-            per_secondary = max(1, remaining_p1 // len(secondary_seeds))
-            for sec_seed in secondary_seeds:
-                sec_vps = self._rank_viewports_by_value(
-                    sec_seed, self._seed_viewports[sec_seed]
-                )
-                count = 0
-                for _score, vp in sec_vps:
-                    if count >= per_secondary or len(plan) >= phase1_budget:
+        for seed_idx in self._seed_rank:
+            seed_budget = seed_budgets[seed_idx]
+            seed_used = 0
+
+            # First pass: settlement viewports (at least 2x each)
+            sett_vps = self._seed_viewports[seed_idx]
+            for vp in sett_vps:
+                for _ in range(2):  # 2 observations per settlement viewport
+                    if seed_used >= seed_budget or phase1_used >= phase1_budget:
                         break
-                    plan.append((sec_seed, *vp))
-                    covered_tiles[sec_seed].add(vp)
-                    count += 1
+                    plan.append((seed_idx, *vp))
+                    record_query(seed_idx, *vp)
+                    seed_used += 1
+                    phase1_used += 1
 
-        # ── Phase 2: Fill coverage gaps for all seeds
-        # Determine uncovered full-coverage tiles per seed, ranked by value
-        phase2_candidates: list[tuple[float, int, tuple[int, int, int, int]]] = []
+            # Second pass: expansion zone viewports (at least 1x each)
+            exp_vps = self._expansion_viewports[seed_idx]
+            for vp in exp_vps:
+                if seed_used >= seed_budget or phase1_used >= phase1_budget:
+                    break
+                plan.append((seed_idx, *vp))
+                record_query(seed_idx, *vp)
+                seed_used += 1
+                phase1_used += 1
 
-        for seed_idx in range(self.seeds_count):
-            uncovered = [
-                t for t in self._full_coverage_tiles
-                if t not in covered_tiles[seed_idx]
-            ]
-            for score, vp in self._rank_viewports_by_value(seed_idx, uncovered):
-                phase2_candidates.append((score, seed_idx, vp))
+            # Third pass: remaining budget on highest-value viewports
+            all_vps = sett_vps + exp_vps
+            if seed_used < seed_budget and phase1_used < phase1_budget:
+                # Add full coverage tiles not yet covered
+                for tile in self._full_coverage_tiles:
+                    if tile not in all_vps:
+                        all_vps.append(tile)
 
-        # Also add settlement viewports not yet covered
+                ranked = self._rank_viewports_by_value(seed_idx, all_vps)
+                for _score, vp in ranked:
+                    if seed_used >= seed_budget or phase1_used >= phase1_budget:
+                        break
+                    plan.append((seed_idx, *vp))
+                    record_query(seed_idx, *vp)
+                    seed_used += 1
+                    phase1_used += 1
+
+        # Use any remaining phase1 budget
+        remaining_p1 = phase1_budget - phase1_used
+        if remaining_p1 > 0:
+            phase2_budget += remaining_p1
+
+        # ── Phase 2: Adaptive information gain ──────────────────────────
+
+        # Build candidate viewports for all seeds
+        all_candidates: list[tuple[int, tuple[int, int, int, int]]] = []
         for seed_idx in range(self.seeds_count):
             for vp in self._seed_viewports[seed_idx]:
-                if vp not in covered_tiles[seed_idx]:
-                    score = self._viewport_dynamic_score(seed_idx, *vp)
-                    # Boost settlement viewports
-                    phase2_candidates.append((score * 2, seed_idx, vp))
+                all_candidates.append((seed_idx, vp))
+            for vp in self._expansion_viewports[seed_idx]:
+                all_candidates.append((seed_idx, vp))
+            for vp in self._full_coverage_tiles:
+                all_candidates.append((seed_idx, vp))
 
-        # Sort by value descending
-        phase2_candidates.sort(reverse=True, key=lambda x: x[0])
+        # Remove exact duplicates
+        seen = set()
+        deduped = []
+        for seed_idx, vp in all_candidates:
+            key = (seed_idx, *vp)
+            if key not in seen:
+                seen.add(key)
+                deduped.append((seed_idx, vp))
+        all_candidates = deduped
+
+        # Wrap sim_counts into a format compatible with _viewport_info_gain
+        # We need a fake counts dict with shape (H, W, K) but we only track
+        # total observations, so we broadcast.
+        def make_fake_counts():
+            fake = {}
+            for i in range(self.seeds_count):
+                # Shape (H, W, K) where the sum along axis 2 = sim_counts
+                c = np.zeros((self.H, self.W, NUM_CLASSES), dtype=np.float64)
+                # Distribute observations evenly across classes for gain calc
+                # (doesn't matter for the formula since we only use sum)
+                c[:, :, 0] = sim_counts[i]
+                fake[i] = c
+            return fake
 
         phase2_used = 0
-        for _score, seed_idx, vp in phase2_candidates:
+        for _ in range(phase2_budget):
             if phase2_used >= phase2_budget:
                 break
-            # Skip if already covered (dedup)
-            if vp in covered_tiles[seed_idx]:
-                continue
-            plan.append((seed_idx, *vp))
-            covered_tiles[seed_idx].add(vp)
-            phase2_used += 1
 
-        # If phase2 has leftover budget, start re-observing high-value tiles
-        remaining_p2 = phase2_budget - phase2_used
-        if remaining_p2 > 0:
-            phase3_budget += remaining_p2
+            fake_counts = make_fake_counts()
 
-        # ── Phase 3: Re-observe highest-value viewports for 2+ observations
-        reobserve_candidates: list[tuple[float, int, tuple[int, int, int, int]]] = []
+            best_gain = -1.0
+            best_query = None
 
-        for seed_idx in range(self.seeds_count):
-            for vp in covered_tiles[seed_idx]:
-                score = self._viewport_dynamic_score(seed_idx, *vp)
-                reobserve_candidates.append((score, seed_idx, vp))
+            for seed_idx, vp in all_candidates:
+                x, y, w, h = vp
+                gain = self._viewport_info_gain(
+                    seed_idx, x, y, w, h, counts=fake_counts
+                )
+                if gain > best_gain:
+                    best_gain = gain
+                    best_query = (seed_idx, *vp)
 
-        # Sort by dynamic value descending — re-observe the most valuable first
-        reobserve_candidates.sort(reverse=True, key=lambda x: x[0])
-
-        phase3_used = 0
-        for _score, seed_idx, vp in reobserve_candidates:
-            if phase3_used >= phase3_budget:
+            if best_query is None:
                 break
-            plan.append((seed_idx, *vp))
-            phase3_used += 1
+
+            plan.append(best_query)
+            seed_idx = best_query[0]
+            record_query(seed_idx, best_query[1], best_query[2],
+                         best_query[3], best_query[4])
+            phase2_used += 1
 
         return plan
 
@@ -294,13 +534,17 @@ class QueryOptimizer:
         queries_remaining: int,
     ) -> tuple[int, int, int, int, int]:
         """
-        Adaptive query selection based on current observation state.
+        Adaptive query selection based on information-theoretic gain.
+
+        Uses the formula:
+            expected_info_gain per cell = entropy_prior(cell) * (K-1) / (2*(n+1)*(n+2))
+        where K=6 classes and n=number of existing observations.
 
         Logic:
         1. If any seed is completely unobserved, observe its best settlement viewport.
-        2. If there are uncovered settlement viewports, fill those first.
-        3. Otherwise, re-observe viewports with the most terrain transitions
-           (settlement/ruin/port changes) — these have highest entropy.
+        2. Otherwise, pick the viewport with highest expected information gain
+           across all seeds, considering settlement viewports, expansion zones,
+           and full coverage tiles.
         """
         # Priority 1: Completely unobserved seeds
         for seed_idx in self._seed_rank:
@@ -308,29 +552,7 @@ class QueryOptimizer:
                 vps = self._seed_viewports[seed_idx]
                 return (seed_idx, *vps[0])
 
-        # Priority 2: Uncovered settlement viewports
-        best_uncovered_score = -1.0
-        best_uncovered: Optional[tuple[int, int, int, int, int]] = None
-
-        for seed_idx in range(self.seeds_count):
-            seed_counts = counts.get(seed_idx)
-            if seed_counts is None:
-                continue
-            for vp in self._seed_viewports[seed_idx]:
-                x, y, w, h = vp
-                region_obs = seed_counts[y : y + h, x : x + w].sum(axis=2)
-                if region_obs.min() == 0:
-                    # Has unobserved cells
-                    score = self._viewport_dynamic_score(seed_idx, x, y, w, h)
-                    if score > best_uncovered_score:
-                        best_uncovered_score = score
-                        best_uncovered = (seed_idx, x, y, w, h)
-
-        if best_uncovered is not None:
-            return best_uncovered
-
-        # Priority 3: Re-observe viewports with most terrain transitions
-        # (indicating high entropy / dynamic cells)
+        # Priority 2: Information-theoretic gain across all candidates
         best_gain = -1.0
         best_query: Optional[tuple[int, int, int, int, int]] = None
 
@@ -339,37 +561,20 @@ class QueryOptimizer:
             if seed_counts is None:
                 continue
 
-            # Consider both settlement viewports and full coverage tiles
+            # Build candidate list: settlement + expansion + coverage tiles
             candidates = list(self._seed_viewports[seed_idx])
+            for vp in self._expansion_viewports[seed_idx]:
+                if vp not in candidates:
+                    candidates.append(vp)
             for tile in self._full_coverage_tiles:
                 if tile not in candidates:
                     candidates.append(tile)
 
             for vp in candidates:
                 x, y, w, h = vp
-                region_counts = seed_counts[y : y + h, x : x + w]
-                n_obs = region_counts.sum(axis=2).astype(float)
-
-                # Count cells with observed transitions (multiple classes seen)
-                classes_seen = (region_counts > 0).sum(axis=2)
-                transition_cells = float(np.sum(classes_seen > 1))
-
-                # Also consider cells with settlement/ruin/port in initial grid
-                grid_region = self.grids[seed_idx][y : y + h, x : x + w]
-                sett_cells = float(np.sum(np.isin(grid_region, [1, 2, 3])))
-
-                # Dynamic importance weighting
-                importance = np.ones_like(n_obs)
-                importance[grid_region == 10] = 0.0  # Ocean — static
-                importance[grid_region == 5] = 0.0   # Mountain — static
-                importance[np.isin(grid_region, [1, 2, 3])] = 5.0  # Settlements
-                importance[classes_seen > 1] *= 3.0  # Observed transitions
-
-                # Gain: high importance, low observations
-                gain = float((importance / (1.0 + n_obs)).sum())
-
-                # Bonus for viewports with actual observed transitions
-                gain += transition_cells * 10.0 + sett_cells * 2.0
+                gain = self._viewport_info_gain(
+                    seed_idx, x, y, w, h, counts=counts
+                )
 
                 if gain > best_gain:
                     best_gain = gain
@@ -400,21 +605,28 @@ class QueryOptimizer:
 
         lines = [
             f"Query plan: {len(plan)} queries, "
-            f"3-phase coverage+reobserve strategy"
+            f"2-phase info-gain strategy"
         ]
 
         # Phase breakdown
-        phase1_budget = max(1, int(self.budget * 0.40))
-        phase3_budget = max(1, int(self.budget * 0.20))
-        phase2_budget = self.budget - phase1_budget - phase3_budget
+        phase1_budget = max(1, int(self.budget * 0.60))
+        phase2_budget = self.budget - phase1_budget
         lines.append(
-            f"  Phases: {phase1_budget} coverage-primary + "
-            f"{phase2_budget} fill-gaps + {phase3_budget} re-observe"
+            f"  Phase 1 (coverage): {phase1_budget} queries"
         )
         lines.append(
-            f"  Primary seed: {self._seed_rank[0]} "
-            f"({len(self.settlement_coords[self._seed_rank[0]])} settlements)"
+            f"  Phase 2 (adaptive info gain): {phase2_budget} queries"
         )
+
+        # Seed weights
+        for seed_idx in range(self.seeds_count):
+            n_sett = len(self.settlement_coords[seed_idx])
+            n_exp = len(self._expansion_viewports[seed_idx])
+            weight_pct = self._seed_weights[seed_idx] * 100
+            lines.append(
+                f"  Seed {seed_idx}: weight={weight_pct:.0f}%, "
+                f"{n_sett} settlements, {n_exp} expansion viewports"
+            )
 
         for seed_idx in range(self.seeds_count):
             info = seed_info.get(seed_idx, {

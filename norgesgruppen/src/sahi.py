@@ -156,7 +156,7 @@ def sahi_inference(
         all_scores_lists,
         all_labels_lists,
         weights=[1.0] * n_sources,
-        iou_thr=0.55,
+        iou_thr=0.6,
         skip_box_thr=0.001,
     )
 

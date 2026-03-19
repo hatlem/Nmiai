@@ -19,12 +19,13 @@ from ultralytics import YOLO
 from src.utils import enhance_retail_image
 from src.wbf import weighted_boxes_fusion
 
-# Multi-scale WBF config
+# Multi-scale WBF config (tuned for mAP@0.5 — let scorer sort precision/recall)
 SCALES = [640, 1280]
-WBF_IOU_THR = 0.55
+WBF_IOU_THR = 0.6
 WBF_SKIP_BOX_THR = 0.001
-CONF_THRESHOLD = 0.05
-NMS_IOU = 0.45
+CONF_THRESHOLD = 0.001
+NMS_IOU = 0.65
+
 
 
 def run_multiscale_wbf(model, img, device: str):
