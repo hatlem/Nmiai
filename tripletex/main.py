@@ -180,8 +180,9 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             logger.warning("Quick-fix: bankkontonummer error — cannot fix via API, competition sandboxes have this pre-configured")
             return None
 
-        # 400 "already exists" - search for existing entity instead of creating
-        if status == 400 and any(kw in error_msg for kw in ("already exists", "allerede", "finnes allerede")):
+        # 400/422 "already exists" - search for existing entity instead of creating
+        _already_exists_kw = ("already exists", "allerede registrert", "allerede", "finnes allerede", "er allerede")
+        if status in (400, 422) and any(kw in error_msg for kw in _already_exists_kw):
             method = original_step.get("method", "").upper()
             path = original_step.get("path", "")
             body = original_step.get("body", {})
@@ -327,10 +328,6 @@ async def solve(request: Request):
             else:
                 verification_errors = None
 
-            if task_type in SKIP_RECOVERY_TYPES and not verification_errors:
-                logger.info(f"Skipping recovery for simple task {task_type}")
-                break
-
             # Don't waste time on repair if it's a network/DNS error
             has_network_error = any(
                 isinstance(res.get("data"), dict) and res["data"].get("network_error")
@@ -359,6 +356,9 @@ async def solve(request: Request):
                 if quick_fix:
                     logger.info("Applied quick-fix repair (no LLM call)")
                     repaired_plan = quick_fix
+                elif task_type in SKIP_RECOVERY_TYPES and not verification_errors:
+                    logger.info(f"Skipping LLM recovery for simple task {task_type}")
+                    break
                 else:
                     repaired_plan = await self_repair(
                         prompt, current_plan, current_result["results"],
