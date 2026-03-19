@@ -1,0 +1,1552 @@
+{
+  "Employee": {
+    "firstName": {
+      "type": "string"
+    },
+    "lastName": {
+      "type": "string"
+    },
+    "employeeNumber": {
+      "type": "string"
+    },
+    "dateOfBirth": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "phoneNumberMobileCountry": {
+      "type": "ref:Country"
+    },
+    "phoneNumberMobile": {
+      "type": "string"
+    },
+    "phoneNumberHome": {
+      "type": "string"
+    },
+    "phoneNumberWork": {
+      "type": "string"
+    },
+    "nationalIdentityNumber": {
+      "type": "string"
+    },
+    "dnumber": {
+      "type": "string"
+    },
+    "internationalId": {
+      "type": "ref:InternationalId"
+    },
+    "bankAccountNumber": {
+      "type": "string"
+    },
+    "iban": {
+      "type": "string",
+      "desc": "IBAN field"
+    },
+    "bic": {
+      "type": "string",
+      "desc": "Bic (swift) field"
+    },
+    "creditorBankCountryId": {
+      "type": "integer",
+      "desc": "Country of creditor bank field"
+    },
+    "usesAbroadPayment": {
+      "type": "boolean",
+      "desc": "UsesAbroadPayment field. Determines if we should use domestic or abroad remittance. To be able to use abroad remittance,"
+    },
+    "userType": {
+      "type": "string",
+      "enum": [
+        "STANDARD",
+        "EXTENDED",
+        "NO_ACCESS"
+      ],
+      "desc": "Define the employee's user type.<br>STANDARD: Reduced access. Users with limited system entitlements.<br>EXTENDED: Users"
+    },
+    "isContact": {
+      "type": "boolean",
+      "desc": "Determines if the employee is a contact (external) in the company."
+    },
+    "comments": {
+      "type": "string"
+    },
+    "address": {
+      "type": "ref:Address"
+    },
+    "department": {
+      "type": "ref:Department"
+    },
+    "employments": {
+      "type": "array<Employment>"
+    },
+    "holidayAllowanceEarned": {
+      "type": "ref:HolidayAllowanceEarned"
+    },
+    "employeeCategory": {
+      "type": "ref:EmployeeCategory"
+    }
+  },
+  "Customer": {
+    "name": {
+      "type": "string"
+    },
+    "organizationNumber": {
+      "type": "string"
+    },
+    "globalLocationNumber": {
+      "type": "integer"
+    },
+    "supplierNumber": {
+      "type": "integer"
+    },
+    "customerNumber": {
+      "type": "integer"
+    },
+    "isSupplier": {
+      "type": "boolean",
+      "desc": "Defines if the customer is also a supplier."
+    },
+    "isInactive": {
+      "type": "boolean"
+    },
+    "accountManager": {
+      "type": "ref:Employee"
+    },
+    "department": {
+      "type": "ref:Department"
+    },
+    "email": {
+      "type": "string"
+    },
+    "invoiceEmail": {
+      "type": "string"
+    },
+    "overdueNoticeEmail": {
+      "type": "string",
+      "desc": "The email address of the customer where the noticing emails are sent in case of an overdue"
+    },
+    "bankAccounts": {
+      "type": "array"
+    },
+    "phoneNumber": {
+      "type": "string"
+    },
+    "phoneNumberMobile": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string",
+      "enum": [
+        "NO",
+        "EN"
+      ]
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "isPrivateIndividual": {
+      "type": "boolean"
+    },
+    "singleCustomerInvoice": {
+      "type": "boolean",
+      "desc": "Enables various orders on one customer invoice."
+    },
+    "invoiceSendMethod": {
+      "type": "string",
+      "enum": [
+        "EMAIL",
+        "EHF",
+        "EFAKTURA",
+        "AVTALEGIRO",
+        "VIPPS",
+        "PAPER",
+        "MANUAL"
+      ],
+      "desc": "Define the invoicing method for the customer.<br>EMAIL: Send invoices as email.<br>EHF: Send invoices as EHF.<br>EFAKTUR"
+    },
+    "emailAttachmentType": {
+      "type": "string",
+      "enum": [
+        "LINK",
+        "ATTACHMENT"
+      ],
+      "desc": "Define the invoice attachment type for emailing to the customer.<br>LINK: Send invoice as link in email.<br>ATTACHMENT: "
+    },
+    "postalAddress": {
+      "type": "ref:Address"
+    },
+    "physicalAddress": {
+      "type": "ref:Address"
+    },
+    "deliveryAddress": {
+      "type": "ref:DeliveryAddress"
+    },
+    "category1": {
+      "type": "ref:CustomerCategory"
+    },
+    "category2": {
+      "type": "ref:CustomerCategory"
+    },
+    "category3": {
+      "type": "ref:CustomerCategory"
+    },
+    "invoicesDueIn": {
+      "type": "integer",
+      "desc": "Number of days/months in which invoices created from this customer is due"
+    },
+    "invoicesDueInType": {
+      "type": "string",
+      "enum": [
+        "DAYS",
+        "MONTHS",
+        "RECURRING_DAY_OF_MONTH"
+      ],
+      "desc": "Set the time unit of invoicesDueIn. The special case RECURRING_DAY_OF_MONTH enables the due date to be fixed to a specif"
+    },
+    "currency": {
+      "type": "ref:Currency"
+    },
+    "bankAccountPresentation": {
+      "type": "array<CompanyBankAccountPresentation>"
+    },
+    "ledgerAccount": {
+      "type": "ref:Account"
+    },
+    "isFactoring": {
+      "type": "boolean",
+      "desc": "If true; send this customers invoices to factoring (if factoring is turned on in account)."
+    },
+    "invoiceSendSMSNotification": {
+      "type": "boolean",
+      "desc": "Is sms-notification on/off"
+    },
+    "invoiceSMSNotificationNumber": {
+      "type": "string",
+      "desc": "Send SMS-notification to this number. Must be a norwegian phone number"
+    },
+    "isAutomaticSoftReminderEnabled": {
+      "type": "boolean",
+      "desc": "Has automatic soft reminders enabled for this customer."
+    },
+    "isAutomaticReminderEnabled": {
+      "type": "boolean",
+      "desc": "Has automatic reminders enabled for this customer."
+    },
+    "isAutomaticNoticeOfDebtCollectionEnabled": {
+      "type": "boolean",
+      "desc": "Has automatic notice of debt collection enabled for this customer."
+    },
+    "discountPercentage": {
+      "type": "number",
+      "desc": "Default discount percentage for this customer."
+    },
+    "website": {
+      "type": "string"
+    }
+  },
+  "Product": {
+    "name": {
+      "type": "string"
+    },
+    "number": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "orderLineDescription": {
+      "type": "string"
+    },
+    "ean": {
+      "type": "string"
+    },
+    "costExcludingVatCurrency": {
+      "type": "number",
+      "desc": "Price purchase (cost) excluding VAT in the product's currency"
+    },
+    "expenses": {
+      "type": "number"
+    },
+    "priceExcludingVatCurrency": {
+      "type": "number",
+      "desc": "Price of purchase excluding VAT in the product's currency"
+    },
+    "priceIncludingVatCurrency": {
+      "type": "number",
+      "desc": "Price of purchase including VAT in the product's currency"
+    },
+    "isInactive": {
+      "type": "boolean"
+    },
+    "discountGroup": {
+      "type": "ref:DiscountGroup"
+    },
+    "productUnit": {
+      "type": "ref:ProductUnit"
+    },
+    "isStockItem": {
+      "type": "boolean"
+    },
+    "vatType": {
+      "type": "ref:VatType"
+    },
+    "currency": {
+      "type": "ref:Currency"
+    },
+    "department": {
+      "type": "ref:Department"
+    },
+    "account": {
+      "type": "ref:Account"
+    },
+    "supplier": {
+      "type": "ref:Supplier"
+    },
+    "resaleProduct": {
+      "type": "ref:Product"
+    },
+    "isDeletable": {
+      "type": "boolean",
+      "desc": "For performance reasons, field is deprecated and it will always return false."
+    },
+    "hasSupplierProductConnected": {
+      "type": "boolean"
+    },
+    "weight": {
+      "type": "number"
+    },
+    "weightUnit": {
+      "type": "string",
+      "enum": [
+        "kg",
+        "g",
+        "hg"
+      ]
+    },
+    "volume": {
+      "type": "number"
+    },
+    "volumeUnit": {
+      "type": "string",
+      "enum": [
+        "cm3",
+        "dm3",
+        "m3"
+      ]
+    },
+    "hsnCode": {
+      "type": "string"
+    },
+    "image": {
+      "type": "ref:Document"
+    },
+    "mainSupplierProduct": {
+      "type": "ref:SupplierProduct"
+    },
+    "minStockLevel": {
+      "type": "number",
+      "desc": "Minimum available stock level for the product. Applicable only to stock items in the Logistics Basics module."
+    }
+  },
+  "Invoice": {
+    "invoiceNumber": {
+      "type": "integer",
+      "desc": "If value is set to 0, the invoice number will be generated."
+    },
+    "invoiceDate": {
+      "type": "string"
+    },
+    "customer": {
+      "type": "ref:Customer"
+    },
+    "invoiceDueDate": {
+      "type": "string"
+    },
+    "kid": {
+      "type": "string",
+      "desc": "KID - Kundeidentifikasjonsnummer."
+    },
+    "comment": {
+      "type": "string",
+      "desc": "Comment text for the specific invoice."
+    },
+    "orders": {
+      "type": "array<Order>",
+      "desc": "Related orders. Only one order per invoice is supported at the moment."
+    },
+    "voucher": {
+      "type": "ref:Voucher"
+    },
+    "currency": {
+      "type": "ref:Currency"
+    },
+    "invoiceRemarks": {
+      "type": "string",
+      "desc": "Deprecated Invoice remarks - please use the 'invoiceRemark' instead."
+    },
+    "invoiceRemark": {
+      "type": "ref:InvoiceRemark"
+    },
+    "paymentTypeId": {
+      "type": "integer",
+      "desc": "[BETA] Optional. Used to specify payment type for prepaid invoices. Payment type can be specified here, or as a paramete"
+    },
+    "paidAmount": {
+      "type": "number",
+      "desc": "[BETA] Optional. Used to specify the prepaid amount of the invoice. The paid amount can be specified here, or as a param"
+    },
+    "ehfSendStatus": {
+      "type": "string",
+      "enum": [
+        "DO_NOT_SEND",
+        "SEND",
+        "SENT",
+        "SEND_FAILURE_RECIPIENT_NOT_FOUND"
+      ],
+      "desc": "[Deprecated] EHF (Peppol) send status. This only shows status for historic EHFs."
+    }
+  },
+  "Order": {
+    "customer": {
+      "type": "ref:Customer"
+    },
+    "contact": {
+      "type": "ref:Contact"
+    },
+    "attn": {
+      "type": "ref:Contact"
+    },
+    "receiverEmail": {
+      "type": "string"
+    },
+    "overdueNoticeEmail": {
+      "type": "string"
+    },
+    "number": {
+      "type": "string"
+    },
+    "reference": {
+      "type": "string"
+    },
+    "ourContact": {
+      "type": "ref:Contact"
+    },
+    "ourContactEmployee": {
+      "type": "ref:Employee"
+    },
+    "department": {
+      "type": "ref:Department"
+    },
+    "orderDate": {
+      "type": "string"
+    },
+    "project": {
+      "type": "ref:Project"
+    },
+    "invoiceComment": {
+      "type": "string",
+      "desc": "Comment to be displayed in the invoice based on this order. Can be also found in Invoice.invoiceComment on Invoice objec"
+    },
+    "internalComment": {
+      "type": "string",
+      "desc": "Internal comment to be displayed in order."
+    },
+    "currency": {
+      "type": "ref:Currency"
+    },
+    "invoicesDueIn": {
+      "type": "integer",
+      "desc": "Number of days/months in which invoices created from this order is due"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "NOT_CHOSEN",
+        "NEW",
+        "CONFIRMATION_SENT",
+        "READY_FOR_PICKING",
+        "PICKED",
+        "PACKED",
+        "READY_FOR_SHIPPING",
+        "READY_FOR_INVOICING",
+        "INVOICED",
+        "CANCELLED"
+      ],
+      "desc": "Logistics only"
+    },
+    "invoicesDueInType": {
+      "type": "string",
+      "enum": [
+        "DAYS",
+        "MONTHS",
+        "RECURRING_DAY_OF_MONTH"
+      ],
+      "desc": "Set the time unit of invoicesDueIn. The special case RECURRING_DAY_OF_MONTH enables the due date to be fixed to a specif"
+    },
+    "isShowOpenPostsOnInvoices": {
+      "type": "boolean",
+      "desc": "Show account statement - open posts on invoices created from this order"
+    },
+    "isClosed": {
+      "type": "boolean",
+      "desc": "Denotes if this order is closed. A closed order can no longer be invoiced unless it is opened again."
+    },
+    "deliveryDate": {
+      "type": "string"
+    },
+    "deliveryAddress": {
+      "type": "ref:DeliveryAddress"
+    },
+    "deliveryComment": {
+      "type": "string"
+    },
+    "isPrioritizeAmountsIncludingVat": {
+      "type": "boolean"
+    },
+    "orderLineSorting": {
+      "type": "string",
+      "enum": [
+        "ID",
+        "PRODUCT",
+        "PRODUCT_DESCENDING",
+        "CUSTOM"
+      ]
+    },
+    "orderGroups": {
+      "type": "array<OrderGroup>",
+      "desc": "Order line groups"
+    },
+    "orderLines": {
+      "type": "array<OrderLine>",
+      "desc": "Order lines tied to the order. New OrderLines may be embedded here, in some endpoints."
+    },
+    "isSubscription": {
+      "type": "boolean",
+      "desc": "If true, the order is a subscription, which enables periodical invoicing of order lines. First, create an order with isS"
+    },
+    "subscriptionDuration": {
+      "type": "integer",
+      "desc": "Number of months/years the subscription shall run"
+    },
+    "subscriptionDurationType": {
+      "type": "string",
+      "enum": [
+        "MONTHS",
+        "YEAR"
+      ],
+      "desc": "The time unit of subscriptionDuration"
+    },
+    "subscriptionPeriodsOnInvoice": {
+      "type": "integer",
+      "desc": "Number of periods on each invoice"
+    },
+    "subscriptionInvoicingTimeInAdvanceOrArrears": {
+      "type": "string",
+      "enum": [
+        "ADVANCE",
+        "ARREARS"
+      ],
+      "desc": "Invoicing in advance/in arrears"
+    },
+    "subscriptionInvoicingTime": {
+      "type": "integer",
+      "desc": "Number of days/months invoicing in advance/in arrears"
+    },
+    "subscriptionInvoicingTimeType": {
+      "type": "string",
+      "enum": [
+        "DAYS",
+        "MONTHS"
+      ],
+      "desc": "The time unit of subscriptionInvoicingTime"
+    },
+    "isSubscriptionAutoInvoicing": {
+      "type": "boolean",
+      "desc": "Automatic invoicing. Starts when the subscription is approved"
+    },
+    "preliminaryInvoice": {
+      "type": "ref:Invoice"
+    },
+    "sendMethodDescription": {
+      "type": "string",
+      "desc": "Description of how this invoice will be sent"
+    },
+    "invoiceOnAccountVatHigh": {
+      "type": "boolean",
+      "desc": "Is the on account(a konto) amounts including vat "
+    },
+    "invoiceSMSNotificationNumber": {
+      "type": "string",
+      "desc": "The phone number of the receiver of sms notifications. Must be a norwegian phone number"
+    },
+    "markUpOrderLines": {
+      "type": "number",
+      "desc": "Set mark-up (%) for order lines."
+    },
+    "discountPercentage": {
+      "type": "number",
+      "desc": "Default discount percentage for order lines."
+    }
+  },
+  "OrderLine": {
+    "product": {
+      "type": "ref:Product"
+    },
+    "inventory": {
+      "type": "ref:Inventory"
+    },
+    "inventoryLocation": {
+      "type": "ref:InventoryLocation"
+    },
+    "description": {
+      "type": "string"
+    },
+    "count": {
+      "type": "number"
+    },
+    "unitCostCurrency": {
+      "type": "number",
+      "desc": "Unit price purchase (cost) excluding VAT in the order's currency"
+    },
+    "unitPriceExcludingVatCurrency": {
+      "type": "number",
+      "desc": "Unit price of purchase excluding VAT in the order's currency. If only unit price Excl. VAT or unit price Inc. VAT is sup"
+    },
+    "currency": {
+      "type": "ref:Currency"
+    },
+    "markup": {
+      "type": "number",
+      "desc": "Markup given as a percentage (%)"
+    },
+    "discount": {
+      "type": "number",
+      "desc": "Discount given as a percentage (%)"
+    },
+    "vatType": {
+      "type": "ref:VatType"
+    },
+    "vendor": {
+      "type": "ref:Company"
+    },
+    "order": {
+      "type": "ref:Order"
+    },
+    "unitPriceIncludingVatCurrency": {
+      "type": "number",
+      "desc": "Unit price of purchase including VAT in the order's currency. If only unit price Excl. VAT or unit price Inc. VAT is sup"
+    },
+    "isSubscription": {
+      "type": "boolean"
+    },
+    "subscriptionPeriodStart": {
+      "type": "string"
+    },
+    "subscriptionPeriodEnd": {
+      "type": "string"
+    },
+    "orderGroup": {
+      "type": "ref:OrderGroup"
+    },
+    "sortIndex": {
+      "type": "integer",
+      "desc": "Defines the presentation order of the lines. Does not need to be, and is often not continuous. Only applicable if parent"
+    },
+    "isPicked": {
+      "type": "boolean",
+      "desc": "Only used for Logistics customers who activated the available inventory functionality. Represents whether the line has b"
+    },
+    "pickedDate": {
+      "type": "string",
+      "desc": "Only used for Logistics customers who activated the available inventory functionality. Represents the pick date for an o"
+    },
+    "orderedQuantity": {
+      "type": "number",
+      "desc": "Only used for Logistics customers who activated the Backorder functionality. Represents the quantity that was ordered. I"
+    },
+    "isCharged": {
+      "type": "boolean",
+      "desc": "Flag indicating whether the order line is charged or not."
+    }
+  },
+  "TravelExpense": {
+    "attestationSteps": {
+      "type": "array<AttestationStep>"
+    },
+    "attestation": {
+      "type": "ref:Attestation"
+    },
+    "project": {
+      "type": "ref:Project"
+    },
+    "employee": {
+      "type": "ref:Employee"
+    },
+    "approvedBy": {
+      "type": "ref:Employee"
+    },
+    "completedBy": {
+      "type": "ref:Employee"
+    },
+    "rejectedBy": {
+      "type": "ref:Employee"
+    },
+    "department": {
+      "type": "ref:Department"
+    },
+    "freeDimension1": {
+      "type": "ref:AccountingDimensionValue"
+    },
+    "freeDimension2": {
+      "type": "ref:AccountingDimensionValue"
+    },
+    "freeDimension3": {
+      "type": "ref:AccountingDimensionValue"
+    },
+    "payslip": {
+      "type": "ref:Payslip"
+    },
+    "vatType": {
+      "type": "ref:VatType"
+    },
+    "paymentCurrency": {
+      "type": "ref:Currency"
+    },
+    "travelDetails": {
+      "type": "ref:TravelDetails"
+    },
+    "voucher": {
+      "type": "ref:Voucher"
+    },
+    "attachment": {
+      "type": "ref:Document"
+    },
+    "isChargeable": {
+      "type": "boolean"
+    },
+    "isFixedInvoicedAmount": {
+      "type": "boolean"
+    },
+    "isMarkupInvoicedPercent": {
+      "type": "boolean"
+    },
+    "isIncludeAttachedReceiptsWhenReinvoicing": {
+      "type": "boolean"
+    },
+    "travelAdvance": {
+      "type": "number"
+    },
+    "fixedInvoicedAmount": {
+      "type": "number"
+    },
+    "markupInvoicedPercent": {
+      "type": "number"
+    },
+    "invoice": {
+      "type": "ref:Invoice"
+    },
+    "title": {
+      "type": "string"
+    },
+    "perDiemCompensations": {
+      "type": "array<PerDiemCompensation>",
+      "desc": "Link to individual per diem compensations."
+    },
+    "costs": {
+      "type": "array<Cost>",
+      "desc": "Link to individual costs."
+    }
+  },
+  "Project": {
+    "name": {
+      "type": "string"
+    },
+    "number": {
+      "type": "string",
+      "desc": "If NULL, a number is generated automatically."
+    },
+    "description": {
+      "type": "string"
+    },
+    "projectManager": {
+      "type": "ref:Employee"
+    },
+    "department": {
+      "type": "ref:Department"
+    },
+    "mainProject": {
+      "type": "ref:Project"
+    },
+    "startDate": {
+      "type": "string"
+    },
+    "endDate": {
+      "type": "string"
+    },
+    "customer": {
+      "type": "ref:Customer"
+    },
+    "isClosed": {
+      "type": "boolean"
+    },
+    "isReadyForInvoicing": {
+      "type": "boolean"
+    },
+    "isInternal": {
+      "type": "boolean"
+    },
+    "isOffer": {
+      "type": "boolean",
+      "desc": "If is Project Offer set to true, if is Project set to false. The default value is false."
+    },
+    "isFixedPrice": {
+      "type": "boolean",
+      "desc": "Project is fixed price if set to true, hourly rate if set to false."
+    },
+    "projectCategory": {
+      "type": "ref:ProjectCategory"
+    },
+    "deliveryAddress": {
+      "type": "ref:Address"
+    },
+    "boligmappaAddress": {
+      "type": "ref:Address"
+    },
+    "displayNameFormat": {
+      "type": "string",
+      "enum": [
+        "NAME_STANDARD",
+        "NAME_INCL_CUSTOMER_NAME",
+        "NAME_INCL_PARENT_NAME",
+        "NAME_INCL_PARENT_NUMBER",
+        "NAME_INCL_PARENT_NAME_AND_NUMBER"
+      ],
+      "desc": "Defines project name presentation in overviews."
+    },
+    "reference": {
+      "type": "string"
+    },
+    "externalAccountsNumber": {
+      "type": "string"
+    },
+    "vatType": {
+      "type": "ref:VatType"
+    },
+    "fixedprice": {
+      "type": "number",
+      "desc": "Fixed price amount, in the project's currency."
+    },
+    "currency": {
+      "type": "ref:Currency"
+    },
+    "markUpOrderLines": {
+      "type": "number",
+      "desc": "Set mark-up (%) for order lines."
+    },
+    "markUpFeesEarned": {
+      "type": "number",
+      "desc": "Set mark-up (%) for fees earned."
+    },
+    "isPriceCeiling": {
+      "type": "boolean",
+      "desc": "Set to true if an hourly rate project has a price ceiling."
+    },
+    "priceCeilingAmount": {
+      "type": "number",
+      "desc": "Price ceiling amount, in the project's currency."
+    },
+    "projectHourlyRates": {
+      "type": "array<ProjectHourlyRate>",
+      "desc": "Project Rate Types tied to the project."
+    },
+    "forParticipantsOnly": {
+      "type": "boolean",
+      "desc": "Set to true if only project participants can register information on the project"
+    },
+    "participants": {
+      "type": "array<ProjectParticipant>",
+      "desc": "Link to individual project participants."
+    },
+    "contact": {
+      "type": "ref:Contact"
+    },
+    "attention": {
+      "type": "ref:Contact"
+    },
+    "invoiceComment": {
+      "type": "string",
+      "desc": "Comment for project invoices"
+    },
+    "preliminaryInvoice": {
+      "type": "ref:Invoice"
+    },
+    "generalProjectActivitiesPerProjectOnly": {
+      "type": "boolean",
+      "desc": "Set to true if a general project activity must be linked to project to allow time tracking."
+    },
+    "projectActivities": {
+      "type": "array<ProjectActivity>",
+      "desc": "Project Activities"
+    },
+    "invoiceDueDate": {
+      "type": "integer",
+      "desc": "invoice due date"
+    },
+    "invoiceDueDateType": {
+      "type": "string",
+      "enum": [
+        "DAYS",
+        "MONTHS",
+        "RECURRING_DAY_OF_MONTH"
+      ],
+      "desc": "Set the time unit of invoiceDueDate. The special case RECURRING_DAY_OF_MONTH enables the due date to be fixed to a speci"
+    },
+    "invoiceReceiverEmail": {
+      "type": "string",
+      "desc": "Set the project's invoice receiver email. Will override the default invoice receiver email of any customer that may also"
+    },
+    "overdueNoticeEmail": {
+      "type": "string",
+      "desc": "Set the project's overdue notice email. Will override the default overdue notice email of any customer that may also be "
+    },
+    "accessType": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "READ",
+        "WRITE"
+      ],
+      "desc": "READ/WRITE access on project"
+    },
+    "useProductNetPrice": {
+      "type": "boolean"
+    },
+    "ignoreCompanyProductDiscountAgreement": {
+      "type": "boolean"
+    },
+    "invoiceOnAccountVatHigh": {
+      "type": "boolean",
+      "desc": "The on account(a konto) amounts including VAT"
+    },
+    "accountingDimensionValues": {
+      "type": "array<AccountingDimensionValue>",
+      "desc": "[BETA - Requires pilot feature] Free dimensions for the project."
+    }
+  },
+  "Department": {
+    "name": {
+      "type": "string"
+    },
+    "departmentNumber": {
+      "type": "string"
+    },
+    "departmentManager": {
+      "type": "ref:Employee"
+    },
+    "isInactive": {
+      "type": "boolean"
+    }
+  },
+  "Contact": {
+    "firstName": {
+      "type": "string"
+    },
+    "lastName": {
+      "type": "string"
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "phoneNumberMobileCountry": {
+      "type": "ref:Country"
+    },
+    "phoneNumberMobile": {
+      "type": "string"
+    },
+    "phoneNumberWork": {
+      "type": "string"
+    },
+    "customer": {
+      "type": "ref:Customer"
+    },
+    "department": {
+      "type": "ref:Department"
+    },
+    "isInactive": {
+      "type": "boolean"
+    }
+  },
+  "Supplier": {
+    "name": {
+      "type": "string"
+    },
+    "organizationNumber": {
+      "type": "string"
+    },
+    "supplierNumber": {
+      "type": "integer"
+    },
+    "customerNumber": {
+      "type": "integer"
+    },
+    "isCustomer": {
+      "type": "boolean",
+      "desc": "Determine if the supplier is also a customer"
+    },
+    "isInactive": {
+      "type": "boolean"
+    },
+    "email": {
+      "type": "string"
+    },
+    "bankAccounts": {
+      "type": "array",
+      "desc": "[DEPRECATED] List of the bank account numbers for this supplier. Norwegian bank account numbers only."
+    },
+    "invoiceEmail": {
+      "type": "string"
+    },
+    "overdueNoticeEmail": {
+      "type": "string",
+      "desc": "The email address of the customer where the noticing emails are sent in case of an overdue"
+    },
+    "phoneNumber": {
+      "type": "string"
+    },
+    "phoneNumberMobile": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "isPrivateIndividual": {
+      "type": "boolean"
+    },
+    "showProducts": {
+      "type": "boolean"
+    },
+    "accountManager": {
+      "type": "ref:Employee"
+    },
+    "postalAddress": {
+      "type": "ref:Address"
+    },
+    "physicalAddress": {
+      "type": "ref:Address"
+    },
+    "deliveryAddress": {
+      "type": "ref:DeliveryAddress"
+    },
+    "category1": {
+      "type": "ref:CustomerCategory"
+    },
+    "category2": {
+      "type": "ref:CustomerCategory"
+    },
+    "category3": {
+      "type": "ref:CustomerCategory"
+    },
+    "bankAccountPresentation": {
+      "type": "array<CompanyBankAccountPresentation>",
+      "desc": "List of bankAccount for this supplier"
+    },
+    "currency": {
+      "type": "ref:Currency"
+    },
+    "ledgerAccount": {
+      "type": "ref:Account"
+    },
+    "language": {
+      "type": "string",
+      "enum": [
+        "NO",
+        "EN"
+      ]
+    },
+    "website": {
+      "type": "string"
+    }
+  },
+  "Voucher": {
+    "date": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "voucherType": {
+      "type": "ref:VoucherType"
+    },
+    "reverseVoucher": {
+      "type": "ref:Voucher"
+    },
+    "postings": {
+      "type": "array<Posting>"
+    },
+    "document": {
+      "type": "ref:Document"
+    },
+    "attachment": {
+      "type": "ref:Document"
+    },
+    "externalVoucherNumber": {
+      "type": "string",
+      "desc": "External voucher number. Maximum 70 characters."
+    },
+    "ediDocument": {
+      "type": "ref:Document"
+    },
+    "vendorInvoiceNumber": {
+      "type": "string",
+      "desc": "Vendor invoice number."
+    }
+  },
+  "Posting": {
+    "voucher": {
+      "type": "ref:Voucher"
+    },
+    "date": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "account": {
+      "type": "ref:Account"
+    },
+    "amortizationAccount": {
+      "type": "ref:Account"
+    },
+    "amortizationStartDate": {
+      "type": "string",
+      "desc": "Amortization start date. AmortizationAccountId, amortizationStartDate and amortizationEndDate should be provided."
+    },
+    "amortizationEndDate": {
+      "type": "string"
+    },
+    "customer": {
+      "type": "ref:Customer"
+    },
+    "supplier": {
+      "type": "ref:Supplier"
+    },
+    "employee": {
+      "type": "ref:Employee"
+    },
+    "project": {
+      "type": "ref:Project"
+    },
+    "product": {
+      "type": "ref:Product"
+    },
+    "department": {
+      "type": "ref:Department"
+    },
+    "vatType": {
+      "type": "ref:VatType"
+    },
+    "amount": {
+      "type": "number"
+    },
+    "amountCurrency": {
+      "type": "number"
+    },
+    "amountGross": {
+      "type": "number"
+    },
+    "amountGrossCurrency": {
+      "type": "number"
+    },
+    "currency": {
+      "type": "ref:Currency"
+    },
+    "closeGroup": {
+      "type": "ref:CloseGroup"
+    },
+    "invoiceNumber": {
+      "type": "string"
+    },
+    "termOfPayment": {
+      "type": "string"
+    },
+    "row": {
+      "type": "integer"
+    },
+    "quantityAmount1": {
+      "type": "number",
+      "desc": "The quantity amount associated with the posting"
+    },
+    "quantityType1": {
+      "type": "ref:ProductUnit"
+    },
+    "quantityAmount2": {
+      "type": "number",
+      "desc": "The quantity amount associated with the posting"
+    },
+    "quantityType2": {
+      "type": "ref:ProductUnit"
+    },
+    "postingRuleId": {
+      "type": "integer",
+      "desc": "The payment type id associated with the posting. This ID will only be set if the payment types used is an internal payme"
+    },
+    "freeAccountingDimension1": {
+      "type": "ref:AccountingDimensionValue"
+    },
+    "freeAccountingDimension2": {
+      "type": "ref:AccountingDimensionValue"
+    },
+    "freeAccountingDimension3": {
+      "type": "ref:AccountingDimensionValue"
+    },
+    "asset": {
+      "type": "ref:Asset"
+    }
+  },
+  "PerDiemCompensation": {
+    "travelExpense": {
+      "type": "ref:TravelExpense"
+    },
+    "rateType": {
+      "type": "ref:TravelExpenseRate"
+    },
+    "rateCategory": {
+      "type": "ref:TravelExpenseRateCategory"
+    },
+    "countryCode": {
+      "type": "string"
+    },
+    "travelExpenseZoneId": {
+      "type": "integer",
+      "desc": "Optional travel expense zone id. If not specified, the value from field zone will be used."
+    },
+    "overnightAccommodation": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "HOTEL",
+        "BOARDING_HOUSE_WITHOUT_COOKING",
+        "BOARDING_HOUSE_WITH_COOKING"
+      ],
+      "desc": "Set what sort of accommodation was had overnight."
+    },
+    "location": {
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "count": {
+      "type": "integer"
+    },
+    "rate": {
+      "type": "number"
+    },
+    "amount": {
+      "type": "number"
+    },
+    "isDeductionForBreakfast": {
+      "type": "boolean"
+    },
+    "isDeductionForLunch": {
+      "type": "boolean"
+    },
+    "isDeductionForDinner": {
+      "type": "boolean"
+    }
+  },
+  "MileageAllowance": {
+    "travelExpense": {
+      "type": "ref:TravelExpense"
+    },
+    "rateType": {
+      "type": "ref:TravelExpenseRate"
+    },
+    "rateCategory": {
+      "type": "ref:TravelExpenseRateCategory"
+    },
+    "date": {
+      "type": "string"
+    },
+    "departureLocation": {
+      "type": "string"
+    },
+    "destination": {
+      "type": "string"
+    },
+    "km": {
+      "type": "number"
+    },
+    "rate": {
+      "type": "number"
+    },
+    "amount": {
+      "type": "number"
+    },
+    "isCompanyCar": {
+      "type": "boolean"
+    },
+    "vehicleType": {
+      "type": "integer",
+      "desc": "The corresponded number for the vehicleType. Default value = 0."
+    },
+    "passengerSupplement": {
+      "type": "ref:MileageAllowance"
+    },
+    "trailerSupplement": {
+      "type": "ref:MileageAllowance"
+    },
+    "tollCost": {
+      "type": "ref:Cost"
+    }
+  },
+  "AccommodationAllowance": {
+    "travelExpense": {
+      "type": "ref:TravelExpense"
+    },
+    "rateType": {
+      "type": "ref:TravelExpenseRate"
+    },
+    "rateCategory": {
+      "type": "ref:TravelExpenseRateCategory"
+    },
+    "zone": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "count": {
+      "type": "integer"
+    },
+    "rate": {
+      "type": "number"
+    },
+    "amount": {
+      "type": "number"
+    }
+  },
+  "Activity": {
+    "name": {
+      "type": "string"
+    },
+    "number": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "activityType": {
+      "type": "string",
+      "enum": [
+        "GENERAL_ACTIVITY",
+        "PROJECT_GENERAL_ACTIVITY",
+        "PROJECT_SPECIFIC_ACTIVITY",
+        "TASK"
+      ],
+      "desc": "PROJECT_SPECIFIC_ACTIVITY are made via project/projectActivity, as they must be part of a project."
+    },
+    "isChargeable": {
+      "type": "boolean"
+    },
+    "rate": {
+      "type": "number"
+    },
+    "costPercentage": {
+      "type": "number"
+    },
+    "displayName": {
+      "type": "string"
+    }
+  },
+  "TravelPaymentType": {
+    "description": {
+      "type": "string"
+    },
+    "account": {
+      "type": "ref:Account"
+    },
+    "displayName": {
+      "type": "string"
+    }
+  },
+  "PaymentType": {
+    "description": {
+      "type": "string"
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "debitAccount": {
+      "type": "ref:Account"
+    },
+    "creditAccount": {
+      "type": "ref:Account"
+    },
+    "vatType": {
+      "type": "ref:VatType"
+    },
+    "sequence": {
+      "type": "integer",
+      "desc": "Defines the priority of order, when displayed in a list with order payment types"
+    },
+    "customer": {
+      "type": "ref:Customer"
+    },
+    "supplier": {
+      "type": "ref:Supplier"
+    }
+  },
+  "VatType": {
+    "name": {
+      "type": "string"
+    },
+    "number": {
+      "type": "string"
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "percentage": {
+      "type": "number"
+    },
+    "deductionPercentage": {
+      "type": "number",
+      "desc": "Percentage of the VAT amount that is deducted. Always 100% for all predefined VAT types, but can be lower for custom typ"
+    },
+    "parentType": {
+      "type": "ref:VatType"
+    }
+  },
+  "Company": {
+    "name": {
+      "type": "string"
+    },
+    "startDate": {
+      "type": "string"
+    },
+    "endDate": {
+      "type": "string"
+    },
+    "organizationNumber": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "phoneNumber": {
+      "type": "string"
+    },
+    "phoneNumberMobile": {
+      "type": "string"
+    },
+    "faxNumber": {
+      "type": "string"
+    },
+    "address": {
+      "type": "ref:Address"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "ENK",
+        "AS",
+        "NUF",
+        "ANS",
+        "DA",
+        "PRE",
+        "KS",
+        "ASA",
+        "BBL",
+        "BRL",
+        "GFS",
+        "SPA",
+        "SF",
+        "IKS",
+        "KF_FKF",
+        "FCD",
+        "EOFG",
+        "BA",
+        "STI",
+        "ORG",
+        "ESEK",
+        "SA",
+        "SAM",
+        "BO",
+        "VPFO",
+        "OS",
+        "FLI",
+        "Other"
+      ]
+    },
+    "currency": {
+      "type": "ref:Currency"
+    }
+  },
+  "DeliveryAddress": {
+    "addressLine1": {
+      "type": "string"
+    },
+    "addressLine2": {
+      "type": "string"
+    },
+    "postalCode": {
+      "type": "string"
+    },
+    "city": {
+      "type": "string"
+    },
+    "country": {
+      "type": "ref:Country"
+    },
+    "knr": {
+      "type": "integer"
+    },
+    "gnr": {
+      "type": "integer"
+    },
+    "bnr": {
+      "type": "integer"
+    },
+    "fnr": {
+      "type": "integer"
+    },
+    "snr": {
+      "type": "integer"
+    },
+    "unitNumber": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "customerVendor": {
+      "type": "ref:Company"
+    }
+  },
+  "ProjectCategory": {
+    "name": {
+      "type": "string"
+    },
+    "number": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "displayName": {
+      "type": "string"
+    }
+  }
+}

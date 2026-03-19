@@ -1,0 +1,3282 @@
+{
+  "entity_schemas": {
+    "Employee": {
+      "firstName": "string",
+      "lastName": "string",
+      "employeeNumber": "string",
+      "dateOfBirth": "string",
+      "email": "string",
+      "phoneNumberMobile": "string",
+      "phoneNumberHome": "string",
+      "phoneNumberWork": "string",
+      "nationalIdentityNumber": "string",
+      "bankAccountNumber": "string",
+      "userType": "enum:['STANDARD', 'EXTENDED', 'NO_ACCESS']",
+      "allowInformationRegistration": "boolean",
+      "isContact": "boolean",
+      "department": "ref:Department",
+      "address": "ref:Address"
+    },
+    "Customer": {
+      "name": "string",
+      "organizationNumber": "string",
+      "email": "string",
+      "invoiceEmail": "string",
+      "phoneNumber": "string",
+      "phoneNumberMobile": "string",
+      "isCustomer": "boolean",
+      "isSupplier": "boolean",
+      "accountManager": "ref:Employee",
+      "department": "ref:Department",
+      "description": "string",
+      "deliveryAddress": "ref:DeliveryAddress",
+      "physicalAddress": "ref:Address",
+      "postalAddress": "ref:Address",
+      "customerNumber": "integer",
+      "isInactive": "boolean",
+      "category1": "ref:CustomerCategory",
+      "category2": "ref:CustomerCategory",
+      "category3": "ref:CustomerCategory"
+    },
+    "Product": {
+      "name": "string",
+      "number": "string",
+      "description": "string",
+      "ean": "string",
+      "costExcludingVatCurrency": "number",
+      "priceExcludingVatCurrency": "number",
+      "priceIncludingVatCurrency": "number",
+      "isInactive": "boolean",
+      "productUnit": "ref:ProductUnit",
+      "vatType": "ref:VatType",
+      "currency": "ref:Currency",
+      "account": "ref:Account",
+      "isStockItem": "boolean"
+    },
+    "Order": {
+      "customer": "ref:Customer",
+      "contact": "ref:Contact",
+      "attn": "ref:Contact",
+      "receiverEmail": "string",
+      "number": "string",
+      "reference": "string",
+      "ourContactEmployee": "ref:Employee",
+      "department": "ref:Department",
+      "orderDate": "string",
+      "project": "ref:Project",
+      "invoiceComment": "string",
+      "currency": "ref:Currency",
+      "deliveryDate": "string",
+      "deliveryAddress": "ref:DeliveryAddress",
+      "deliveryComment": "string",
+      "isPrioritizeAmountsIncludingVat": "boolean",
+      "orderLineSorting": "enum:['ID', 'PRODUCT', 'PRODUCT_DESCENDING', 'CUSTOM']",
+      "orderLines": "array<OrderLine>"
+    },
+    "OrderLine": {
+      "product": "ref:Product",
+      "description": "string",
+      "count": "number",
+      "unitPriceExcludingVatCurrency": "number",
+      "unitPriceIncludingVatCurrency": "number",
+      "currency": "ref:Currency",
+      "discount": "number",
+      "vatType": "ref:VatType",
+      "order": "ref:Order"
+    },
+    "Invoice": {
+      "invoiceDate": "string",
+      "invoiceDueDate": "string",
+      "customer": "ref:Customer",
+      "orders": "array<Order>",
+      "comment": "string",
+      "currency": "ref:Currency",
+      "invoiceRemarks": "string",
+      "paymentTypeId": "integer",
+      "paidAmount": "number",
+      "kid": "string"
+    },
+    "TravelExpense": {
+      "project": "ref:Project",
+      "employee": "ref:Employee",
+      "department": "ref:Department",
+      "vatType": "ref:VatType",
+      "paymentCurrency": "ref:Currency",
+      "travelDetails": "ref:TravelDetails",
+      "perDiemCompensations": "array<PerDiemCompensation>",
+      "mileageAllowances": "array<MileageAllowance>",
+      "accommodationAllowances": "array<AccommodationAllowance>",
+      "costs": "array<Cost>",
+      "isCompleted": "boolean",
+      "title": "string"
+    },
+    "TravelDetails": {
+      "isForeignTravel": "boolean",
+      "isDayTrip": "boolean",
+      "isCompensationFromRates": "boolean",
+      "departureDate": "string",
+      "returnDate": "string",
+      "departureFrom": "string",
+      "destination": "string",
+      "departureTime": "string",
+      "returnTime": "string",
+      "purpose": "string",
+      "detailedJourneyDescription": "string"
+    },
+    "PerDiemCompensation": {
+      "travelExpense": "ref:TravelExpense",
+      "rateType": "ref:TravelExpenseRate",
+      "rateCategory": "ref:TravelExpenseRateCategory",
+      "countryCode": "string",
+      "travelExpenseZoneId": "integer",
+      "overnightAccommodation": "enum:['NONE', 'HOTEL', 'BOARDING_HOUSE_WITHOUT_COOKING', 'BOARDING_HOUSE_WITH_COOKING']",
+      "location": "string",
+      "address": "string",
+      "count": "integer",
+      "rate": "number",
+      "amount": "number",
+      "isDeductionForBreakfast": "boolean"
+    },
+    "MileageAllowance": {
+      "travelExpense": "ref:TravelExpense",
+      "rateType": "ref:TravelExpenseRate",
+      "rateCategory": "ref:TravelExpenseRateCategory",
+      "date": "string",
+      "destination": "string",
+      "km": "number",
+      "rate": "number",
+      "amount": "number",
+      "isCompanyCar": "boolean",
+      "tollCost": "ref:Cost",
+      "passengerSupplement": "ref:MileageAllowance"
+    },
+    "Project": {
+      "name": "string",
+      "number": "string",
+      "description": "string",
+      "projectManager": "ref:Employee",
+      "department": "ref:Department",
+      "mainProject": "ref:Project",
+      "startDate": "string",
+      "endDate": "string",
+      "customer": "ref:Customer",
+      "isClosed": "boolean",
+      "isInternal": "boolean",
+      "isOffer": "boolean",
+      "isFixedPrice": "boolean",
+      "projectCategory": "ref:ProjectCategory",
+      "deliveryAddress": "ref:Address",
+      "contact": "ref:Contact"
+    },
+    "Department": {
+      "name": "string",
+      "departmentNumber": "string",
+      "departmentManager": "ref:Employee",
+      "isInactive": "boolean"
+    },
+    "Contact": {
+      "firstName": "string",
+      "lastName": "string",
+      "email": "string",
+      "phoneNumberMobile": "string",
+      "department": "ref:Department",
+      "customer": "ref:Customer"
+    },
+    "Supplier": {
+      "name": "string",
+      "organizationNumber": "string",
+      "email": "string",
+      "phoneNumber": "string",
+      "isSupplier": "boolean",
+      "accountManager": "ref:Employee",
+      "bankAccounts": "array<string>",
+      "description": "string",
+      "category1": "ref:CustomerCategory",
+      "category2": "ref:CustomerCategory",
+      "category3": "ref:CustomerCategory"
+    },
+    "Voucher": {
+      "date": "string",
+      "description": "string",
+      "document": "ref:Document",
+      "postings": "array<Posting>"
+    },
+    "Posting": {
+      "account": "ref:Account",
+      "date": "string",
+      "description": "string",
+      "amount": "number",
+      "amountCurrency": "number",
+      "currency": "ref:Currency",
+      "customer": "ref:Customer",
+      "supplier": "ref:Supplier",
+      "employee": "ref:Employee",
+      "project": "ref:Project",
+      "department": "ref:Department"
+    }
+  },
+  "action_endpoints": {
+    "PUT /accountingOffice/reconciliations/{reconciliationId}/control/:controlReconciliation": {
+      "summary": "Mark a reconciliation as controlled",
+      "params": [
+        {
+          "name": "reconciliationId",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /accountingOffice/reconciliations/{reconciliationId}/control/:reconcile": {
+      "summary": "Mark a reconciliation as reconciled",
+      "params": [
+        {
+          "name": "reconciliationId",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /accountingOffice/reconciliations/{reconciliationId}/control/:requestControl": {
+      "summary": "Request control of a reconciliation",
+      "params": [
+        {
+          "name": "reconciliationId",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /attestation/:addApprover": {
+      "summary": "",
+      "params": []
+    },
+    "PUT /bank/reconciliation/{id}/:adjustment": {
+      "summary": "Add an adjustment to reconciliation by ID.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /bank/reconciliation/transactions/unmatched:csv": {
+      "summary": "Get all unmatched transactions in csv format",
+      "params": [
+        {
+          "name": "reconciliationId",
+          "required": false,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /bank/reconciliation/match/:suggest": {
+      "summary": "Suggest matches for a bank reconciliation by ID.",
+      "params": [
+        {
+          "name": "bankReconciliationId",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /token/employee/:create": {
+      "summary": "Create an employee token. Only selected consumers are allowed",
+      "params": [
+        {
+          "name": "tokenName",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "consumerName",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "employeeId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "companyOwned",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "expirationDate",
+          "required": true,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /token/session/:create": {
+      "summary": "Create session token.",
+      "params": [
+        {
+          "name": "consumerToken",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "employeeToken",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "expirationDate",
+          "required": true,
+          "type": "string"
+        }
+      ]
+    },
+    "POST /token/session/:create": {
+      "summary": "Create session token.",
+      "params": []
+    },
+    "PUT /employee/preferences/:changeLanguage": {
+      "summary": "Change current employees language to the given language",
+      "params": [
+        {
+          "name": "language",
+          "required": false,
+          "type": "string",
+          "enum": [
+            "NO",
+            "EN"
+          ]
+        }
+      ]
+    },
+    "PUT /employee/entitlement/:grantClientEntitlementsByTemplate": {
+      "summary": "[BETA] Update employee entitlements in client account.",
+      "params": [
+        {
+          "name": "employeeId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "customerId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "template",
+          "required": true,
+          "type": "string",
+          "enum": [
+            "NONE_PRIVILEGES",
+            "STANDARD_PRIVILEGES_ACCOUNTANT",
+            "STANDARD_PRIVILEGES_AUDITOR",
+            "ALL_PRIVILEGES",
+            "AGRO_READ_ONLY",
+            "AGRO_READ_APPROVE",
+            "AGRO_READ_WRITE",
+            "AGRO_READ_WRITE_APPROVE",
+            "AGRO_PAYROLL_ADMIN",
+            "AGRO_PAYROLL_CLERK",
+            "AGRO_INVOICE_ADMIN",
+            "AGRO_INVOICE_CLERK"
+          ]
+        },
+        {
+          "name": "addToExisting",
+          "required": false,
+          "type": "boolean"
+        }
+      ]
+    },
+    "PUT /employee/entitlement/:grantEntitlementsByTemplate": {
+      "summary": "[BETA] Update employee entitlements.",
+      "params": [
+        {
+          "name": "employeeId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "template",
+          "required": true,
+          "type": "string",
+          "enum": [
+            "NONE_PRIVILEGES",
+            "ALL_PRIVILEGES",
+            "INVOICING_MANAGER",
+            "PERSONELL_MANAGER",
+            "ACCOUNTANT",
+            "AUDITOR",
+            "DEPARTMENT_LEADER"
+          ]
+        }
+      ]
+    },
+    "PUT /inventory/stocktaking/productline/{id}/:changeLocation": {
+      "summary": "[Beta] Change location on order line.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "warehouseLocationId",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /invoice/{id}/:createCreditNote": {
+      "summary": "Creates a new Invoice representing a credit memo that nullifies the given invoice. Updates this invoice and any pre-existing inverse invoice.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "date",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "creditNoteEmail",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "sendToCustomer",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "sendType",
+          "required": false,
+          "type": "string",
+          "enum": [
+            "EMAIL",
+            "EHF",
+            "EFAKTURA",
+            "AVTALEGIRO",
+            "VIPPS",
+            "PAPER",
+            "MANUAL",
+            "DIRECT",
+            "AUTOINVOICE_EHF_OUTBOUND",
+            "AUTOINVOICE_EHF_INCOMING",
+            "PEPPOL_EHF_INCOMING"
+          ]
+        }
+      ]
+    },
+    "PUT /invoice/{id}/:createReminder": {
+      "summary": "Create invoice reminder and sends it by the given dispatch type. Supports the reminder types SOFT_REMINDER, REMINDER and NOTICE_OF_DEBT_COLLECTION. Di",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "type",
+          "required": true,
+          "type": "string",
+          "enum": [
+            "SOFT_REMINDER",
+            "REMINDER",
+            "NOTICE_OF_DEBT_COLLECTION",
+            "DEBT_COLLECTION"
+          ]
+        },
+        {
+          "name": "date",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "includeCharge",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "includeInterest",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "dispatchType",
+          "required": false,
+          "type": "string",
+          "enum": [
+            "NETS_PRINT",
+            "EMAIL",
+            "OWN_PRINTER",
+            "SFTP",
+            "API",
+            "SMS"
+          ]
+        },
+        {
+          "name": "dispatchTypes",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "smsNumber",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "address",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "postalCode",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /invoice/{id}/:payment": {
+      "summary": "Update invoice. The invoice is updated with payment information. The amount is in the invoice’s currency.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "paymentDate",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "paymentTypeId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "paidAmount",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "name": "paidAmountCurrency",
+          "required": false,
+          "type": "number"
+        }
+      ]
+    },
+    "PUT /invoice/{id}/:send": {
+      "summary": "Send invoice by ID and sendType. Optionally override email recipient.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "sendType",
+          "required": true,
+          "type": "string",
+          "enum": [
+            "EMAIL",
+            "EHF",
+            "AVTALEGIRO",
+            "EFAKTURA",
+            "VIPPS",
+            "PAPER",
+            "MANUAL"
+          ]
+        },
+        {
+          "name": "overrideEmailAddress",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /ledger/posting/:closePostings": {
+      "summary": "Close postings.",
+      "params": []
+    },
+    "PUT /ledger/voucher/{id}/:reverse": {
+      "summary": "Reverses the voucher, and returns the reversed voucher. Supports reversing most voucher types, except salary transactions.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "date",
+          "required": true,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /ledger/voucher/{id}/:sendToInbox": {
+      "summary": "Send voucher to inbox.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "version",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /ledger/voucher/{id}/:sendToLedger": {
+      "summary": "Send voucher to ledger.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "version",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "number",
+          "required": false,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /ledger/voucher/historical/:closePostings": {
+      "summary": "[BETA] Close postings.",
+      "params": [
+        {
+          "name": "postingIds",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /ledger/voucher/historical/:reverseHistoricalVouchers": {
+      "summary": "[BETA] Deletes all historical vouchers. Requires the \"All vouchers\" and \"Advanced Voucher\" permissions.",
+      "params": []
+    },
+    "PUT /internal/nhoAdmin/:abort": {
+      "summary": "Aborts all scheduled NHO membership events",
+      "params": []
+    },
+    "PUT /order/{id}/:approveSubscriptionInvoice": {
+      "summary": "To create a subscription invoice, first create a order with the subscription enabled, then approve it with this method. This approves the order for su",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "invoiceDate",
+          "required": true,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /order/{id}/:attach": {
+      "summary": "Attach document to specified order ID.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /order/{id}/:invoice": {
+      "summary": "Create new invoice or subscription invoice from order.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "invoiceDate",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "sendToCustomer",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "sendType",
+          "required": false,
+          "type": "string",
+          "enum": [
+            "EMAIL",
+            "EHF",
+            "AVTALEGIRO",
+            "EFAKTURA",
+            "VIPPS",
+            "PAPER",
+            "MANUAL"
+          ]
+        },
+        {
+          "name": "paymentTypeId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "paidAmount",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "paidAmountAccountCurrency",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "paymentTypeIdRestAmount",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "paidAmountAccountCurrencyRest",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "createOnAccount",
+          "required": false,
+          "type": "string",
+          "enum": [
+            "NONE",
+            "WITH_VAT",
+            "WITHOUT_VAT"
+          ]
+        },
+        {
+          "name": "amountOnAccount",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "onAccountComment",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "createBackorder",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "invoiceIdIfIsCreditNote",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "overrideEmailAddress",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /order/:invoiceMultipleOrders": {
+      "summary": "[BETA] Charges a single customer invoice from multiple orders. The orders must be to the same customer, currency, due date, receiver email, attn. and ",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "invoiceDate",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "sendToCustomer",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "createBackorders",
+          "required": false,
+          "type": "boolean"
+        }
+      ]
+    },
+    "PUT /order/{id}/:unApproveSubscriptionInvoice": {
+      "summary": "Unapproves the order for subscription invoicing.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /order/orderline/{id}/:pickLine": {
+      "summary": "[BETA] Pick order line. This is only available for customers who have Logistics and who activated the available inventory functionality.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "inventoryId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "inventoryLocationId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "pickDate",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /order/orderline/{id}/:unpickLine": {
+      "summary": "[BETA] Unpick order line.This is only available for customers who have Logistics and who activated the available inventory functionality.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /project/dynamicControlForm/{id}/:copyFieldValuesFromLastEditedForm": {
+      "summary": "Into each section in the specified form that only has empty or default values, and copyFieldValuesByDefault set as true in the form's template, copy f",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /purchaseOrder/{id}/:send": {
+      "summary": "Send purchase order by ID and sendType. Only available for Logistics Basic.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "sendType",
+          "required": false,
+          "type": "string",
+          "enum": [
+            "DEFAULT",
+            "EMAIL",
+            "FTP"
+          ]
+        }
+      ]
+    },
+    "PUT /purchaseOrder/{id}/:sendByEmail": {
+      "summary": "Send purchase order by customisable email. Only available for Logistics Basic.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /purchaseOrder/deviation/{id}/:approve": {
+      "summary": "Approve deviations. Only available for Logistics Basic.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /purchaseOrder/deviation/{id}/:deliver": {
+      "summary": "Send deviations to approval. Only available for Logistics Basic.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /purchaseOrder/deviation/{id}/:undeliver": {
+      "summary": "Set status to Not delivered for deviations. Only available for Logistics Basic.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /purchaseOrder/goodsReceipt/{id}/:confirm": {
+      "summary": "Confirm goods receipt. Only available for Logistics Basic.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "createRestOrder",
+          "required": false,
+          "type": "boolean"
+        }
+      ]
+    },
+    "PUT /purchaseOrder/goodsReceipt/{id}/:receiveAndConfirm": {
+      "summary": " Receive all ordered products and approve goods receipt. Only available for Logistics Basic.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "receivedDate",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "inventoryId",
+          "required": false,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /purchaseOrder/goodsReceipt/{id}/:registerGoodsReceipt": {
+      "summary": "Register goods receipt. Quantity received on the products is set to the same as quantity ordered. To update the quantity received, use PUT /purchaseOr",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "registrationDate",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "inventoryId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "POST /supplierInvoice/{invoiceId}/:addPayment": {
+      "summary": "Register payment, paymentType == 0 finds the last paymentType for this vendor.Use of this method requires setup done by Tripletex.",
+      "params": [
+        {
+          "name": "invoiceId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "paymentType",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "amount",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "kidOrReceiverReference",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "bban",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "paymentDate",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "useDefaultPaymentType",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "partialPayment",
+          "required": false,
+          "type": "boolean"
+        }
+      ]
+    },
+    "PUT /supplierInvoice/{invoiceId}/:addRecipient": {
+      "summary": "Add recipient to supplier invoices.",
+      "params": [
+        {
+          "name": "invoiceId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "employeeId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /supplierInvoice/:addRecipient": {
+      "summary": "Add recipient.",
+      "params": [
+        {
+          "name": "employeeId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "invoiceIds",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /supplierInvoice/{invoiceId}/:approve": {
+      "summary": "Approve supplier invoice.",
+      "params": [
+        {
+          "name": "invoiceId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /supplierInvoice/:approve": {
+      "summary": "Approve supplier invoices.",
+      "params": [
+        {
+          "name": "invoiceIds",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /supplierInvoice/{invoiceId}/:changeDimension": {
+      "summary": "Change dimension on a supplier invoice.",
+      "params": [
+        {
+          "name": "invoiceId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "debitPostingIds",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "dimension",
+          "required": true,
+          "type": "string",
+          "enum": [
+            "PROJECT",
+            "DEPARTMENT",
+            "EMPLOYEE",
+            "PRODUCT",
+            "FREE_DIMENSION_1",
+            "FREE_DIMENSION_2",
+            "FREE_DIMENSION_3"
+          ]
+        },
+        {
+          "name": "dimensionId",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /supplierInvoice/{invoiceId}/:reject": {
+      "summary": "reject supplier invoice.",
+      "params": [
+        {
+          "name": "invoiceId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "comment",
+          "required": true,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /supplierInvoice/:reject": {
+      "summary": "reject supplier invoices.",
+      "params": [
+        {
+          "name": "comment",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "invoiceIds",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/allocated/{id}/:approve": {
+      "summary": "Only for allocated hours on the company's internal holiday/vacation activity. Mark the allocated hour entry as approved. The hours will be copied to t",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "managerComment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/allocated/:approveList": {
+      "summary": "Only for allocated hours on the company's internal holiday/vacation activity. Mark the allocated hour entry/entries as approved. The hours will be cop",
+      "params": [
+        {
+          "name": "ids",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "employeeIds",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "dateFrom",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "dateTo",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "managerComment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/allocated/{id}/:unapprove": {
+      "summary": "Only for allocated hours on the company's internal holiday/vacation activity. Mark the allocated hour entry as unapproved. A notification will be sent",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "managerComment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/allocated/:unapproveList": {
+      "summary": "Only for allocated hours on the company's internal holiday/vacation activity. Mark the allocated hour entry/entries as unapproved. Notifications will ",
+      "params": [
+        {
+          "name": "ids",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "employeeIds",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "dateFrom",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "dateTo",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "managerComment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/month/:approve": {
+      "summary": "approve month(s).  If id is provided the other args are ignored",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "employeeIds",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "monthYear",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "approvedUntilDate",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/month/:complete": {
+      "summary": "complete month(s).  If id is provided the other args are ignored",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "employeeIds",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "monthYear",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/month/:reopen": {
+      "summary": "reopen month(s).  If id is provided the other args are ignored",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "employeeIds",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "monthYear",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/month/:unapprove": {
+      "summary": "unapprove month(s).  If id is provided the other args are ignored",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "employeeIds",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "monthYear",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/timeClock/:start": {
+      "summary": "Start time clock.",
+      "params": [
+        {
+          "name": "employeeId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "projectId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "activityId",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "date",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "lunchBreakDuration",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/timeClock/{id}/:stop": {
+      "summary": "Stop time clock.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "version",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "comment",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/week/:approve": {
+      "summary": "Approve week. By ID or (ISO-8601 week and employeeId combination).",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "employeeId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "weekYear",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/week/:complete": {
+      "summary": "Complete week. By ID or (ISO-8601 week and employeeId combination).",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "employeeId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "weekYear",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/week/:reopen": {
+      "summary": "Reopen week. By ID or (ISO-8601 week and employeeId combination).",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "employeeId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "weekYear",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /timesheet/week/:unapprove": {
+      "summary": "Unapprove week. By ID or (ISO-8601 week and employeeId combination).",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "employeeId",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "weekYear",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /travelExpense/:approve": {
+      "summary": "Approve travel expenses.",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "overrideApprovalFlow",
+          "required": false,
+          "type": "boolean"
+        }
+      ]
+    },
+    "PUT /travelExpense/:copy": {
+      "summary": "Copy travel expense.",
+      "params": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "integer"
+        }
+      ]
+    },
+    "PUT /travelExpense/:createVouchers": {
+      "summary": "Create vouchers",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "date",
+          "required": true,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /travelExpense/:deliver": {
+      "summary": "Deliver travel expenses.",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /travelExpense/:unapprove": {
+      "summary": "Unapprove travel expenses.",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "PUT /travelExpense/:undeliver": {
+      "summary": "Undeliver travel expenses.",
+      "params": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "crud_endpoints": {
+    "/accountantDashboard/news": [
+      "GET"
+    ],
+    "/accountantDashboard/news/tags": [
+      "GET"
+    ],
+    "/accountingOffice/reconciliations/{reconciliationId}/control": [
+      "GET"
+    ],
+    "/activity": [
+      "GET",
+      "POST"
+    ],
+    "/activity/>forTimeSheet": [
+      "GET"
+    ],
+    "/activity/list": [
+      "POST"
+    ],
+    "/activity/{id}": [
+      "GET"
+    ],
+    "/asset": [
+      "GET",
+      "POST"
+    ],
+    "/asset/assetsExist": [
+      "GET"
+    ],
+    "/asset/balanceAccountsSum": [
+      "GET"
+    ],
+    "/asset/canDelete/{id}": [
+      "GET"
+    ],
+    "/asset/deleteImport": [
+      "DELETE"
+    ],
+    "/asset/deleteStartingBalance": [
+      "DELETE"
+    ],
+    "/asset/duplicate/{id}": [
+      "POST"
+    ],
+    "/asset/list": [
+      "POST"
+    ],
+    "/asset/upload": [
+      "POST"
+    ],
+    "/asset/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/asset/{id}/postings": [
+      "GET"
+    ],
+    "/attestation/addApproverPermission": [
+      "GET"
+    ],
+    "/attestation/companyModules": [
+      "GET"
+    ],
+    "/balance/reconciliation/annual/context": [
+      "POST"
+    ],
+    "/balance/reconciliation/attachment/{attachmentId}/pdf": [
+      "GET"
+    ],
+    "/balance/reconciliation/{reconciliationId}/account/{accountId}/vouchers": [
+      "GET"
+    ],
+    "/balanceSheet": [
+      "GET"
+    ],
+    "/bank": [
+      "GET"
+    ],
+    "/bank/reconciliation": [
+      "GET",
+      "POST"
+    ],
+    "/bank/reconciliation/>last": [
+      "GET"
+    ],
+    "/bank/reconciliation/>lastClosed": [
+      "GET"
+    ],
+    "/bank/reconciliation/closedWithUnmatchedTransactions": [
+      "GET"
+    ],
+    "/bank/reconciliation/match": [
+      "GET",
+      "POST"
+    ],
+    "/bank/reconciliation/match/count": [
+      "GET"
+    ],
+    "/bank/reconciliation/match/query": [
+      "GET"
+    ],
+    "/bank/reconciliation/match/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/bank/reconciliation/matches/counter": [
+      "GET",
+      "POST"
+    ],
+    "/bank/reconciliation/paymentType": [
+      "GET"
+    ],
+    "/bank/reconciliation/paymentType/{id}": [
+      "GET"
+    ],
+    "/bank/reconciliation/settings": [
+      "GET",
+      "POST"
+    ],
+    "/bank/reconciliation/settings/{id}": [
+      "PUT"
+    ],
+    "/bank/reconciliation/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/bank/statement": [
+      "GET"
+    ],
+    "/bank/statement/import": [
+      "POST"
+    ],
+    "/bank/statement/transaction": [
+      "GET"
+    ],
+    "/bank/statement/transaction/{id}": [
+      "GET"
+    ],
+    "/bank/statement/transaction/{id}/details": [
+      "GET"
+    ],
+    "/bank/statement/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/bank/{id}": [
+      "GET"
+    ],
+    "/company": [
+      "PUT"
+    ],
+    "/company/>withLoginAccess": [
+      "GET"
+    ],
+    "/company/divisions": [
+      "GET"
+    ],
+    "/company/salesmodules": [
+      "GET",
+      "POST"
+    ],
+    "/company/settings/altinn": [
+      "GET",
+      "PUT"
+    ],
+    "/company/{id}": [
+      "GET"
+    ],
+    "/contact": [
+      "GET",
+      "POST"
+    ],
+    "/contact/list": [
+      "POST",
+      "DELETE"
+    ],
+    "/contact/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/country": [
+      "GET"
+    ],
+    "/country/{id}": [
+      "GET"
+    ],
+    "/crm/prospect": [
+      "GET"
+    ],
+    "/crm/prospect/{id}": [
+      "GET"
+    ],
+    "/currency": [
+      "GET"
+    ],
+    "/currency/{fromCurrencyID}/exchangeRate": [
+      "GET"
+    ],
+    "/currency/{fromCurrencyID}/{toCurrencyID}/exchangeRate": [
+      "GET"
+    ],
+    "/currency/{id}": [
+      "GET"
+    ],
+    "/currency/{id}/rate": [
+      "GET"
+    ],
+    "/customer": [
+      "GET",
+      "POST"
+    ],
+    "/customer/category": [
+      "GET",
+      "POST"
+    ],
+    "/customer/category/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/customer/list": [
+      "PUT",
+      "POST"
+    ],
+    "/customer/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/deliveryAddress": [
+      "GET"
+    ],
+    "/deliveryAddress/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/department": [
+      "GET",
+      "POST"
+    ],
+    "/department/list": [
+      "PUT",
+      "POST"
+    ],
+    "/department/query": [
+      "GET"
+    ],
+    "/department/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/discountPolicy": [
+      "GET"
+    ],
+    "/discountPolicy/{id}": [
+      "GET"
+    ],
+    "/division": [
+      "GET",
+      "POST"
+    ],
+    "/division/list": [
+      "PUT",
+      "POST"
+    ],
+    "/division/{id}": [
+      "PUT"
+    ],
+    "/document/{id}": [
+      "GET"
+    ],
+    "/document/{id}/content": [
+      "GET"
+    ],
+    "/documentArchive/account/{id}": [
+      "GET",
+      "POST"
+    ],
+    "/documentArchive/customer/{id}": [
+      "GET",
+      "POST"
+    ],
+    "/documentArchive/dynamicControlForm/{id}": [
+      "GET",
+      "POST"
+    ],
+    "/documentArchive/employee/{id}": [
+      "GET",
+      "POST"
+    ],
+    "/documentArchive/product/{id}": [
+      "GET",
+      "POST"
+    ],
+    "/documentArchive/project/{id}": [
+      "GET",
+      "POST"
+    ],
+    "/documentArchive/reception": [
+      "POST"
+    ],
+    "/documentArchive/supplier/{id}": [
+      "GET",
+      "POST"
+    ],
+    "/documentArchive/{id}": [
+      "PUT",
+      "DELETE"
+    ],
+    "/employee": [
+      "GET",
+      "POST"
+    ],
+    "/employee/category": [
+      "GET",
+      "POST"
+    ],
+    "/employee/category/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/employee/category/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/employee/employment": [
+      "GET",
+      "POST"
+    ],
+    "/employee/employment/details": [
+      "GET",
+      "POST"
+    ],
+    "/employee/employment/details/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/employee/employment/employmentType": [
+      "GET"
+    ],
+    "/employee/employment/employmentType/employmentEndReasonType": [
+      "GET"
+    ],
+    "/employee/employment/employmentType/employmentFormType": [
+      "GET"
+    ],
+    "/employee/employment/employmentType/maritimeEmploymentType": [
+      "GET"
+    ],
+    "/employee/employment/employmentType/salaryType": [
+      "GET"
+    ],
+    "/employee/employment/employmentType/scheduleType": [
+      "GET"
+    ],
+    "/employee/employment/leaveOfAbsence": [
+      "GET",
+      "POST"
+    ],
+    "/employee/employment/leaveOfAbsence/list": [
+      "POST"
+    ],
+    "/employee/employment/leaveOfAbsence/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/employee/employment/leaveOfAbsenceType": [
+      "GET"
+    ],
+    "/employee/employment/occupationCode": [
+      "GET"
+    ],
+    "/employee/employment/occupationCode/{id}": [
+      "GET"
+    ],
+    "/employee/employment/remunerationType": [
+      "GET"
+    ],
+    "/employee/employment/workingHoursScheme": [
+      "GET"
+    ],
+    "/employee/employment/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/employee/entitlement": [
+      "GET"
+    ],
+    "/employee/entitlement/client": [
+      "GET"
+    ],
+    "/employee/entitlement/{id}": [
+      "GET"
+    ],
+    "/employee/hourlyCostAndRate": [
+      "GET",
+      "POST"
+    ],
+    "/employee/hourlyCostAndRate/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/employee/list": [
+      "POST"
+    ],
+    "/employee/nextOfKin": [
+      "GET",
+      "POST"
+    ],
+    "/employee/nextOfKin/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/employee/preferences": [
+      "GET"
+    ],
+    "/employee/preferences/>loggedInEmployeePreferences": [
+      "GET"
+    ],
+    "/employee/preferences/list": [
+      "PUT"
+    ],
+    "/employee/preferences/{id}": [
+      "PUT"
+    ],
+    "/employee/searchForEmployeesAndContacts": [
+      "GET"
+    ],
+    "/employee/standardTime": [
+      "GET",
+      "POST"
+    ],
+    "/employee/standardTime/byDate": [
+      "GET"
+    ],
+    "/employee/standardTime/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/employee/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/event": [
+      "GET"
+    ],
+    "/event/subscription": [
+      "GET",
+      "POST"
+    ],
+    "/event/subscription/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/event/subscription/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/event/{eventType}": [
+      "GET"
+    ],
+    "/incomingInvoice": [
+      "POST"
+    ],
+    "/incomingInvoice/search": [
+      "GET"
+    ],
+    "/incomingInvoice/{voucherId}": [
+      "GET",
+      "PUT"
+    ],
+    "/incomingInvoice/{voucherId}/addPayment": [
+      "POST"
+    ],
+    "/internal/debtCollector": [
+      "GET"
+    ],
+    "/internal/debtCollector/deactivate": [
+      "DELETE"
+    ],
+    "/inventory": [
+      "GET",
+      "POST"
+    ],
+    "/inventory/inventories": [
+      "GET"
+    ],
+    "/inventory/location": [
+      "GET",
+      "POST"
+    ],
+    "/inventory/location/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/inventory/location/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/inventory/stocktaking": [
+      "GET",
+      "POST"
+    ],
+    "/inventory/stocktaking/productline": [
+      "GET",
+      "POST"
+    ],
+    "/inventory/stocktaking/productline/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/inventory/stocktaking/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/inventory/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/invoice": [
+      "GET",
+      "POST"
+    ],
+    "/invoice/details": [
+      "GET"
+    ],
+    "/invoice/details/{id}": [
+      "GET"
+    ],
+    "/invoice/list": [
+      "POST"
+    ],
+    "/invoice/paymentType": [
+      "GET"
+    ],
+    "/invoice/paymentType/{id}": [
+      "GET"
+    ],
+    "/invoice/{id}": [
+      "GET"
+    ],
+    "/invoice/{invoiceId}/pdf": [
+      "GET"
+    ],
+    "/invoiceRemark/{id}": [
+      "GET"
+    ],
+    "/ledger": [
+      "GET"
+    ],
+    "/ledger/account": [
+      "GET",
+      "POST"
+    ],
+    "/ledger/account/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/ledger/account/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/ledger/accountingDimensionName": [
+      "GET",
+      "POST"
+    ],
+    "/ledger/accountingDimensionName/search": [
+      "GET"
+    ],
+    "/ledger/accountingDimensionName/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/ledger/accountingDimensionValue": [
+      "POST"
+    ],
+    "/ledger/accountingDimensionValue/list": [
+      "PUT"
+    ],
+    "/ledger/accountingDimensionValue/search": [
+      "GET"
+    ],
+    "/ledger/accountingDimensionValue/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/ledger/accountingPeriod": [
+      "GET"
+    ],
+    "/ledger/accountingPeriod/{id}": [
+      "GET"
+    ],
+    "/ledger/annualAccount": [
+      "GET"
+    ],
+    "/ledger/annualAccount/{id}": [
+      "GET"
+    ],
+    "/ledger/closeGroup": [
+      "GET"
+    ],
+    "/ledger/closeGroup/{id}": [
+      "GET"
+    ],
+    "/ledger/openPost": [
+      "GET"
+    ],
+    "/ledger/paymentTypeOut": [
+      "GET",
+      "POST"
+    ],
+    "/ledger/paymentTypeOut/list": [
+      "PUT",
+      "POST"
+    ],
+    "/ledger/paymentTypeOut/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/ledger/posting": [
+      "GET"
+    ],
+    "/ledger/posting/openPost": [
+      "GET"
+    ],
+    "/ledger/posting/{id}": [
+      "GET"
+    ],
+    "/ledger/postingByDate": [
+      "GET"
+    ],
+    "/ledger/postingRules": [
+      "GET"
+    ],
+    "/ledger/vatSettings": [
+      "GET",
+      "PUT"
+    ],
+    "/ledger/vatType": [
+      "GET"
+    ],
+    "/ledger/vatType/createRelativeVatType": [
+      "PUT"
+    ],
+    "/ledger/vatType/{id}": [
+      "GET"
+    ],
+    "/ledger/voucher": [
+      "GET",
+      "POST"
+    ],
+    "/ledger/voucher/>externalVoucherNumber": [
+      "GET"
+    ],
+    "/ledger/voucher/>nonPosted": [
+      "GET"
+    ],
+    "/ledger/voucher/>voucherReception": [
+      "GET"
+    ],
+    "/ledger/voucher/historical/employee": [
+      "POST"
+    ],
+    "/ledger/voucher/historical/historical": [
+      "POST"
+    ],
+    "/ledger/voucher/historical/{voucherId}/attachment": [
+      "POST"
+    ],
+    "/ledger/voucher/importDocument": [
+      "POST"
+    ],
+    "/ledger/voucher/importGbat10": [
+      "POST"
+    ],
+    "/ledger/voucher/list": [
+      "PUT"
+    ],
+    "/ledger/voucher/openingBalance": [
+      "GET",
+      "POST",
+      "DELETE"
+    ],
+    "/ledger/voucher/openingBalance/>correctionVoucher": [
+      "GET"
+    ],
+    "/ledger/voucher/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/ledger/voucher/{id}/options": [
+      "GET"
+    ],
+    "/ledger/voucher/{voucherId}/attachment": [
+      "POST",
+      "DELETE"
+    ],
+    "/ledger/voucher/{voucherId}/pdf": [
+      "GET"
+    ],
+    "/ledger/voucher/{voucherId}/pdf/{fileName}": [
+      "POST"
+    ],
+    "/ledger/voucherType": [
+      "GET"
+    ],
+    "/ledger/voucherType/{id}": [
+      "GET"
+    ],
+    "/municipality": [
+      "GET"
+    ],
+    "/municipality/query": [
+      "GET"
+    ],
+    "/order": [
+      "GET",
+      "POST"
+    ],
+    "/order/list": [
+      "POST"
+    ],
+    "/order/orderConfirmation/{orderId}/pdf": [
+      "GET"
+    ],
+    "/order/orderGroup": [
+      "GET",
+      "PUT",
+      "POST"
+    ],
+    "/order/orderGroup/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/order/orderline": [
+      "POST"
+    ],
+    "/order/orderline/list": [
+      "POST"
+    ],
+    "/order/orderline/orderLineTemplate": [
+      "GET"
+    ],
+    "/order/orderline/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/order/packingNote/{orderId}/pdf": [
+      "GET"
+    ],
+    "/order/sendInvoicePreview/{orderId}": [
+      "PUT"
+    ],
+    "/order/sendOrderConfirmation/{orderId}": [
+      "PUT"
+    ],
+    "/order/sendPackingNote/{orderId}": [
+      "PUT"
+    ],
+    "/order/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/pension": [
+      "GET"
+    ],
+    "/pickupPoint": [
+      "GET"
+    ],
+    "/pickupPoint/{id}": [
+      "GET"
+    ],
+    "/product": [
+      "GET",
+      "POST"
+    ],
+    "/product/discountGroup": [
+      "GET"
+    ],
+    "/product/discountGroup/{id}": [
+      "GET"
+    ],
+    "/product/external": [
+      "GET"
+    ],
+    "/product/external/{id}": [
+      "GET"
+    ],
+    "/product/group": [
+      "GET",
+      "POST"
+    ],
+    "/product/group/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/product/group/query": [
+      "GET"
+    ],
+    "/product/group/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/product/groupRelation": [
+      "GET",
+      "POST"
+    ],
+    "/product/groupRelation/list": [
+      "POST",
+      "DELETE"
+    ],
+    "/product/groupRelation/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/product/inventoryLocation": [
+      "GET",
+      "POST"
+    ],
+    "/product/inventoryLocation/list": [
+      "PUT",
+      "POST"
+    ],
+    "/product/inventoryLocation/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/product/list": [
+      "PUT",
+      "POST"
+    ],
+    "/product/logisticsSettings": [
+      "GET",
+      "PUT"
+    ],
+    "/product/productPrice": [
+      "GET"
+    ],
+    "/product/supplierProduct": [
+      "GET",
+      "POST"
+    ],
+    "/product/supplierProduct/getSupplierProductsByIds": [
+      "POST"
+    ],
+    "/product/supplierProduct/list": [
+      "PUT",
+      "POST"
+    ],
+    "/product/supplierProduct/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/product/unit": [
+      "GET",
+      "POST"
+    ],
+    "/product/unit/list": [
+      "PUT",
+      "POST"
+    ],
+    "/product/unit/master": [
+      "GET"
+    ],
+    "/product/unit/master/{id}": [
+      "GET"
+    ],
+    "/product/unit/query": [
+      "GET"
+    ],
+    "/product/unit/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/product/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/product/{id}/image": [
+      "POST",
+      "DELETE"
+    ],
+    "/project": [
+      "GET",
+      "POST",
+      "DELETE"
+    ],
+    "/project/>forTimeSheet": [
+      "GET"
+    ],
+    "/project/batchPeriod/budgetStatusByProjectIds": [
+      "GET"
+    ],
+    "/project/batchPeriod/invoicingReserveByProjectIds": [
+      "GET"
+    ],
+    "/project/category": [
+      "GET",
+      "POST"
+    ],
+    "/project/category/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/project/controlForm": [
+      "GET"
+    ],
+    "/project/controlForm/{id}": [
+      "GET"
+    ],
+    "/project/controlFormType": [
+      "GET"
+    ],
+    "/project/controlFormType/{id}": [
+      "GET"
+    ],
+    "/project/hourlyRates": [
+      "GET",
+      "POST"
+    ],
+    "/project/hourlyRates/deleteByProjectIds": [
+      "DELETE"
+    ],
+    "/project/hourlyRates/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/project/hourlyRates/projectSpecificRates": [
+      "GET",
+      "POST"
+    ],
+    "/project/hourlyRates/projectSpecificRates/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/project/hourlyRates/projectSpecificRates/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/project/hourlyRates/updateOrAddHourRates": [
+      "PUT"
+    ],
+    "/project/hourlyRates/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/project/import": [
+      "POST"
+    ],
+    "/project/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/project/number/{number}": [
+      "GET"
+    ],
+    "/project/orderline": [
+      "GET",
+      "POST"
+    ],
+    "/project/orderline/list": [
+      "POST"
+    ],
+    "/project/orderline/orderLineTemplate": [
+      "GET"
+    ],
+    "/project/orderline/query": [
+      "GET"
+    ],
+    "/project/orderline/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/project/participant": [
+      "POST"
+    ],
+    "/project/participant/list": [
+      "POST",
+      "DELETE"
+    ],
+    "/project/participant/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/project/projectActivity": [
+      "POST"
+    ],
+    "/project/projectActivity/list": [
+      "DELETE"
+    ],
+    "/project/projectActivity/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/project/resourcePlanBudget": [
+      "GET"
+    ],
+    "/project/settings": [
+      "GET",
+      "PUT"
+    ],
+    "/project/subcontract": [
+      "GET",
+      "POST"
+    ],
+    "/project/subcontract/query": [
+      "GET"
+    ],
+    "/project/subcontract/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/project/task": [
+      "GET"
+    ],
+    "/project/template/{id}": [
+      "GET"
+    ],
+    "/project/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/project/{id}/period/budgetStatus": [
+      "GET"
+    ],
+    "/project/{id}/period/hourlistReport": [
+      "GET"
+    ],
+    "/project/{id}/period/invoiced": [
+      "GET"
+    ],
+    "/project/{id}/period/invoicingReserve": [
+      "GET"
+    ],
+    "/project/{id}/period/monthlyStatus": [
+      "GET"
+    ],
+    "/project/{id}/period/overallStatus": [
+      "GET"
+    ],
+    "/purchaseOrder": [
+      "GET",
+      "POST"
+    ],
+    "/purchaseOrder/deviation": [
+      "GET",
+      "POST"
+    ],
+    "/purchaseOrder/deviation/list": [
+      "PUT",
+      "POST"
+    ],
+    "/purchaseOrder/deviation/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/purchaseOrder/goodsReceipt": [
+      "GET",
+      "POST"
+    ],
+    "/purchaseOrder/goodsReceipt/list": [
+      "POST",
+      "DELETE"
+    ],
+    "/purchaseOrder/goodsReceipt/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/purchaseOrder/goodsReceiptLine": [
+      "GET",
+      "POST"
+    ],
+    "/purchaseOrder/goodsReceiptLine/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/purchaseOrder/goodsReceiptLine/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/purchaseOrder/orderline": [
+      "POST"
+    ],
+    "/purchaseOrder/orderline/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/purchaseOrder/orderline/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/purchaseOrder/purchaseOrderIncomingInvoiceRelation": [
+      "GET",
+      "POST"
+    ],
+    "/purchaseOrder/purchaseOrderIncomingInvoiceRelation/list": [
+      "POST",
+      "DELETE"
+    ],
+    "/purchaseOrder/purchaseOrderIncomingInvoiceRelation/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/purchaseOrder/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/purchaseOrder/{id}/attachment": [
+      "POST",
+      "DELETE"
+    ],
+    "/purchaseOrder/{id}/attachment/list": [
+      "POST"
+    ],
+    "/reminder": [
+      "GET"
+    ],
+    "/reminder/{id}": [
+      "GET"
+    ],
+    "/reminder/{reminderId}/pdf": [
+      "GET"
+    ],
+    "/resultbudget": [
+      "GET"
+    ],
+    "/resultbudget/company": [
+      "GET"
+    ],
+    "/resultbudget/department/{id}": [
+      "GET"
+    ],
+    "/resultbudget/employee/{id}": [
+      "GET"
+    ],
+    "/resultbudget/product/{id}": [
+      "GET"
+    ],
+    "/resultbudget/project/{id}": [
+      "GET"
+    ],
+    "/saft/exportSAFT": [
+      "GET"
+    ],
+    "/saft/importSAFT": [
+      "POST"
+    ],
+    "/salary/compilation": [
+      "GET"
+    ],
+    "/salary/compilation/pdf": [
+      "GET"
+    ],
+    "/salary/financeTax/reconciliation/context": [
+      "POST"
+    ],
+    "/salary/financeTax/reconciliation/{reconciliationId}/overview": [
+      "GET"
+    ],
+    "/salary/financeTax/reconciliation/{reconciliationId}/paymentsOverview": [
+      "GET"
+    ],
+    "/salary/holidayAllowance/reconciliation/context": [
+      "POST"
+    ],
+    "/salary/holidayAllowance/reconciliation/{reconciliationId}/holidayAllowanceDetails": [
+      "GET"
+    ],
+    "/salary/holidayAllowance/reconciliation/{reconciliationId}/holidayAllowanceSummary": [
+      "GET"
+    ],
+    "/salary/mandatoryDeduction/reconciliation/context": [
+      "POST"
+    ],
+    "/salary/mandatoryDeduction/reconciliation/{reconciliationId}/overview": [
+      "GET"
+    ],
+    "/salary/mandatoryDeduction/reconciliation/{reconciliationId}/paymentsOverview": [
+      "GET"
+    ],
+    "/salary/payrollTax/reconciliation/context": [
+      "POST"
+    ],
+    "/salary/payrollTax/reconciliation/{reconciliationId}/overview": [
+      "GET"
+    ],
+    "/salary/payrollTax/reconciliation/{reconciliationId}/paymentsOverview": [
+      "GET"
+    ],
+    "/salary/payslip": [
+      "GET"
+    ],
+    "/salary/payslip/{id}": [
+      "GET"
+    ],
+    "/salary/payslip/{id}/pdf": [
+      "GET"
+    ],
+    "/salary/settings": [
+      "GET",
+      "PUT"
+    ],
+    "/salary/settings/holiday": [
+      "GET",
+      "POST"
+    ],
+    "/salary/settings/holiday/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/salary/settings/holiday/{id}": [
+      "PUT"
+    ],
+    "/salary/settings/pensionScheme": [
+      "GET",
+      "POST"
+    ],
+    "/salary/settings/pensionScheme/list": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/salary/settings/pensionScheme/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/salary/settings/standardTime": [
+      "GET",
+      "POST"
+    ],
+    "/salary/settings/standardTime/byDate": [
+      "GET"
+    ],
+    "/salary/settings/standardTime/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/salary/taxDeduction/reconciliation/context": [
+      "POST"
+    ],
+    "/salary/taxDeduction/reconciliation/{reconciliationId}/balanceAndOwedAmount": [
+      "GET"
+    ],
+    "/salary/taxDeduction/reconciliation/{reconciliationId}/overview": [
+      "GET"
+    ],
+    "/salary/taxDeduction/reconciliation/{reconciliationId}/paymentsOverview": [
+      "GET"
+    ],
+    "/salary/transaction": [
+      "POST"
+    ],
+    "/salary/transaction/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/salary/transaction/{id}/attachment": [
+      "POST"
+    ],
+    "/salary/transaction/{id}/attachment/list": [
+      "POST"
+    ],
+    "/salary/transaction/{id}/deleteAttachment": [
+      "PUT"
+    ],
+    "/salary/type": [
+      "GET"
+    ],
+    "/salary/type/{id}": [
+      "GET"
+    ],
+    "/subscription/cancel": [
+      "PUT"
+    ],
+    "/subscription/packages": [
+      "GET"
+    ],
+    "/subscription/reactivate": [
+      "PUT"
+    ],
+    "/supplier": [
+      "GET",
+      "POST"
+    ],
+    "/supplier/list": [
+      "PUT",
+      "POST"
+    ],
+    "/supplier/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/supplierCustomer/search": [
+      "GET"
+    ],
+    "/supplierInvoice": [
+      "GET"
+    ],
+    "/supplierInvoice/forApproval": [
+      "GET"
+    ],
+    "/supplierInvoice/voucher/{id}/postings": [
+      "PUT"
+    ],
+    "/supplierInvoice/{id}": [
+      "GET"
+    ],
+    "/supplierInvoice/{invoiceId}/pdf": [
+      "GET"
+    ],
+    "/supportDashboard/bankruptAndExcludedCustomers": [
+      "GET"
+    ],
+    "/supportDashboard/export": [
+      "GET"
+    ],
+    "/timesheet/allocated": [
+      "GET",
+      "POST"
+    ],
+    "/timesheet/allocated/list": [
+      "PUT",
+      "POST"
+    ],
+    "/timesheet/allocated/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/timesheet/companyHoliday": [
+      "GET",
+      "POST"
+    ],
+    "/timesheet/companyHoliday/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/timesheet/entry": [
+      "GET",
+      "POST"
+    ],
+    "/timesheet/entry/>recentActivities": [
+      "GET"
+    ],
+    "/timesheet/entry/>recentProjects": [
+      "GET"
+    ],
+    "/timesheet/entry/>totalHours": [
+      "GET"
+    ],
+    "/timesheet/entry/list": [
+      "PUT",
+      "POST"
+    ],
+    "/timesheet/entry/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/timesheet/month/byMonthNumber": [
+      "GET"
+    ],
+    "/timesheet/month/byMonthNumberList": [
+      "GET"
+    ],
+    "/timesheet/month/{id}": [
+      "GET"
+    ],
+    "/timesheet/salaryProjectTypeSpecification": [
+      "GET",
+      "POST"
+    ],
+    "/timesheet/salaryProjectTypeSpecification/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/timesheet/salaryTypeSpecification": [
+      "GET",
+      "POST"
+    ],
+    "/timesheet/salaryTypeSpecification/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/timesheet/settings": [
+      "GET"
+    ],
+    "/timesheet/timeClock": [
+      "GET"
+    ],
+    "/timesheet/timeClock/present": [
+      "GET"
+    ],
+    "/timesheet/timeClock/{id}": [
+      "GET",
+      "PUT"
+    ],
+    "/timesheet/week": [
+      "GET"
+    ],
+    "/token/consumer/byToken": [
+      "GET"
+    ],
+    "/token/session/>whoAmI": [
+      "GET"
+    ],
+    "/token/session/{token}": [
+      "DELETE"
+    ],
+    "/transportType": [
+      "GET"
+    ],
+    "/transportType/{id}": [
+      "GET"
+    ],
+    "/travelExpense": [
+      "GET",
+      "POST"
+    ],
+    "/travelExpense/accommodationAllowance": [
+      "GET",
+      "POST"
+    ],
+    "/travelExpense/accommodationAllowance/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/travelExpense/cost": [
+      "GET",
+      "POST"
+    ],
+    "/travelExpense/cost/list": [
+      "PUT"
+    ],
+    "/travelExpense/cost/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/travelExpense/costCategory": [
+      "GET"
+    ],
+    "/travelExpense/costCategory/{id}": [
+      "GET"
+    ],
+    "/travelExpense/costParticipant": [
+      "POST"
+    ],
+    "/travelExpense/costParticipant/createCostParticipantAdvanced": [
+      "POST"
+    ],
+    "/travelExpense/costParticipant/list": [
+      "POST",
+      "DELETE"
+    ],
+    "/travelExpense/costParticipant/{costId}/costParticipants": [
+      "GET"
+    ],
+    "/travelExpense/costParticipant/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/travelExpense/drivingStop": [
+      "POST"
+    ],
+    "/travelExpense/drivingStop/{id}": [
+      "GET",
+      "DELETE"
+    ],
+    "/travelExpense/mileageAllowance": [
+      "GET",
+      "POST"
+    ],
+    "/travelExpense/mileageAllowance/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/travelExpense/passenger": [
+      "GET",
+      "POST"
+    ],
+    "/travelExpense/passenger/list": [
+      "POST",
+      "DELETE"
+    ],
+    "/travelExpense/passenger/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/travelExpense/paymentType": [
+      "GET"
+    ],
+    "/travelExpense/paymentType/{id}": [
+      "GET"
+    ],
+    "/travelExpense/perDiemCompensation": [
+      "GET",
+      "POST"
+    ],
+    "/travelExpense/perDiemCompensation/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/travelExpense/rate": [
+      "GET"
+    ],
+    "/travelExpense/rate/{id}": [
+      "GET"
+    ],
+    "/travelExpense/rateCategory": [
+      "GET"
+    ],
+    "/travelExpense/rateCategory/{id}": [
+      "GET"
+    ],
+    "/travelExpense/rateCategoryGroup": [
+      "GET"
+    ],
+    "/travelExpense/rateCategoryGroup/{id}": [
+      "GET"
+    ],
+    "/travelExpense/settings": [
+      "GET"
+    ],
+    "/travelExpense/zone": [
+      "GET"
+    ],
+    "/travelExpense/zone/{id}": [
+      "GET"
+    ],
+    "/travelExpense/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/travelExpense/{id}/convert": [
+      "PUT"
+    ],
+    "/travelExpense/{travelExpenseId}/attachment": [
+      "GET",
+      "POST",
+      "DELETE"
+    ],
+    "/travelExpense/{travelExpenseId}/attachment/list": [
+      "POST"
+    ],
+    "/userLicense/export": [
+      "POST"
+    ],
+    "/vatReturns/comment": [
+      "GET"
+    ],
+    "/vatReturns/comment/>all": [
+      "GET"
+    ],
+    "/vatTermSizeSettings": [
+      "GET",
+      "POST"
+    ],
+    "/vatTermSizeSettings/{id}": [
+      "GET",
+      "PUT",
+      "DELETE"
+    ],
+    "/voucherApprovalListElement/{id}": [
+      "GET"
+    ],
+    "/voucherInbox/emailAddress": [
+      "GET"
+    ],
+    "/voucherInbox/inboxCount": [
+      "GET"
+    ],
+    "/voucherMessage": [
+      "GET",
+      "POST"
+    ],
+    "/voucherStatus": [
+      "GET",
+      "POST"
+    ],
+    "/voucherStatus/{id}": [
+      "GET"
+    ],
+    "/yearEnd/enumType/businessActivityTypes": [
+      "GET"
+    ],
+    "/yearEnd/penneo/casefiles": [
+      "GET",
+      "POST"
+    ],
+    "/yearEnd/penneo/casefiles/{caseFileId}": [
+      "DELETE"
+    ],
+    "/yearEnd/penneo/casefiles/{caseFileId}/activate": [
+      "POST"
+    ],
+    "/yearEnd/penneo/casefiles/{caseFileId}/signers/{signerId}": [
+      "DELETE"
+    ],
+    "/yearEnd/penneo/casefiles/{caseFileId}/signers/{signerId}/reactivate": [
+      "POST"
+    ],
+    "/yearEnd/penneo/casefiles/{caseFileId}/signers/{signerId}/resend": [
+      "POST"
+    ],
+    "/yearEnd/penneo/documents": [
+      "POST"
+    ],
+    "/yearEnd/penneo/documents/{documentId}": [
+      "PUT",
+      "DELETE"
+    ],
+    "/yearEnd/penneo/documents/{documentId}/download": [
+      "GET"
+    ],
+    "/yearEnd/penneo/recipients": [
+      "GET",
+      "POST"
+    ],
+    "/yearEnd/penneo/recipients/{id}": [
+      "DELETE"
+    ],
+    "/yearEnd/penneo/session": [
+      "GET"
+    ],
+    "/yearEnd/penneo/signature-lines": [
+      "POST"
+    ],
+    "/yearEnd/penneo/sync": [
+      "POST"
+    ],
+    "/yearEnd/penneo/updateCompletedStatus": [
+      "POST"
+    ],
+    "/yearEnd/researchAndDevelopment2024": [
+      "PUT",
+      "POST",
+      "DELETE"
+    ],
+    "/yearEnd/{yearEndReportId}/researchAndDevelopment2024": [
+      "GET"
+    ]
+  },
+  "enums": {
+    "Employee.userType": [
+      "STANDARD",
+      "EXTENDED",
+      "NO_ACCESS"
+    ],
+    "entitlementTemplate": [
+      "NONE_PRIVILEGES",
+      "ALL_PRIVILEGES",
+      "INVOICING_MANAGER",
+      "PERSONELL_MANAGER",
+      "ACCOUNTANT",
+      "AUDITOR",
+      "DEPARTMENT_LEADER"
+    ]
+  }
+}

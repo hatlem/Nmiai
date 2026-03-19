@@ -1,11 +1,16 @@
+import asyncio
 import httpx
 import logging
 
 logger = logging.getLogger(__name__)
 
+MAX_RETRIES = 2
+RETRY_BACKOFF = [0.5, 1.5]  # seconds between retries
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
 
 class TripletexClient:
-    """Async HTTP client for Tripletex API v2."""
+    """Async HTTP client for Tripletex API v2 with retry and backoff."""
 
     def __init__(self, base_url: str, session_token: str):
         self.base_url = base_url.rstrip("/")
@@ -22,28 +27,51 @@ class TripletexClient:
         self, method: str, path: str, body: dict | None = None, params: dict | None = None
     ) -> dict:
         url = f"{self.base_url}{path}"
-        logger.info(f"{method} {path}")
         self.call_count += 1
 
-        response = await self._client.request(
-            method=method, url=url, json=body, params=params
-        )
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                response = await self._client.request(
+                    method=method, url=url, json=body, params=params
+                )
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
+                if attempt < MAX_RETRIES:
+                    wait = RETRY_BACKOFF[attempt]
+                    logger.warning(f"{method} {path} network error, retry {attempt+1} in {wait}s: {e}")
+                    await asyncio.sleep(wait)
+                    continue
+                return {"status_code": 0, "ok": False, "data": {"error": str(e)}}
 
-        result = {
-            "status_code": response.status_code,
-            "ok": response.is_success,
-        }
+            result = {
+                "status_code": response.status_code,
+                "ok": response.is_success,
+            }
 
-        try:
-            result["data"] = response.json()
-        except Exception:
-            result["data"] = {"raw": response.text[:500]}
+            try:
+                result["data"] = response.json()
+            except Exception:
+                result["data"] = {"raw": response.text[:500]}
 
-        if not response.is_success:
-            self.error_count += 1
-            logger.warning(f"{method} {path} -> {response.status_code}: {result['data']}")
+            # Retry on rate-limit or server errors
+            if response.status_code in RETRYABLE_STATUS and attempt < MAX_RETRIES:
+                wait = RETRY_BACKOFF[attempt]
+                if response.status_code == 429:
+                    # Respect Retry-After header if present
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after:
+                        wait = min(float(retry_after), 5.0)
+                logger.warning(f"{method} {path} -> {response.status_code}, retry {attempt+1} in {wait}s")
+                await asyncio.sleep(wait)
+                continue
 
-        return result
+            if not response.is_success:
+                self.error_count += 1
+                logger.warning(f"{method} {path} -> {response.status_code}: {result['data']}")
+
+            return result
+
+        # Should not reach here, but safety net
+        return {"status_code": 0, "ok": False, "data": {"error": "max retries exhausted"}}
 
     async def get(self, path: str, params: dict | None = None) -> dict:
         if params is None:

@@ -1,0 +1,7110 @@
+{
+  "GET /activity": {
+    "summary": "Find activities corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "description",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isProjectActivity",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isGeneral",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isChargeable",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isTask",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /activity": {
+    "summary": "Add activity.",
+    "bodySchema": "Activity"
+  },
+  "GET /activity/>forTimeSheet": {
+    "summary": "Find applicable time sheet activities for an employee on a specific day.",
+    "params": [
+      {
+        "name": "projectId",
+        "required": true,
+        "type": "integer",
+        "desc": "Project ID"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Employee ID. Defaults to ID of token owner."
+      },
+      {
+        "name": "date",
+        "required": false,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      },
+      {
+        "name": "filterExistingHours",
+        "required": false,
+        "type": "boolean",
+        "desc": "Whether to filter out activities that have registered hours."
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "POST /activity/list": {
+    "summary": "Add multiple activities."
+  },
+  "GET /activity/{id}": {
+    "summary": "Find activity by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /company": {
+    "summary": "Update company information.",
+    "bodySchema": "Company"
+  },
+  "GET /company/>withLoginAccess": {
+    "summary": "Returns client customers (with accountant/auditor relation) where the current user has login access (proxy login)."
+  },
+  "GET /company/divisions": {
+    "summary": "[DEPRECATED] Find divisions."
+  },
+  "GET /company/salesmodules": {
+    "summary": "[BETA] Get active sales modules."
+  },
+  "POST /company/salesmodules": {
+    "summary": "[BETA] Add (activate) a new sales module.",
+    "bodySchema": "SalesModule"
+  },
+  "GET /company/settings/altinn": {
+    "summary": "Find Altinn id for login in company."
+  },
+  "PUT /company/settings/altinn": {
+    "summary": "Update AltInn id and password.",
+    "bodySchema": "AltinnCompanyModule"
+  },
+  "GET /company/{id}": {
+    "summary": "Find company by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /contact": {
+    "summary": "Find contacts corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "firstName",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "lastName",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      }
+    ]
+  },
+  "POST /contact": {
+    "summary": "Create contact.",
+    "bodySchema": "Contact"
+  },
+  "POST /contact/list": {
+    "summary": "Create multiple contacts."
+  },
+  "DELETE /contact/list": {
+    "summary": "[BETA] Delete multiple contacts.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /contact/{id}": {
+    "summary": "Get contact by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /contact/{id}": {
+    "summary": "Update contact.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Contact"
+  },
+  "GET /customer": {
+    "summary": "Find customers corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "customerAccountNumber",
+        "required": false,
+        "type": "string",
+        "desc": "List of customer numbers"
+      },
+      {
+        "name": "organizationNumber",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "invoiceEmail",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "customerName",
+        "required": false,
+        "type": "string",
+        "desc": "Name"
+      },
+      {
+        "name": "phoneNumberMobile",
+        "required": false,
+        "type": "string",
+        "desc": "Phone number mobile"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "accountManagerId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "changedSince",
+        "required": false,
+        "type": "string",
+        "desc": "Only return elements that have changed since this date and time"
+      }
+    ]
+  },
+  "POST /customer": {
+    "summary": "Create customer. Related customer addresses may also be created.",
+    "bodySchema": "Customer"
+  },
+  "GET /customer/category": {
+    "summary": "Find customer/supplier categories corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "description",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "type",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      }
+    ]
+  },
+  "POST /customer/category": {
+    "summary": "Add new customer/supplier category.",
+    "bodySchema": "CustomerCategory"
+  },
+  "GET /customer/category/{id}": {
+    "summary": "Find customer/supplier category by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /customer/category/{id}": {
+    "summary": "Update customer/supplier category.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "CustomerCategory"
+  },
+  "PUT /customer/list": {
+    "summary": "[BETA] Update multiple customers. Addresses can also be updated."
+  },
+  "POST /customer/list": {
+    "summary": "[BETA] Create multiple customers. Related supplier addresses may also be created."
+  },
+  "GET /customer/{id}": {
+    "summary": "Get customer by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /customer/{id}": {
+    "summary": "Update customer. ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Customer"
+  },
+  "DELETE /customer/{id}": {
+    "summary": "[BETA] Delete customer by ID",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /department": {
+    "summary": "Find department corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "departmentNumber",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "departmentManagerId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "true - return only inactive departments; false - return only active departments;"
+      }
+    ]
+  },
+  "POST /department": {
+    "summary": "Add new department.",
+    "bodySchema": "Department"
+  },
+  "PUT /department/list": {
+    "summary": "Update multiple departments."
+  },
+  "POST /department/list": {
+    "summary": "Register new departments."
+  },
+  "GET /department/query": {
+    "summary": "Wildcard search.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "true - return only inactive departments; false - return only active departments;"
+      }
+    ]
+  },
+  "GET /department/{id}": {
+    "summary": "Get department by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /department/{id}": {
+    "summary": "Update department.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Department"
+  },
+  "DELETE /department/{id}": {
+    "summary": "Delete department by ID",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /employee": {
+    "summary": "Find employees corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "firstName",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "lastName",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "employeeNumber",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "allowInformationRegistration",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "includeContacts",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "onlyProjectManagers",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "onlyContacts",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "assignableProjectManagers",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "periodStart",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "periodEnd",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "hasSystemAccess",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "onlyEmployeeTokens",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /employee": {
+    "summary": "Create one employee.",
+    "bodySchema": "Employee"
+  },
+  "GET /employee/category": {
+    "summary": "Find employee category corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "POST /employee/category": {
+    "summary": "Create a new employee category.",
+    "bodySchema": "EmployeeCategory"
+  },
+  "PUT /employee/category/list": {
+    "summary": "Update multiple employee categories."
+  },
+  "POST /employee/category/list": {
+    "summary": "Create new employee categories."
+  },
+  "DELETE /employee/category/list": {
+    "summary": "Delete multiple employee categories",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /employee/category/{id}": {
+    "summary": "Get employee category by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /employee/category/{id}": {
+    "summary": "Update employee category information.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "EmployeeCategory"
+  },
+  "DELETE /employee/category/{id}": {
+    "summary": "Delete employee category by ID",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /employee/employment": {
+    "summary": "Find all employments for employee.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /employee/employment": {
+    "summary": "Create employment.",
+    "bodySchema": "Employment"
+  },
+  "GET /employee/employment/details": {
+    "summary": "Find all employmentdetails for employment.",
+    "params": [
+      {
+        "name": "employmentId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      }
+    ]
+  },
+  "POST /employee/employment/details": {
+    "summary": "Create employment details.",
+    "bodySchema": "EmploymentDetails"
+  },
+  "GET /employee/employment/details/{id}": {
+    "summary": "Find employment details by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /employee/employment/details/{id}": {
+    "summary": "Update employment details. ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "EmploymentDetails"
+  },
+  "GET /employee/employment/employmentType": {
+    "summary": "Find all employment type IDs."
+  },
+  "GET /employee/employment/employmentType/employmentEndReasonType": {
+    "summary": "Find all employment end reason type IDs."
+  },
+  "GET /employee/employment/employmentType/employmentFormType": {
+    "summary": "Find all employment form type IDs."
+  },
+  "GET /employee/employment/employmentType/maritimeEmploymentType": {
+    "summary": "Find all maritime employment type IDs.",
+    "params": [
+      {
+        "name": "type",
+        "required": true,
+        "type": "string",
+        "desc": "maritimeEmploymentType"
+      }
+    ]
+  },
+  "GET /employee/employment/employmentType/salaryType": {
+    "summary": "Find all salary type IDs."
+  },
+  "GET /employee/employment/employmentType/scheduleType": {
+    "summary": "Find all schedule type IDs."
+  },
+  "GET /employee/employment/leaveOfAbsence": {
+    "summary": "Find all leave of absence corresponding with the sent data.",
+    "params": [
+      {
+        "name": "employmentIds",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "date",
+        "required": false,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      },
+      {
+        "name": "minPercentage",
+        "required": false,
+        "type": "integer",
+        "desc": "Must be between 0-100."
+      },
+      {
+        "name": "maxPercentage",
+        "required": false,
+        "type": "integer",
+        "desc": "Must be between 0-100."
+      }
+    ]
+  },
+  "POST /employee/employment/leaveOfAbsence": {
+    "summary": "Create leave of absence.",
+    "bodySchema": "LeaveOfAbsence"
+  },
+  "POST /employee/employment/leaveOfAbsence/list": {
+    "summary": "Create multiple leave of absences."
+  },
+  "GET /employee/employment/leaveOfAbsence/{id}": {
+    "summary": "Find leave of absence by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /employee/employment/leaveOfAbsence/{id}": {
+    "summary": "Update leave of absence.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "LeaveOfAbsence"
+  },
+  "GET /employee/employment/leaveOfAbsenceType": {
+    "summary": "Find all leave of absence type IDs."
+  },
+  "GET /employee/employment/occupationCode": {
+    "summary": "Find all profession codes.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "Element ID"
+      },
+      {
+        "name": "nameNO",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "code",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "GET /employee/employment/occupationCode/{id}": {
+    "summary": "Get occupation by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /employee/employment/remunerationType": {
+    "summary": "Find all remuneration type IDs."
+  },
+  "GET /employee/employment/workingHoursScheme": {
+    "summary": "Find working hours scheme ID."
+  },
+  "GET /employee/employment/{id}": {
+    "summary": "Find employment by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /employee/employment/{id}": {
+    "summary": "Update employemnt. ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Employment"
+  },
+  "GET /employee/entitlement": {
+    "summary": "Find all entitlements for user.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Employee ID. Defaults to ID of token owner."
+      }
+    ]
+  },
+  "PUT /employee/entitlement/:grantClientEntitlementsByTemplate": {
+    "summary": "[BETA] Update employee entitlements in client account.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": true,
+        "type": "integer",
+        "desc": "Employee ID"
+      },
+      {
+        "name": "customerId",
+        "required": true,
+        "type": "integer",
+        "desc": "Client ID"
+      },
+      {
+        "name": "template",
+        "required": true,
+        "type": "string",
+        "desc": "Template"
+      },
+      {
+        "name": "addToExisting",
+        "required": false,
+        "type": "boolean",
+        "desc": "Add template to existing entitlements"
+      }
+    ]
+  },
+  "PUT /employee/entitlement/:grantEntitlementsByTemplate": {
+    "summary": "[BETA] Update employee entitlements.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": true,
+        "type": "integer",
+        "desc": "Employee ID"
+      },
+      {
+        "name": "template",
+        "required": true,
+        "type": "string",
+        "desc": "Template"
+      }
+    ]
+  },
+  "GET /employee/entitlement/client": {
+    "summary": "[BETA] Find all entitlements at client for user.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Employee ID. Defaults to ID of token owner."
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "integer",
+        "desc": "Client ID"
+      }
+    ]
+  },
+  "GET /employee/entitlement/{id}": {
+    "summary": "Get entitlement by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /employee/hourlyCostAndRate": {
+    "summary": "Find all hourly cost and rates for employee.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Employee ID. Defaults to ID of token owner."
+      }
+    ]
+  },
+  "POST /employee/hourlyCostAndRate": {
+    "summary": "Create hourly cost and rate.",
+    "bodySchema": "HourlyCostAndRate"
+  },
+  "GET /employee/hourlyCostAndRate/{id}": {
+    "summary": "Find hourly cost and rate by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /employee/hourlyCostAndRate/{id}": {
+    "summary": "Update hourly cost and rate. ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "HourlyCostAndRate"
+  },
+  "POST /employee/list": {
+    "summary": "Create several employees."
+  },
+  "GET /employee/nextOfKin": {
+    "summary": "Find all next of kin for employee.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Employee ID. Defaults to ID of token owner."
+      }
+    ]
+  },
+  "POST /employee/nextOfKin": {
+    "summary": "Create next of kin.",
+    "bodySchema": "NextOfKin"
+  },
+  "GET /employee/nextOfKin/{id}": {
+    "summary": "Find next of kin by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /employee/nextOfKin/{id}": {
+    "summary": "Update next of kin. ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "NextOfKin"
+  },
+  "GET /employee/preferences": {
+    "summary": "Find employee preferences corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "PUT /employee/preferences/:changeLanguage": {
+    "summary": "Change current employees language to the given language",
+    "params": [
+      {
+        "name": "language",
+        "required": false,
+        "type": "string",
+        "desc": "Language to change to"
+      }
+    ]
+  },
+  "GET /employee/preferences/>loggedInEmployeePreferences": {
+    "summary": "Get employee preferences for current user"
+  },
+  "PUT /employee/preferences/list": {
+    "summary": "Update multiple employee preferences."
+  },
+  "PUT /employee/preferences/{id}": {
+    "summary": "Update employee preferences information.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "EmployeePreferences"
+  },
+  "GET /employee/searchForEmployeesAndContacts": {
+    "summary": "Get employees and contacts by parameters. Include contacts by default.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "firstName",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "lastName",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "includeContacts",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "hasSystemAccess",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "excludeReadOnly",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /employee/standardTime": {
+    "summary": "Find all standard times for employee.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Employee ID. Defaults to ID of token owner."
+      }
+    ]
+  },
+  "POST /employee/standardTime": {
+    "summary": "Create standard time.",
+    "bodySchema": "StandardTime"
+  },
+  "GET /employee/standardTime/byDate": {
+    "summary": "Find standard time for employee by date.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Employee ID. Defaults to ID of token owner."
+      },
+      {
+        "name": "date",
+        "required": false,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      }
+    ]
+  },
+  "GET /employee/standardTime/{id}": {
+    "summary": "Find standard time by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /employee/standardTime/{id}": {
+    "summary": "Update standard time. ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "StandardTime"
+  },
+  "GET /employee/{id}": {
+    "summary": "Get employee by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /employee/{id}": {
+    "summary": "Update employee.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Employee"
+  },
+  "GET /invoice": {
+    "summary": "Find invoices corresponding with sent data. Includes charged outgoing invoices only.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "invoiceDateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "invoiceDateTo",
+        "required": true,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "invoiceNumber",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "kid",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "voucherId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /invoice": {
+    "summary": "Create invoice. Related Order and OrderLines can be created first, or included as new objects inside the Invoice.",
+    "params": [
+      {
+        "name": "sendToCustomer",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "paymentTypeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Payment type to register prepayment of the invoice. paymentTypeId and paidAmount"
+      },
+      {
+        "name": "paidAmount",
+        "required": false,
+        "type": "number",
+        "desc": "Paid amount to register prepayment of the invoice, in invoice currency. paymentT"
+      }
+    ],
+    "bodySchema": "Invoice"
+  },
+  "GET /invoice/details": {
+    "summary": "Find ProjectInvoiceDetails corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "invoiceDateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "invoiceDateTo",
+        "required": true,
+        "type": "string",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "GET /invoice/details/{id}": {
+    "summary": "Get ProjectInvoiceDetails by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /invoice/list": {
+    "summary": "[BETA] Create multiple invoices. Max 100 at a time.",
+    "params": [
+      {
+        "name": "sendToCustomer",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /invoice/paymentType": {
+    "summary": "Find payment type corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "description",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "GET /invoice/paymentType/{id}": {
+    "summary": "Get payment type by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /invoice/{id}": {
+    "summary": "Get invoice by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /invoice/{id}/:createCreditNote": {
+    "summary": "Creates a new Invoice representing a credit memo that nullifies the given invoice. Updates this invoice and any pre-existing inverse invoice.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Invoice id"
+      },
+      {
+        "name": "date",
+        "required": true,
+        "type": "string",
+        "desc": "Credit note date"
+      },
+      {
+        "name": "comment",
+        "required": false,
+        "type": "string",
+        "desc": "Comment"
+      },
+      {
+        "name": "creditNoteEmail",
+        "required": false,
+        "type": "string",
+        "desc": "The credit note will not be sent if the customer send type is email and this fie"
+      },
+      {
+        "name": "sendToCustomer",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "sendType",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "PUT /invoice/{id}/:createReminder": {
+    "summary": "Create invoice reminder and sends it by the given dispatch type. Supports the reminder types SOFT_REMINDER, REMINDER and NOTICE_OF_DEBT_COLLECTION. DispatchType NETS_PRINT must have type NOTICE_OF_DEB",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      },
+      {
+        "name": "type",
+        "required": true,
+        "type": "string",
+        "desc": "type"
+      },
+      {
+        "name": "date",
+        "required": true,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      },
+      {
+        "name": "includeCharge",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "includeInterest",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "dispatchType",
+        "required": false,
+        "type": "string",
+        "desc": "dispatchType"
+      },
+      {
+        "name": "dispatchTypes",
+        "required": false,
+        "type": "string",
+        "desc": "List of dispatch types (comma separated enum values)"
+      },
+      {
+        "name": "smsNumber",
+        "required": false,
+        "type": "string",
+        "desc": "SMS number (must be a valid Norwegian telephone number)"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "Email address to send the reminder to. (Defaults to to the same email list as th"
+      },
+      {
+        "name": "address",
+        "required": false,
+        "type": "string",
+        "desc": "Address to send the reminder to. (Defaults to the customer address if not provid"
+      },
+      {
+        "name": "postalCode",
+        "required": false,
+        "type": "string",
+        "desc": "Postal code to send the reminder to (Defaults to the customer postal code if not"
+      },
+      {
+        "name": "city",
+        "required": false,
+        "type": "string",
+        "desc": "City to send the reminder to (Defaults to the customer city if not provided)"
+      }
+    ]
+  },
+  "PUT /invoice/{id}/:payment": {
+    "summary": "Update invoice. The invoice is updated with payment information. The amount is in the invoice’s currency.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Invoice id"
+      },
+      {
+        "name": "paymentDate",
+        "required": true,
+        "type": "string",
+        "desc": "Payment date"
+      },
+      {
+        "name": "paymentTypeId",
+        "required": true,
+        "type": "integer",
+        "desc": "PaymentType id"
+      },
+      {
+        "name": "paidAmount",
+        "required": true,
+        "type": "number",
+        "desc": "Amount paid by the customer in the currency determined by the account of the pay"
+      },
+      {
+        "name": "paidAmountCurrency",
+        "required": false,
+        "type": "number",
+        "desc": "Amount paid by customer in the invoice currency. Optional, but required for invo"
+      }
+    ]
+  },
+  "PUT /invoice/{id}/:send": {
+    "summary": "Send invoice by ID and sendType. Optionally override email recipient.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      },
+      {
+        "name": "sendType",
+        "required": true,
+        "type": "string",
+        "desc": "SendType"
+      },
+      {
+        "name": "overrideEmailAddress",
+        "required": false,
+        "type": "string",
+        "desc": "Will override email address if sendType = EMAIL"
+      }
+    ]
+  },
+  "GET /invoice/{invoiceId}/pdf": {
+    "summary": "Get invoice document by invoice ID.",
+    "params": [
+      {
+        "name": "invoiceId",
+        "required": true,
+        "type": "integer",
+        "desc": "Invoice ID from which PDF is downloaded."
+      },
+      {
+        "name": "download",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /ledger": {
+    "summary": "Get ledger (hovedbok).",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (from and incl.)."
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (to and excl.)."
+      },
+      {
+        "name": "openPostings",
+        "required": false,
+        "type": "string",
+        "desc": "Deprecated"
+      },
+      {
+        "name": "accountId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "supplierId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "productId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "accountingDimensionValue1Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of the first free accounting dimension."
+      },
+      {
+        "name": "accountingDimensionValue2Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of the second free accounting dimension."
+      },
+      {
+        "name": "accountingDimensionValue3Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of the third free accounting dimension."
+      }
+    ]
+  },
+  "GET /ledger/account": {
+    "summary": "Find accounts corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "isBankAccount",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isApplicableForSupplierInvoice",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "ledgerType",
+        "required": false,
+        "type": "string",
+        "desc": "Ledger type"
+      },
+      {
+        "name": "isBalanceAccount",
+        "required": false,
+        "type": "boolean",
+        "desc": "Balance account"
+      },
+      {
+        "name": "saftCode",
+        "required": false,
+        "type": "string",
+        "desc": "SAF-T code"
+      }
+    ]
+  },
+  "POST /ledger/account": {
+    "summary": "Create a new account.",
+    "bodySchema": "Account"
+  },
+  "PUT /ledger/account/list": {
+    "summary": "Update multiple accounts."
+  },
+  "POST /ledger/account/list": {
+    "summary": "Create several accounts."
+  },
+  "DELETE /ledger/account/list": {
+    "summary": "Delete multiple accounts.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /ledger/account/{id}": {
+    "summary": "Get account by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /ledger/account/{id}": {
+    "summary": "Update account.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Account"
+  },
+  "DELETE /ledger/account/{id}": {
+    "summary": "Delete account.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /ledger/accountingDimensionName": {
+    "summary": "Get all accounting dimension names.",
+    "params": [
+      {
+        "name": "activeOnly",
+        "required": false,
+        "type": "boolean",
+        "desc": "Whether to only return active dimensions (optional)"
+      }
+    ]
+  },
+  "POST /ledger/accountingDimensionName": {
+    "summary": "Create a new free (aka 'user defined') accounting dimension",
+    "bodySchema": "AccountingDimensionName"
+  },
+  "GET /ledger/accountingDimensionName/search": {
+    "summary": "Search for accounting dimension names according to criteria.",
+    "params": [
+      {
+        "name": "dimensionIndex",
+        "required": false,
+        "type": "integer",
+        "desc": "Dimension index to filter by (1, 2, or 3)"
+      },
+      {
+        "name": "activeOnly",
+        "required": false,
+        "type": "boolean",
+        "desc": "Whether to only return active dimensions (optional)"
+      },
+      {
+        "name": "onlyDimensionsWithActiveValues",
+        "required": false,
+        "type": "boolean",
+        "desc": "Whether to only return active dimensions with active values which are shown in v"
+      }
+    ]
+  },
+  "GET /ledger/accountingDimensionName/{id}": {
+    "summary": "Get a single accounting dimension name by ID",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "The ID of the accounting dimension name to retrieve"
+      }
+    ]
+  },
+  "PUT /ledger/accountingDimensionName/{id}": {
+    "summary": "Update an accounting dimension",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Id of the dimension to update"
+      }
+    ],
+    "bodySchema": "AccountingDimensionName"
+  },
+  "DELETE /ledger/accountingDimensionName/{id}": {
+    "summary": "Delete an accounting dimension name by ID",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of the accounting dimension name to delete"
+      }
+    ]
+  },
+  "POST /ledger/accountingDimensionValue": {
+    "summary": "Create a new value for one of the free (aka 'user defined') accounting dimensions",
+    "bodySchema": "AccountingDimensionValue"
+  },
+  "PUT /ledger/accountingDimensionValue/list": {
+    "summary": "Update accounting dimension values"
+  },
+  "GET /ledger/accountingDimensionValue/search": {
+    "summary": "Search for accounting dimension values according to criteria.",
+    "params": [
+      {
+        "name": "dimensionIndex",
+        "required": false,
+        "type": "integer",
+        "desc": "Dimension index to filter by (1, 2, or 3)"
+      },
+      {
+        "name": "activeOnly",
+        "required": false,
+        "type": "boolean",
+        "desc": "Whether to only return active dimension values (optional)"
+      },
+      {
+        "name": "showInVoucherRegistration",
+        "required": false,
+        "type": "boolean",
+        "desc": "Return only values shown in voucher registration (optional)"
+      }
+    ]
+  },
+  "GET /ledger/accountingDimensionValue/{id}": {
+    "summary": "Find accounting dimension values by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "DELETE /ledger/accountingDimensionValue/{id}": {
+    "summary": "Delete an accounting dimension value.  Values that have been used in postings can not be deleted.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of the accounting dimension value to delete"
+      }
+    ]
+  },
+  "GET /ledger/accountingPeriod": {
+    "summary": "Find accounting periods corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "numberFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "From and including"
+      },
+      {
+        "name": "numberTo",
+        "required": false,
+        "type": "integer",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "startFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "startTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "endFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "endTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "GET /ledger/accountingPeriod/{id}": {
+    "summary": "Get accounting period by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /ledger/annualAccount": {
+    "summary": "Find annual accounts corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "yearFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "From and including"
+      },
+      {
+        "name": "yearTo",
+        "required": false,
+        "type": "integer",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "GET /ledger/annualAccount/{id}": {
+    "summary": "Get annual account by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /ledger/closeGroup": {
+    "summary": "Find close groups corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "GET /ledger/closeGroup/{id}": {
+    "summary": "Get close group by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /ledger/openPost": {
+    "summary": "Find open posts corresponding with sent data.",
+    "params": [
+      {
+        "name": "date",
+        "required": true,
+        "type": "string",
+        "desc": "Invoice date. Format is yyyy-MM-dd (to and excl.)."
+      },
+      {
+        "name": "accountId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "supplierId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "productId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "accountingDimensionValue1Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of first free accounting dimension."
+      },
+      {
+        "name": "accountingDimensionValue2Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of second free accounting dimension."
+      },
+      {
+        "name": "accountingDimensionValue3Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of third free accounting dimension."
+      }
+    ]
+  },
+  "GET /ledger/paymentTypeOut": {
+    "summary": "[BETA] Gets payment types for outgoing payments",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "description",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /ledger/paymentTypeOut": {
+    "summary": "[BETA] Create new payment type for outgoing payments",
+    "bodySchema": "PaymentTypeOut"
+  },
+  "PUT /ledger/paymentTypeOut/list": {
+    "summary": "[BETA] Update multiple payment types for outgoing payments at once"
+  },
+  "POST /ledger/paymentTypeOut/list": {
+    "summary": "[BETA] Create multiple payment types for outgoing payments at once"
+  },
+  "GET /ledger/paymentTypeOut/{id}": {
+    "summary": "[BETA] Get payment type for outgoing payments by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /ledger/paymentTypeOut/{id}": {
+    "summary": "[BETA] Update existing payment type for outgoing payments",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "PaymentTypeOut"
+  },
+  "DELETE /ledger/paymentTypeOut/{id}": {
+    "summary": "[BETA] Delete payment type for outgoing payments by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /ledger/posting": {
+    "summary": "Find postings corresponding with sent data.",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (from and incl.)."
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (to and excl.)."
+      },
+      {
+        "name": "openPostings",
+        "required": false,
+        "type": "string",
+        "desc": "Deprecated"
+      },
+      {
+        "name": "accountId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "supplierId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "productId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "accountNumberFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "accountNumberTo",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "type",
+        "required": false,
+        "type": "string",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "accountingDimensionValue1Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of first free accounting dimension."
+      },
+      {
+        "name": "accountingDimensionValue2Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of second free accounting dimension."
+      },
+      {
+        "name": "accountingDimensionValue3Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of third free accounting dimension."
+      }
+    ]
+  },
+  "PUT /ledger/posting/:closePostings": {
+    "summary": "Close postings."
+  },
+  "GET /ledger/posting/openPost": {
+    "summary": "Find open posts corresponding with sent data.",
+    "params": [
+      {
+        "name": "date",
+        "required": true,
+        "type": "string",
+        "desc": "Invoice date. Format is yyyy-MM-dd (to and excl.)."
+      },
+      {
+        "name": "accountId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "supplierId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "productId",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "accountNumberFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "accountNumberTo",
+        "required": false,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      },
+      {
+        "name": "accountingDimensionValue1Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of first free accounting dimension."
+      },
+      {
+        "name": "accountingDimensionValue2Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of second free accounting dimension."
+      },
+      {
+        "name": "accountingDimensionValue3Id",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of third free accounting dimension."
+      }
+    ]
+  },
+  "GET /ledger/posting/{id}": {
+    "summary": "Find postings by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /ledger/postingByDate": {
+    "summary": "Get postings by date range with pagination. Returns the same PostingDTO as /ledger/posting. Simplified endpoint for better performance. Fields and Changes are not supported. Token must have access to ",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (from and incl.)."
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (to and excl.)."
+      }
+    ]
+  },
+  "GET /ledger/postingRules": {
+    "summary": "Get posting rules for current company.  The posting rules defined which accounts from the chart of accounts that are used for postings when the system creates postings."
+  },
+  "GET /ledger/vatSettings": {
+    "summary": "Get VAT settings for the logged in company."
+  },
+  "PUT /ledger/vatSettings": {
+    "summary": "Update VAT settings for the logged in company.",
+    "bodySchema": "VatSettings"
+  },
+  "GET /ledger/vatType": {
+    "summary": "Find vat types corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "typeOfVat",
+        "required": false,
+        "type": "string",
+        "desc": "Type of VAT"
+      },
+      {
+        "name": "vatDate",
+        "required": false,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today. Note that this is only used in combination with t"
+      },
+      {
+        "name": "shouldIncludeSpecificationTypes",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "PUT /ledger/vatType/createRelativeVatType": {
+    "summary": "Create a new relative VAT Type. These are used if the company has 'forholdsmessig fradrag for inngående MVA'.",
+    "params": [
+      {
+        "name": "name",
+        "required": true,
+        "type": "string",
+        "desc": "VAT type name, max 8 characters."
+      },
+      {
+        "name": "vatTypeId",
+        "required": true,
+        "type": "integer",
+        "desc": "VAT type ID. The relative VAT type will behave like this VAT type, except for th"
+      },
+      {
+        "name": "percentage",
+        "required": true,
+        "type": "number",
+        "desc": "Basis percentage. This percentage will be multiplied with the transaction amount"
+      }
+    ]
+  },
+  "GET /ledger/vatType/{id}": {
+    "summary": "Get vat type by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /ledger/voucher": {
+    "summary": "Find vouchers corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "numberFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "From and including"
+      },
+      {
+        "name": "numberTo",
+        "required": false,
+        "type": "integer",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "typeId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "POST /ledger/voucher": {
+    "summary": "Add new voucher. IMPORTANT: Also creates postings. Only the gross amounts will be used. Amounts should be rounded to 2 decimals.",
+    "params": [
+      {
+        "name": "sendToLedger",
+        "required": false,
+        "type": "boolean",
+        "desc": "Should the voucher be sent to ledger? Requires the \"Advanced Voucher\" permission"
+      }
+    ],
+    "bodySchema": "Voucher"
+  },
+  "GET /ledger/voucher/>externalVoucherNumber": {
+    "summary": "Find vouchers based on the external voucher number.",
+    "params": [
+      {
+        "name": "externalVoucherNumber",
+        "required": false,
+        "type": "string",
+        "desc": "The external voucher number, when voucher is created from import."
+      }
+    ]
+  },
+  "GET /ledger/voucher/>nonPosted": {
+    "summary": "Find non-posted vouchers.",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "dateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "includeNonApproved",
+        "required": true,
+        "type": "boolean",
+        "desc": "Include non-approved vouchers in the result."
+      },
+      {
+        "name": "changedSince",
+        "required": false,
+        "type": "string",
+        "desc": "Only return elements that have changed since this date and time"
+      }
+    ]
+  },
+  "GET /ledger/voucher/>voucherReception": {
+    "summary": "Find vouchers in voucher reception.",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "dateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "searchText",
+        "required": false,
+        "type": "string",
+        "desc": "Search"
+      }
+    ]
+  },
+  "PUT /ledger/voucher/historical/:closePostings": {
+    "summary": "[BETA] Close postings.",
+    "params": [
+      {
+        "name": "postingIds",
+        "required": false,
+        "type": "string",
+        "desc": "[Deprecated] List of Posting IDs to close separated by comma. The postings shoul"
+      }
+    ]
+  },
+  "PUT /ledger/voucher/historical/:reverseHistoricalVouchers": {
+    "summary": "[BETA] Deletes all historical vouchers. Requires the \"All vouchers\" and \"Advanced Voucher\" permissions."
+  },
+  "POST /ledger/voucher/historical/employee": {
+    "summary": "[BETA] Create one employee, based on import from external system. Validation is less strict, ie. employee department isn't required.",
+    "bodySchema": "Employee"
+  },
+  "POST /ledger/voucher/historical/historical": {
+    "summary": "API endpoint for creating historical vouchers. These are vouchers created outside Tripletex, and should be from closed accounting years. The intended usage is to get access to historical transcations ",
+    "params": [
+      {
+        "name": "comment",
+        "required": false,
+        "type": "string",
+        "desc": "Import comment, include the name and version of the source system."
+      },
+      {
+        "name": "useCustomNumberSeries",
+        "required": false,
+        "type": "boolean",
+        "desc": "Use custom number series (true), or use default number series for historical vou"
+      }
+    ]
+  },
+  "POST /ledger/voucher/historical/{voucherId}/attachment": {
+    "summary": "Upload attachment to voucher. If the voucher already has an attachment the content will be appended to the existing attachment as new PDF page(s). Valid document formats are PDF, PNG, JPEG and TIFF. N",
+    "params": [
+      {
+        "name": "voucherId",
+        "required": true,
+        "type": "integer",
+        "desc": "Voucher ID to upload attachment to."
+      }
+    ]
+  },
+  "POST /ledger/voucher/importDocument": {
+    "summary": "Upload a document to create one or more vouchers. Valid document formats are PDF, PNG, JPEG and TIFF. EHF/XML is possible with agreement with Tripletex. Send as multipart form.",
+    "params": [
+      {
+        "name": "split",
+        "required": false,
+        "type": "boolean",
+        "desc": "If the document consists of several pages, should the document be split into one"
+      }
+    ]
+  },
+  "POST /ledger/voucher/importGbat10": {
+    "summary": "Import GBAT10. Send as multipart form."
+  },
+  "PUT /ledger/voucher/list": {
+    "summary": "Update multiple vouchers. Postings with guiRow==0 will be deleted and regenerated.",
+    "params": [
+      {
+        "name": "sendToLedger",
+        "required": false,
+        "type": "boolean",
+        "desc": "Should the voucher be sent to ledger? Requires the \"Advanced Voucher\" permission"
+      }
+    ]
+  },
+  "GET /ledger/voucher/openingBalance": {
+    "summary": "[BETA] Get the voucher for the opening balance."
+  },
+  "POST /ledger/voucher/openingBalance": {
+    "summary": "[BETA] Add an opening balance on the given date.  All movements before this date will be 'zeroed out' in a separate correction voucher. The opening balance must have the first day of a month as the da",
+    "bodySchema": "OpeningBalance"
+  },
+  "DELETE /ledger/voucher/openingBalance": {
+    "summary": "[BETA] Delete the opening balance. The correction voucher will also be deleted"
+  },
+  "GET /ledger/voucher/openingBalance/>correctionVoucher": {
+    "summary": "[BETA] Get the correction voucher for the opening balance."
+  },
+  "GET /ledger/voucher/{id}": {
+    "summary": "Get voucher by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /ledger/voucher/{id}": {
+    "summary": "Update voucher. Postings with guiRow==0 will be deleted and regenerated.",
+    "params": [
+      {
+        "name": "sendToLedger",
+        "required": false,
+        "type": "boolean",
+        "desc": "Should the voucher be sent to ledger? Requires the \"Advanced Voucher\" permission"
+      },
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Voucher"
+  },
+  "DELETE /ledger/voucher/{id}": {
+    "summary": "Delete voucher by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /ledger/voucher/{id}/:reverse": {
+    "summary": "Reverses the voucher, and returns the reversed voucher. Supports reversing most voucher types, except salary transactions.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of voucher that should be reversed."
+      },
+      {
+        "name": "date",
+        "required": true,
+        "type": "string",
+        "desc": "Reverse voucher date"
+      }
+    ]
+  },
+  "PUT /ledger/voucher/{id}/:sendToInbox": {
+    "summary": "Send voucher to inbox.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of voucher that should be sent to inbox."
+      },
+      {
+        "name": "version",
+        "required": false,
+        "type": "integer",
+        "desc": "Version of voucher that should be sent to inbox."
+      },
+      {
+        "name": "comment",
+        "required": false,
+        "type": "string",
+        "desc": "Description of why the voucher was rejected. This parameter is only used if the "
+      }
+    ]
+  },
+  "PUT /ledger/voucher/{id}/:sendToLedger": {
+    "summary": "Send voucher to ledger.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of voucher that should be sent to ledger."
+      },
+      {
+        "name": "version",
+        "required": false,
+        "type": "integer",
+        "desc": "Version of voucher that should be sent to ledger."
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "integer",
+        "desc": "Voucher number to use. If omitted or 0 the system will assign the number."
+      }
+    ]
+  },
+  "GET /ledger/voucher/{id}/options": {
+    "summary": "Returns a data structure containing meta information about operations that are available for this voucher. Currently only implemented for DELETE: It is possible to check if the voucher is deletable.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /ledger/voucher/{voucherId}/attachment": {
+    "summary": "Upload attachment to voucher. If the voucher already has an attachment the content will be appended to the existing attachment as new PDF page(s). Valid document formats are PDF, PNG, JPEG and TIFF. N",
+    "params": [
+      {
+        "name": "voucherId",
+        "required": true,
+        "type": "integer",
+        "desc": "Voucher ID to upload attachment to."
+      }
+    ]
+  },
+  "DELETE /ledger/voucher/{voucherId}/attachment": {
+    "summary": "Delete attachment.",
+    "params": [
+      {
+        "name": "voucherId",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of voucher containing the attachment to delete."
+      },
+      {
+        "name": "version",
+        "required": false,
+        "type": "integer",
+        "desc": "Version of voucher containing the attachment to delete."
+      },
+      {
+        "name": "sendToInbox",
+        "required": false,
+        "type": "boolean",
+        "desc": "Should the attachment be sent to inbox rather than deleted?"
+      },
+      {
+        "name": "split",
+        "required": false,
+        "type": "boolean",
+        "desc": "If sendToInbox is true, should the attachment be split into one voucher per page"
+      }
+    ]
+  },
+  "GET /ledger/voucher/{voucherId}/pdf": {
+    "summary": "Get PDF representation of voucher by ID.",
+    "params": [
+      {
+        "name": "voucherId",
+        "required": true,
+        "type": "integer",
+        "desc": "Voucher ID from which PDF is downloaded."
+      }
+    ]
+  },
+  "POST /ledger/voucher/{voucherId}/pdf/{fileName}": {
+    "summary": "[DEPRECATED] Use POST ledger/voucher/{voucherId}/attachment instead.",
+    "params": [
+      {
+        "name": "voucherId",
+        "required": true,
+        "type": "integer",
+        "desc": "Voucher ID to upload PDF to."
+      },
+      {
+        "name": "fileName",
+        "required": true,
+        "type": "string",
+        "desc": "File name to store the pdf under. Will not be the same as the filename on the fi"
+      }
+    ]
+  },
+  "GET /ledger/voucherType": {
+    "summary": "Find voucher types corresponding with sent data.",
+    "params": [
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "GET /ledger/voucherType/{id}": {
+    "summary": "Get voucher type by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /order": {
+    "summary": "Find orders corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "orderDateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "orderDateTo",
+        "required": true,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "deliveryComment",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isClosed",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isSubscription",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /order": {
+    "summary": "Create order.",
+    "bodySchema": "Order"
+  },
+  "PUT /order/:invoiceMultipleOrders": {
+    "summary": "[BETA] Charges a single customer invoice from multiple orders. The orders must be to the same customer, currency, due date, receiver email, attn. and smsNotificationNumber",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "string",
+        "desc": "List of Order IDs - to the same customer, separated by comma."
+      },
+      {
+        "name": "invoiceDate",
+        "required": true,
+        "type": "string",
+        "desc": "The invoice date"
+      },
+      {
+        "name": "sendToCustomer",
+        "required": false,
+        "type": "boolean",
+        "desc": "Send invoice to customer"
+      },
+      {
+        "name": "createBackorders",
+        "required": false,
+        "type": "boolean",
+        "desc": "Create a backorder for all any orders that delivers less than ordered amount"
+      }
+    ]
+  },
+  "POST /order/list": {
+    "summary": "[BETA] Create multiple Orders with OrderLines. Max 100 at a time."
+  },
+  "GET /order/orderConfirmation/{orderId}/pdf": {
+    "summary": "Get PDF representation of order by ID.",
+    "params": [
+      {
+        "name": "orderId",
+        "required": true,
+        "type": "integer",
+        "desc": "Order ID from which PDF is downloaded."
+      },
+      {
+        "name": "download",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /order/orderGroup": {
+    "summary": "Find orderGroups corresponding with sent data.",
+    "params": [
+      {
+        "name": "ids",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "orderIds",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      }
+    ]
+  },
+  "PUT /order/orderGroup": {
+    "summary": "[Beta] Put orderGroup.",
+    "params": [
+      {
+        "name": "OrderLineIds",
+        "required": false,
+        "type": "string",
+        "desc": "Deprecated. Put order lines in the dto instead."
+      },
+      {
+        "name": "removeExistingOrderLines",
+        "required": false,
+        "type": "boolean",
+        "desc": "Deprecated. Should existing orderLines be removed from this orderGroup. This wil"
+      }
+    ],
+    "bodySchema": "OrderGroup"
+  },
+  "POST /order/orderGroup": {
+    "summary": "[Beta] Post orderGroup.",
+    "params": [
+      {
+        "name": "orderLineIds",
+        "required": false,
+        "type": "string",
+        "desc": "Deprecated. Put order lines in the dto instead."
+      }
+    ],
+    "bodySchema": "OrderGroup"
+  },
+  "GET /order/orderGroup/{id}": {
+    "summary": "Get orderGroup by ID. A orderGroup is a way to group orderLines, and add comments and subtotals",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "DELETE /order/orderGroup/{id}": {
+    "summary": "Delete orderGroup by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /order/orderline": {
+    "summary": "Create order line. When creating several order lines, use /list for better performance.",
+    "bodySchema": "OrderLine"
+  },
+  "POST /order/orderline/list": {
+    "summary": "Create multiple order lines."
+  },
+  "GET /order/orderline/orderLineTemplate": {
+    "summary": "[BETA] Get order line template from order and product",
+    "params": [
+      {
+        "name": "orderId",
+        "required": true,
+        "type": "integer",
+        "desc": "Equals"
+      },
+      {
+        "name": "productId",
+        "required": true,
+        "type": "integer",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /order/orderline/{id}": {
+    "summary": "Get order line by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /order/orderline/{id}": {
+    "summary": "[BETA] Put order line",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "OrderLine"
+  },
+  "DELETE /order/orderline/{id}": {
+    "summary": "[BETA] Delete order line by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /order/orderline/{id}/:pickLine": {
+    "summary": "[BETA] Pick order line. This is only available for customers who have Logistics and who activated the available inventory functionality.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Order line id"
+      },
+      {
+        "name": "inventoryId",
+        "required": false,
+        "type": "integer",
+        "desc": "Optional inventory id. If no inventory is sent, default inventory will be used."
+      },
+      {
+        "name": "inventoryLocationId",
+        "required": false,
+        "type": "integer",
+        "desc": "Optional inventory location id"
+      },
+      {
+        "name": "pickDate",
+        "required": false,
+        "type": "string",
+        "desc": "Optional pick date. If not sent, current date will be used."
+      }
+    ]
+  },
+  "PUT /order/orderline/{id}/:unpickLine": {
+    "summary": "[BETA] Unpick order line.This is only available for customers who have Logistics and who activated the available inventory functionality.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Order line id"
+      }
+    ]
+  },
+  "GET /order/packingNote/{orderId}/pdf": {
+    "summary": "Get PDF representation of packing note by ID.",
+    "params": [
+      {
+        "name": "orderId",
+        "required": true,
+        "type": "integer",
+        "desc": "Order ID from which PDF is downloaded."
+      },
+      {
+        "name": "type",
+        "required": false,
+        "type": "string",
+        "desc": "Type of packing note to download."
+      },
+      {
+        "name": "download",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "PUT /order/sendInvoicePreview/{orderId}": {
+    "summary": "Send Invoice Preview to customer by email.",
+    "params": [
+      {
+        "name": "orderId",
+        "required": true,
+        "type": "integer",
+        "desc": "orderId"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "email"
+      },
+      {
+        "name": "message",
+        "required": false,
+        "type": "string",
+        "desc": "message"
+      },
+      {
+        "name": "saveAsDefault",
+        "required": false,
+        "type": "boolean",
+        "desc": "saveAsDefault"
+      }
+    ]
+  },
+  "PUT /order/sendOrderConfirmation/{orderId}": {
+    "summary": "Send Order Confirmation to customer by email.",
+    "params": [
+      {
+        "name": "orderId",
+        "required": true,
+        "type": "integer",
+        "desc": "orderId"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "email"
+      },
+      {
+        "name": "message",
+        "required": false,
+        "type": "string",
+        "desc": "message"
+      },
+      {
+        "name": "saveAsDefault",
+        "required": false,
+        "type": "boolean",
+        "desc": "saveAsDefault"
+      }
+    ]
+  },
+  "PUT /order/sendPackingNote/{orderId}": {
+    "summary": "Send Packing Note to customer by email.",
+    "params": [
+      {
+        "name": "orderId",
+        "required": true,
+        "type": "integer",
+        "desc": "orderId"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "email"
+      },
+      {
+        "name": "message",
+        "required": false,
+        "type": "string",
+        "desc": "message"
+      },
+      {
+        "name": "saveAsDefault",
+        "required": false,
+        "type": "boolean",
+        "desc": "saveAsDefault"
+      },
+      {
+        "name": "type",
+        "required": false,
+        "type": "string",
+        "desc": "Type of packing note to send."
+      }
+    ]
+  },
+  "GET /order/{id}": {
+    "summary": "Get order by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /order/{id}": {
+    "summary": "Update order.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      },
+      {
+        "name": "updateLinesAndGroups",
+        "required": false,
+        "type": "boolean",
+        "desc": "Should order lines and order groups be saved and not included lines/groups be re"
+      }
+    ],
+    "bodySchema": "Order"
+  },
+  "DELETE /order/{id}": {
+    "summary": "Delete order.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /order/{id}/:approveSubscriptionInvoice": {
+    "summary": "To create a subscription invoice, first create a order with the subscription enabled, then approve it with this method. This approves the order for subscription invoicing.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of order to approve for subscription invoicing."
+      },
+      {
+        "name": "invoiceDate",
+        "required": true,
+        "type": "string",
+        "desc": "The approval date for the subscription."
+      }
+    ]
+  },
+  "PUT /order/{id}/:attach": {
+    "summary": "Attach document to specified order ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /order/{id}/:invoice": {
+    "summary": "Create new invoice or subscription invoice from order.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of order to invoice."
+      },
+      {
+        "name": "invoiceDate",
+        "required": true,
+        "type": "string",
+        "desc": "The invoice date"
+      },
+      {
+        "name": "sendToCustomer",
+        "required": false,
+        "type": "boolean",
+        "desc": "Send invoice to customer"
+      },
+      {
+        "name": "sendType",
+        "required": false,
+        "type": "string",
+        "desc": "Send type used for sending the invoice"
+      },
+      {
+        "name": "paymentTypeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Payment type to register prepayment of the invoice. paymentTypeId and paidAmount"
+      },
+      {
+        "name": "paidAmount",
+        "required": false,
+        "type": "number",
+        "desc": "Paid amount to register prepayment of the invoice, in invoice currency. paymentT"
+      },
+      {
+        "name": "paidAmountAccountCurrency",
+        "required": false,
+        "type": "number",
+        "desc": "Amount paid in payment type currency"
+      },
+      {
+        "name": "paymentTypeIdRestAmount",
+        "required": false,
+        "type": "integer",
+        "desc": "Payment type of rest amount. It is possible to have two prepaid payments when in"
+      },
+      {
+        "name": "paidAmountAccountCurrencyRest",
+        "required": false,
+        "type": "number",
+        "desc": "Amount rest in payment type currency"
+      },
+      {
+        "name": "createOnAccount",
+        "required": false,
+        "type": "string",
+        "desc": "Create on account(a konto)"
+      },
+      {
+        "name": "amountOnAccount",
+        "required": false,
+        "type": "number",
+        "desc": "Amount on account"
+      },
+      {
+        "name": "onAccountComment",
+        "required": false,
+        "type": "string",
+        "desc": "On account comment"
+      },
+      {
+        "name": "createBackorder",
+        "required": false,
+        "type": "boolean",
+        "desc": "Create a backorder for this order, available only for pilot users"
+      },
+      {
+        "name": "invoiceIdIfIsCreditNote",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of the invoice a credit note refers to"
+      },
+      {
+        "name": "overrideEmailAddress",
+        "required": false,
+        "type": "string",
+        "desc": "Will override email address if sendType = EMAIL"
+      }
+    ]
+  },
+  "PUT /order/{id}/:unApproveSubscriptionInvoice": {
+    "summary": "Unapproves the order for subscription invoicing.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of order to unapprove for subscription invoicing."
+      }
+    ]
+  },
+  "GET /product": {
+    "summary": "Find products corresponding with sent data.",
+    "params": [
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "DEPRECATED. List of product numbers (Integer only)"
+      },
+      {
+        "name": "ids",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "productNumber",
+        "required": false,
+        "type": "array",
+        "desc": "List of valid product numbers"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "ean",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isStockItem",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isSupplierProduct",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "supplierId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "currencyId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "vatTypeId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "productUnitId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "accountId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "costExcludingVatCurrencyFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "costExcludingVatCurrencyTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "priceExcludingVatCurrencyFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "priceExcludingVatCurrencyTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "priceIncludingVatCurrencyFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "priceIncludingVatCurrencyTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "POST /product": {
+    "summary": "Create new product.",
+    "bodySchema": "Product"
+  },
+  "GET /product/discountGroup": {
+    "summary": "Find discount groups corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      }
+    ]
+  },
+  "GET /product/discountGroup/{id}": {
+    "summary": "Get discount group by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /product/external": {
+    "summary": "[BETA] Find external products corresponding with sent data. The sorting-field is not in use on this endpoint.",
+    "params": [
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "wholesaler",
+        "required": false,
+        "type": "string",
+        "desc": "Wholesaler"
+      },
+      {
+        "name": "organizationNumber",
+        "required": false,
+        "type": "string",
+        "desc": "Wholesaler organization number. Mandatory if Wholesaler is not selected. If Whol"
+      },
+      {
+        "name": "elNumber",
+        "required": false,
+        "type": "string",
+        "desc": "List of valid el numbers"
+      },
+      {
+        "name": "nrfNumber",
+        "required": false,
+        "type": "string",
+        "desc": "List of valid nrf numbers"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /product/external/{id}": {
+    "summary": "[BETA] Get external product by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /product/group": {
+    "summary": "Find product group with sent data. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "POST /product/group": {
+    "summary": "Create new product group. Only available for Logistics Basic.",
+    "bodySchema": "ProductGroup"
+  },
+  "PUT /product/group/list": {
+    "summary": "Update a list of product groups. Only available for Logistics Basic."
+  },
+  "POST /product/group/list": {
+    "summary": "Add multiple products groups. Only available for Logistics Basic."
+  },
+  "DELETE /product/group/list": {
+    "summary": "Delete multiple product groups. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /product/group/query": {
+    "summary": "Wildcard search. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "GET /product/group/{id}": {
+    "summary": "Find product group by ID. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /product/group/{id}": {
+    "summary": "Update product group. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProductGroup"
+  },
+  "DELETE /product/group/{id}": {
+    "summary": "Delete product group. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /product/groupRelation": {
+    "summary": "Find product group relation with sent data. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "productId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "productGroupId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      }
+    ]
+  },
+  "POST /product/groupRelation": {
+    "summary": "Create new product group relation. Only available for Logistics Basic.",
+    "bodySchema": "ProductGroupRelation"
+  },
+  "POST /product/groupRelation/list": {
+    "summary": "Add multiple products group relations. Only available for Logistics Basic."
+  },
+  "DELETE /product/groupRelation/list": {
+    "summary": "Delete multiple product group relations. Only available for Logistics Basic."
+  },
+  "GET /product/groupRelation/{id}": {
+    "summary": "Find product group relation by ID. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "DELETE /product/groupRelation/{id}": {
+    "summary": "Delete product group relation. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /product/inventoryLocation": {
+    "summary": "Find inventory locations by product ID. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "productId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "inventoryId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "isMainLocation",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /product/inventoryLocation": {
+    "summary": "Create new product inventory location. Only available for Logistics Basic.",
+    "bodySchema": "ProductInventoryLocation"
+  },
+  "PUT /product/inventoryLocation/list": {
+    "summary": "Update multiple product inventory locations. Only available for Logistics Basic."
+  },
+  "POST /product/inventoryLocation/list": {
+    "summary": "Add multiple product inventory locations. Only available for Logistics Basic."
+  },
+  "GET /product/inventoryLocation/{id}": {
+    "summary": "Get inventory location by ID. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /product/inventoryLocation/{id}": {
+    "summary": "Update product inventory location. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProductInventoryLocation"
+  },
+  "DELETE /product/inventoryLocation/{id}": {
+    "summary": "Delete product inventory location. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /product/list": {
+    "summary": "Update a list of products."
+  },
+  "POST /product/list": {
+    "summary": "Add multiple products."
+  },
+  "GET /product/logisticsSettings": {
+    "summary": "Get logistics settings for the logged in company."
+  },
+  "PUT /product/logisticsSettings": {
+    "summary": "Update logistics settings for the logged in company.",
+    "bodySchema": "LogisticsSettings"
+  },
+  "GET /product/productPrice": {
+    "summary": "Find prices for a product. Only available for Logistics Basic.",
+    "params": [
+      {
+        "name": "productId",
+        "required": true,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "fromDate",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "toDate",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "showOnlyLastPrice",
+        "required": false,
+        "type": "boolean",
+        "desc": "If showOnlyLastPrice is true, fromDate and toDate are ignored and only last pric"
+      }
+    ]
+  },
+  "GET /product/supplierProduct": {
+    "summary": "Find products corresponding with sent data.",
+    "params": [
+      {
+        "name": "productId",
+        "required": false,
+        "type": "integer",
+        "desc": "Id of product to find supplier products for."
+      },
+      {
+        "name": "resaleIds",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "vendorId",
+        "required": false,
+        "type": "string",
+        "desc": "Id of vendor to find supplier products for."
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "productGroupId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "targetCurrencyId",
+        "required": false,
+        "type": "integer",
+        "desc": "The target currency ID for price conversion."
+      }
+    ]
+  },
+  "POST /product/supplierProduct": {
+    "summary": "Create new supplierProduct.",
+    "bodySchema": "SupplierProduct"
+  },
+  "POST /product/supplierProduct/getSupplierProductsByIds": {
+    "summary": "Find the products by ids. Method was added as a POST because GET request header has a maximum size that we can exceed with customers that a lot of products."
+  },
+  "PUT /product/supplierProduct/list": {
+    "summary": "Update a list of supplierProduct."
+  },
+  "POST /product/supplierProduct/list": {
+    "summary": "Create list of new supplierProduct."
+  },
+  "GET /product/supplierProduct/{id}": {
+    "summary": "Get supplierProduct by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /product/supplierProduct/{id}": {
+    "summary": "Update supplierProduct.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "SupplierProduct"
+  },
+  "DELETE /product/supplierProduct/{id}": {
+    "summary": "Delete supplierProduct.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /product/unit": {
+    "summary": "Find product units corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Names"
+      },
+      {
+        "name": "nameShort",
+        "required": false,
+        "type": "string",
+        "desc": "Short names"
+      },
+      {
+        "name": "commonCode",
+        "required": false,
+        "type": "string",
+        "desc": "Common codes"
+      }
+    ]
+  },
+  "POST /product/unit": {
+    "summary": "Create new product unit.",
+    "bodySchema": "ProductUnit"
+  },
+  "PUT /product/unit/list": {
+    "summary": "Update list of product units."
+  },
+  "POST /product/unit/list": {
+    "summary": "Create multiple product units."
+  },
+  "GET /product/unit/master": {
+    "summary": "Find product units master corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Names"
+      },
+      {
+        "name": "nameShort",
+        "required": false,
+        "type": "string",
+        "desc": "Short names"
+      },
+      {
+        "name": "commonCode",
+        "required": false,
+        "type": "string",
+        "desc": "Common codes"
+      },
+      {
+        "name": "peppolName",
+        "required": false,
+        "type": "string",
+        "desc": "Peppol names"
+      },
+      {
+        "name": "peppolSymbol",
+        "required": false,
+        "type": "string",
+        "desc": "Peppol symbols"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Inactive units"
+      }
+    ]
+  },
+  "GET /product/unit/master/{id}": {
+    "summary": "Get product unit master by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /product/unit/query": {
+    "summary": "Wildcard search.",
+    "params": [
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "GET /product/unit/{id}": {
+    "summary": "Get product unit by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /product/unit/{id}": {
+    "summary": "Update product unit.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProductUnit"
+  },
+  "DELETE /product/unit/{id}": {
+    "summary": "Delete product unit by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /product/{id}": {
+    "summary": "Get product by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /product/{id}": {
+    "summary": "Update product.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Product"
+  },
+  "DELETE /product/{id}": {
+    "summary": "Delete product.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /product/{id}/image": {
+    "summary": "Upload image to product. Existing image on product will be replaced if exists",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Product ID to upload image to."
+      }
+    ]
+  },
+  "DELETE /product/{id}/image": {
+    "summary": "Delete image.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of Product containing the image to delete."
+      }
+    ]
+  },
+  "GET /project": {
+    "summary": "Find projects corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "isOffer",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "projectManagerId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "customerAccountManagerId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "employeeInProjectId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "startDateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "startDateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "endDateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "endDateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "isClosed",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isFixedPrice",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "customerId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "externalAccountsNumber",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "includeRecentlyClosed",
+        "required": false,
+        "type": "boolean",
+        "desc": "If isClosed is false, include projects that have been closed within the last 3 m"
+      }
+    ]
+  },
+  "POST /project": {
+    "summary": "Add new project.",
+    "bodySchema": "Project"
+  },
+  "DELETE /project": {
+    "summary": "[BETA] Delete multiple projects."
+  },
+  "GET /project/>forTimeSheet": {
+    "summary": "Find projects applicable for time sheet registration on a specific day.",
+    "params": [
+      {
+        "name": "includeProjectOffers",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "integer",
+        "desc": "Employee ID. Defaults to ID of token owner."
+      },
+      {
+        "name": "date",
+        "required": false,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      }
+    ]
+  },
+  "GET /project/batchPeriod/budgetStatusByProjectIds": {
+    "summary": "Get the budget status for the projects in the specific period.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /project/batchPeriod/invoicingReserveByProjectIds": {
+    "summary": "Get the invoicing reserve for the projects in the specific period.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      },
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (from and incl.)."
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (to and excl.)."
+      }
+    ]
+  },
+  "GET /project/category": {
+    "summary": "Find project categories corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "description",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "POST /project/category": {
+    "summary": "Add new project category.",
+    "bodySchema": "ProjectCategory"
+  },
+  "GET /project/category/{id}": {
+    "summary": "Find project category by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/category/{id}": {
+    "summary": "Update project category.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProjectCategory"
+  },
+  "GET /project/controlForm": {
+    "summary": "[BETA] Get project control forms by project ID.",
+    "params": [
+      {
+        "name": "projectId",
+        "required": true,
+        "type": "integer",
+        "desc": "Project ID"
+      }
+    ]
+  },
+  "GET /project/controlForm/{id}": {
+    "summary": "[BETA] Get project control form by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /project/controlFormType": {
+    "summary": "[BETA] Get project control form types"
+  },
+  "GET /project/controlFormType/{id}": {
+    "summary": "[BETA] Get project control form type by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/dynamicControlForm/{id}/:copyFieldValuesFromLastEditedForm": {
+    "summary": "Into each section in the specified form that only has empty or default values, and copyFieldValuesByDefault set as true in the form's template, copy field values from the equivalent section in the mos",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "The ID of the form that the values will be copied to"
+      }
+    ]
+  },
+  "GET /project/hourlyRates": {
+    "summary": "Find project hourly rates corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "type",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "startDateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "startDateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "showInProjectOrder",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /project/hourlyRates": {
+    "summary": "Create a project hourly rate. ",
+    "bodySchema": "ProjectHourlyRate"
+  },
+  "DELETE /project/hourlyRates/deleteByProjectIds": {
+    "summary": "Delete project hourly rates by project id.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      },
+      {
+        "name": "date",
+        "required": true,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      }
+    ]
+  },
+  "PUT /project/hourlyRates/list": {
+    "summary": "Update multiple project hourly rates."
+  },
+  "POST /project/hourlyRates/list": {
+    "summary": "Create multiple project hourly rates."
+  },
+  "DELETE /project/hourlyRates/list": {
+    "summary": "Delete project hourly rates.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /project/hourlyRates/projectSpecificRates": {
+    "summary": "Find project specific rates corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "projectHourlyRateId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "activityId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      }
+    ]
+  },
+  "POST /project/hourlyRates/projectSpecificRates": {
+    "summary": "Create new project specific rate. ",
+    "bodySchema": "ProjectSpecificRate"
+  },
+  "PUT /project/hourlyRates/projectSpecificRates/list": {
+    "summary": "Update multiple project specific rates."
+  },
+  "POST /project/hourlyRates/projectSpecificRates/list": {
+    "summary": "Create multiple new project specific rates."
+  },
+  "DELETE /project/hourlyRates/projectSpecificRates/list": {
+    "summary": "Delete project specific rates.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /project/hourlyRates/projectSpecificRates/{id}": {
+    "summary": "Find project specific rate by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/hourlyRates/projectSpecificRates/{id}": {
+    "summary": "Update a project specific rate.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProjectSpecificRate"
+  },
+  "DELETE /project/hourlyRates/projectSpecificRates/{id}": {
+    "summary": "Delete project specific rate ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/hourlyRates/updateOrAddHourRates": {
+    "summary": "Update or add the same project hourly rate from project overview.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ],
+    "bodySchema": "HourlyRate"
+  },
+  "GET /project/hourlyRates/{id}": {
+    "summary": "Find project hourly rate by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/hourlyRates/{id}": {
+    "summary": "Update a project hourly rate.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProjectHourlyRate"
+  },
+  "DELETE /project/hourlyRates/{id}": {
+    "summary": "Delete Project Hourly Rate ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /project/import": {
+    "summary": "Upload project import file.",
+    "params": [
+      {
+        "name": "fileFormat",
+        "required": true,
+        "type": "string",
+        "desc": "File format"
+      },
+      {
+        "name": "encoding",
+        "required": false,
+        "type": "string",
+        "desc": "Encoding"
+      },
+      {
+        "name": "delimiter",
+        "required": false,
+        "type": "string",
+        "desc": "Delimiter"
+      },
+      {
+        "name": "ignoreFirstRow",
+        "required": false,
+        "type": "boolean",
+        "desc": "Ignore first row"
+      }
+    ]
+  },
+  "PUT /project/list": {
+    "summary": "[BETA] Update multiple projects."
+  },
+  "POST /project/list": {
+    "summary": "[BETA] Register new projects. Multiple projects for different users can be sent in the same request."
+  },
+  "DELETE /project/list": {
+    "summary": "[BETA] Delete projects.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /project/number/{number}": {
+    "summary": "Find project by number.",
+    "params": [
+      {
+        "name": "number",
+        "required": true,
+        "type": "string",
+        "desc": "Number of the project"
+      }
+    ]
+  },
+  "GET /project/orderline": {
+    "summary": "[BETA] Find all order lines for project.",
+    "params": [
+      {
+        "name": "projectId",
+        "required": true,
+        "type": "integer",
+        "desc": "Equals"
+      },
+      {
+        "name": "isBudget",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /project/orderline": {
+    "summary": "[BETA] Create order line. When creating several order lines, use /list for better performance.",
+    "bodySchema": "ProjectOrderLine"
+  },
+  "POST /project/orderline/list": {
+    "summary": "[BETA] Create multiple order lines."
+  },
+  "GET /project/orderline/orderLineTemplate": {
+    "summary": "[BETA] Get order line template from project and product",
+    "params": [
+      {
+        "name": "projectId",
+        "required": true,
+        "type": "integer",
+        "desc": "Equals"
+      },
+      {
+        "name": "productId",
+        "required": true,
+        "type": "integer",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /project/orderline/query": {
+    "summary": "[BETA] Wildcard search.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "integer",
+        "desc": "Equals"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isBudget",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /project/orderline/{id}": {
+    "summary": "[BETA] Get order line by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/orderline/{id}": {
+    "summary": "[BETA] Update project orderline.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProjectOrderLine"
+  },
+  "DELETE /project/orderline/{id}": {
+    "summary": "Delete order line by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /project/participant": {
+    "summary": "[BETA] Add new project participant.",
+    "bodySchema": "ProjectParticipant"
+  },
+  "POST /project/participant/list": {
+    "summary": "[BETA] Add new project participant. Multiple project participants can be sent in the same request."
+  },
+  "DELETE /project/participant/list": {
+    "summary": "[BETA] Delete project participants.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /project/participant/{id}": {
+    "summary": "[BETA] Find project participant by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/participant/{id}": {
+    "summary": "[BETA] Update project participant.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProjectParticipant"
+  },
+  "POST /project/projectActivity": {
+    "summary": "Add project activity.",
+    "bodySchema": "ProjectActivity"
+  },
+  "DELETE /project/projectActivity/list": {
+    "summary": "Delete project activities",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /project/projectActivity/{id}": {
+    "summary": "Find project activity by id",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "DELETE /project/projectActivity/{id}": {
+    "summary": "Delete project activity",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /project/resourcePlanBudget": {
+    "summary": "Get resource plan entries in the specified period.",
+    "params": [
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "integer",
+        "desc": "Equals"
+      },
+      {
+        "name": "periodStart",
+        "required": true,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "periodEnd",
+        "required": true,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "periodType",
+        "required": true,
+        "type": "string",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /project/settings": {
+    "summary": "Get project settings of logged in company.",
+    "params": [
+      {
+        "name": "useNkode",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "PUT /project/settings": {
+    "summary": "Update project settings for company",
+    "bodySchema": "ProjectSettings"
+  },
+  "GET /project/subcontract": {
+    "summary": "Find project sub-contracts corresponding with sent data.",
+    "params": [
+      {
+        "name": "projectId",
+        "required": true,
+        "type": "integer",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /project/subcontract": {
+    "summary": "Add new project sub-contract.",
+    "bodySchema": "ProjectSubContract"
+  },
+  "GET /project/subcontract/query": {
+    "summary": "Wildcard search.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "integer",
+        "desc": "Equals"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "GET /project/subcontract/{id}": {
+    "summary": "Find project sub-contract by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/subcontract/{id}": {
+    "summary": "Update project sub-contract.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "ProjectSubContract"
+  },
+  "DELETE /project/subcontract/{id}": {
+    "summary": "Delete project sub-contract by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /project/task": {
+    "summary": "Find all tasks for project.",
+    "params": [
+      {
+        "name": "projectId",
+        "required": true,
+        "type": "integer",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /project/template/{id}": {
+    "summary": "Get project template by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /project/{id}": {
+    "summary": "Find project by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /project/{id}": {
+    "summary": "[BETA] Update project.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Project"
+  },
+  "DELETE /project/{id}": {
+    "summary": "[BETA] Delete project.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /project/{id}/period/budgetStatus": {
+    "summary": "Get the budget status for the project period",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      }
+    ]
+  },
+  "GET /project/{id}/period/hourlistReport": {
+    "summary": "Find hourlist report by project period.",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (from and incl.)."
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (to and excl.)."
+      },
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      }
+    ]
+  },
+  "GET /project/{id}/period/invoiced": {
+    "summary": "Find invoiced info by project period.",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (from and incl.)."
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (to and excl.)."
+      },
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      }
+    ]
+  },
+  "GET /project/{id}/period/invoicingReserve": {
+    "summary": "Find invoicing reserve by project period.",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (from and incl.)."
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (to and excl.)."
+      },
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      }
+    ]
+  },
+  "GET /project/{id}/period/monthlyStatus": {
+    "summary": "Find overall status by project period.",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Will be set to the first day of the provided date's month. Format is yyyy-MM-dd "
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Must be in the same year as dateFrom. Will be set to the last day of the provide"
+      },
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      }
+    ]
+  },
+  "GET /project/{id}/period/overallStatus": {
+    "summary": "Find overall status by project period.",
+    "params": [
+      {
+        "name": "dateFrom",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (from and incl.)."
+      },
+      {
+        "name": "dateTo",
+        "required": true,
+        "type": "string",
+        "desc": "Format is yyyy-MM-dd (to and excl.)."
+      },
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID for filtering"
+      }
+    ]
+  },
+  "GET /salary/compilation": {
+    "summary": "Find salary compilation by employee.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      },
+      {
+        "name": "year",
+        "required": false,
+        "type": "integer",
+        "desc": "Must be between 1900-2100. Defaults to previous year."
+      }
+    ]
+  },
+  "GET /salary/compilation/pdf": {
+    "summary": "Find salary compilation (PDF document) by employee.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      },
+      {
+        "name": "year",
+        "required": false,
+        "type": "integer",
+        "desc": "Must be between 1900-2100. Defaults to previous year."
+      }
+    ]
+  },
+  "POST /salary/financeTax/reconciliation/context": {
+    "summary": "Create a financeTax reconciliation context for a customer",
+    "bodySchema": "FinanceTaxContextRequest"
+  },
+  "GET /salary/financeTax/reconciliation/{reconciliationId}/overview": {
+    "summary": "Get finance tax overview for a specific reconciliation term",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "GET /salary/financeTax/reconciliation/{reconciliationId}/paymentsOverview": {
+    "summary": "Get finance tax payment overview from start of year to the current reconciliation term",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "POST /salary/holidayAllowance/reconciliation/context": {
+    "summary": "Create a holiday allowance reconciliation context for a customer",
+    "bodySchema": "HolidayAllowanceContextRequest"
+  },
+  "GET /salary/holidayAllowance/reconciliation/{reconciliationId}/holidayAllowanceDetails": {
+    "summary": "Get a holiday allowance details for the current reconciliation term",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "GET /salary/holidayAllowance/reconciliation/{reconciliationId}/holidayAllowanceSummary": {
+    "summary": "Salary holiday allowance reconciliation summary",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "POST /salary/mandatoryDeduction/reconciliation/context": {
+    "summary": "Create a mandatoryDeduction reconciliation context for a customer",
+    "bodySchema": "MandatoryDeductionContextRequest"
+  },
+  "GET /salary/mandatoryDeduction/reconciliation/{reconciliationId}/overview": {
+    "summary": "Salary mandatory deduction reconciliation overview",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "GET /salary/mandatoryDeduction/reconciliation/{reconciliationId}/paymentsOverview": {
+    "summary": "Get mandatory deduction payments overview from start of year to the current reconciliation term",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "POST /salary/payrollTax/reconciliation/context": {
+    "summary": "Create a payroll tax reconciliation context for a customer",
+    "bodySchema": "PayrollTaxContextRequest"
+  },
+  "GET /salary/payrollTax/reconciliation/{reconciliationId}/overview": {
+    "summary": "Salary payroll tax reconciliation overview",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "GET /salary/payrollTax/reconciliation/{reconciliationId}/paymentsOverview": {
+    "summary": "Get a payroll tax payments from start of year to the current reconciliation term",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "GET /salary/payslip": {
+    "summary": "Find payslips corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "wageTransactionId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "activityId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "yearFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "From and including"
+      },
+      {
+        "name": "yearTo",
+        "required": false,
+        "type": "integer",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "monthFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "From and including"
+      },
+      {
+        "name": "monthTo",
+        "required": false,
+        "type": "integer",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "voucherDateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "voucherDateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "comment",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "GET /salary/payslip/{id}": {
+    "summary": "Find payslip by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /salary/payslip/{id}/pdf": {
+    "summary": "Find payslip (PDF document) by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /salary/settings": {
+    "summary": "Get salary settings of logged in company."
+  },
+  "PUT /salary/settings": {
+    "summary": "Update settings of logged in company.",
+    "bodySchema": "SalarySettings"
+  },
+  "GET /salary/settings/holiday": {
+    "summary": "Find holiday settings of current logged in company."
+  },
+  "POST /salary/settings/holiday": {
+    "summary": "Create a holiday setting of current logged in company.",
+    "bodySchema": "CompanyHoliday"
+  },
+  "PUT /salary/settings/holiday/list": {
+    "summary": "Update multiple holiday settings of current logged in company."
+  },
+  "POST /salary/settings/holiday/list": {
+    "summary": "Create multiple holiday settings of current logged in company."
+  },
+  "DELETE /salary/settings/holiday/list": {
+    "summary": "Delete multiple holiday settings of current logged in company.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "PUT /salary/settings/holiday/{id}": {
+    "summary": "Update a holiday setting of current logged in company.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "CompanyHoliday"
+  },
+  "GET /salary/settings/pensionScheme": {
+    "summary": "Find pension schemes.",
+    "params": [
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /salary/settings/pensionScheme": {
+    "summary": "Create a Pension Scheme.",
+    "bodySchema": "PensionScheme"
+  },
+  "PUT /salary/settings/pensionScheme/list": {
+    "summary": "Update multiple Pension Schemes."
+  },
+  "POST /salary/settings/pensionScheme/list": {
+    "summary": "Create multiple Pension Schemes."
+  },
+  "DELETE /salary/settings/pensionScheme/list": {
+    "summary": "Delete multiple Pension Schemes.",
+    "params": [
+      {
+        "name": "ids",
+        "required": true,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "GET /salary/settings/pensionScheme/{id}": {
+    "summary": "Get Pension Scheme for a specific ID",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /salary/settings/pensionScheme/{id}": {
+    "summary": "Update a Pension Scheme",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "PensionScheme"
+  },
+  "DELETE /salary/settings/pensionScheme/{id}": {
+    "summary": "Delete a Pension Scheme",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /salary/settings/standardTime": {
+    "summary": "Get all standard times."
+  },
+  "POST /salary/settings/standardTime": {
+    "summary": "Create standard time.",
+    "bodySchema": "CompanyStandardTime"
+  },
+  "GET /salary/settings/standardTime/byDate": {
+    "summary": "Find standard time by date",
+    "params": [
+      {
+        "name": "date",
+        "required": false,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      }
+    ]
+  },
+  "GET /salary/settings/standardTime/{id}": {
+    "summary": "Find standard time by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /salary/settings/standardTime/{id}": {
+    "summary": "Update standard time. ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "CompanyStandardTime"
+  },
+  "POST /salary/taxDeduction/reconciliation/context": {
+    "summary": "Create a taxDeduction reconciliation context for a customer",
+    "bodySchema": "TaxDeductionContextRequest"
+  },
+  "GET /salary/taxDeduction/reconciliation/{reconciliationId}/balanceAndOwedAmount": {
+    "summary": "Get tax deduction details for a reconciliation",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliationId to fetch tax deduction balance for"
+      }
+    ]
+  },
+  "GET /salary/taxDeduction/reconciliation/{reconciliationId}/overview": {
+    "summary": "Get salary tax deduction data for the reconciliation table",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "GET /salary/taxDeduction/reconciliation/{reconciliationId}/paymentsOverview": {
+    "summary": "Get salary tax deduction payment overview from start of year to the current reconciliation term",
+    "params": [
+      {
+        "name": "reconciliationId",
+        "required": true,
+        "type": "integer",
+        "desc": "The reconciliation id"
+      }
+    ]
+  },
+  "POST /salary/transaction": {
+    "summary": "Create a new salary transaction.",
+    "params": [
+      {
+        "name": "generateTaxDeduction",
+        "required": false,
+        "type": "boolean",
+        "desc": "Generate tax deduction"
+      }
+    ],
+    "bodySchema": "SalaryTransaction"
+  },
+  "GET /salary/transaction/{id}": {
+    "summary": "Find salary transaction by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "DELETE /salary/transaction/{id}": {
+    "summary": "Delete salary transaction by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /salary/transaction/{id}/attachment": {
+    "summary": "Upload an attachment to a salary transaction",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Salary Transaction Id to upload attachment to."
+      }
+    ]
+  },
+  "POST /salary/transaction/{id}/attachment/list": {
+    "summary": "Upload multiple attachments to a salary transaction",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Salary Transaction Id to upload attachments to."
+      }
+    ]
+  },
+  "PUT /salary/transaction/{id}/deleteAttachment": {
+    "summary": "Delete attachment.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of transaction containing the attachment to delete."
+      },
+      {
+        "name": "sendToVoucherInbox",
+        "required": false,
+        "type": "boolean",
+        "desc": "Should the attachment be sent to inbox rather than deleted?"
+      },
+      {
+        "name": "split",
+        "required": false,
+        "type": "boolean",
+        "desc": "If sendToInbox is true, should the attachment be split into one voucher per page"
+      }
+    ]
+  },
+  "GET /salary/type": {
+    "summary": "Find salary type corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "number",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "description",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "showInTimesheet",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "employeeIds",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /salary/type/{id}": {
+    "summary": "Find salary type by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /supplier": {
+    "summary": "Find suppliers corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "supplierNumber",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "organizationNumber",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "email",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "invoiceEmail",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "accountManagerId",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "changedSince",
+        "required": false,
+        "type": "string",
+        "desc": "Only return elements that have changed since this date and time"
+      },
+      {
+        "name": "isWholesaler",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "showProducts",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /supplier": {
+    "summary": "Create supplier. Related supplier addresses may also be created.",
+    "bodySchema": "Supplier"
+  },
+  "PUT /supplier/list": {
+    "summary": "Update multiple suppliers. Addresses can also be updated."
+  },
+  "POST /supplier/list": {
+    "summary": "Create multiple suppliers. Related supplier addresses may also be created."
+  },
+  "GET /supplier/{id}": {
+    "summary": "Get supplier by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /supplier/{id}": {
+    "summary": "Update supplier. ",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Supplier"
+  },
+  "DELETE /supplier/{id}": {
+    "summary": "Delete supplier by ID",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense": {
+    "summary": "Find travel expenses corresponding with sent data.",
+    "params": [
+      {
+        "name": "employeeId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "departmentId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "projectId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "projectManagerId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "departureDateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "returnDateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "state",
+        "required": false,
+        "type": "string",
+        "desc": "category"
+      }
+    ]
+  },
+  "POST /travelExpense": {
+    "summary": "Create travel expense.",
+    "bodySchema": "TravelExpense"
+  },
+  "PUT /travelExpense/:approve": {
+    "summary": "Approve travel expenses.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "ID of the elements"
+      },
+      {
+        "name": "overrideApprovalFlow",
+        "required": false,
+        "type": "boolean",
+        "desc": "Override approval flow"
+      }
+    ]
+  },
+  "PUT /travelExpense/:copy": {
+    "summary": "Copy travel expense.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /travelExpense/:createVouchers": {
+    "summary": "Create vouchers",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "ID of the elements"
+      },
+      {
+        "name": "date",
+        "required": true,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      }
+    ]
+  },
+  "PUT /travelExpense/:deliver": {
+    "summary": "Deliver travel expenses.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "PUT /travelExpense/:unapprove": {
+    "summary": "Unapprove travel expenses.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ]
+  },
+  "PUT /travelExpense/:undeliver": {
+    "summary": "Undeliver travel expenses.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "ID of the elements"
+      }
+    ],
+    "bodySchema": "TravelExpense"
+  },
+  "GET /travelExpense/accommodationAllowance": {
+    "summary": "Find accommodation allowances corresponding with sent data.",
+    "params": [
+      {
+        "name": "travelExpenseId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "rateTypeId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "rateCategoryId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "rateFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "rateTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "countFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "From and including"
+      },
+      {
+        "name": "countTo",
+        "required": false,
+        "type": "integer",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "amountFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "amountTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "location",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "address",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "POST /travelExpense/accommodationAllowance": {
+    "summary": "Create accommodation allowance.",
+    "bodySchema": "AccommodationAllowance"
+  },
+  "GET /travelExpense/accommodationAllowance/{id}": {
+    "summary": "Get travel accommodation allowance by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /travelExpense/accommodationAllowance/{id}": {
+    "summary": "Update accommodation allowance.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "AccommodationAllowance"
+  },
+  "DELETE /travelExpense/accommodationAllowance/{id}": {
+    "summary": "Delete accommodation allowance.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/cost": {
+    "summary": "Find costs corresponding with sent data.",
+    "params": [
+      {
+        "name": "travelExpenseId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "vatTypeId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "currencyId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "rateFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "rateTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "countFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "From and including"
+      },
+      {
+        "name": "countTo",
+        "required": false,
+        "type": "integer",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "amountFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "amountTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "location",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "address",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "POST /travelExpense/cost": {
+    "summary": "Create cost.",
+    "bodySchema": "Cost"
+  },
+  "PUT /travelExpense/cost/list": {
+    "summary": "Update costs."
+  },
+  "GET /travelExpense/cost/{id}": {
+    "summary": "Get cost by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /travelExpense/cost/{id}": {
+    "summary": "Update cost.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Cost"
+  },
+  "DELETE /travelExpense/cost/{id}": {
+    "summary": "Delete cost.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/costCategory": {
+    "summary": "Find cost category corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "description",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "showOnEmployeeExpenses",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "GET /travelExpense/costCategory/{id}": {
+    "summary": "Get cost category by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /travelExpense/costParticipant": {
+    "summary": "Create participant on cost.",
+    "bodySchema": "CostParticipant"
+  },
+  "POST /travelExpense/costParticipant/createCostParticipantAdvanced": {
+    "summary": "Create participant on cost using explicit parameters",
+    "params": [
+      {
+        "name": "displayName",
+        "required": false,
+        "type": "string",
+        "desc": "The name of the participant"
+      },
+      {
+        "name": "costId",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of cost"
+      },
+      {
+        "name": "employeeId",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of the employee if it is participant. 0 is allowed if the participant is not "
+      }
+    ]
+  },
+  "POST /travelExpense/costParticipant/list": {
+    "summary": "Create participants on cost."
+  },
+  "DELETE /travelExpense/costParticipant/list": {
+    "summary": "Delete cost participants."
+  },
+  "GET /travelExpense/costParticipant/{costId}/costParticipants": {
+    "summary": "Get cost's participants by costId.",
+    "params": [
+      {
+        "name": "costId",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of cost"
+      }
+    ]
+  },
+  "GET /travelExpense/costParticipant/{id}": {
+    "summary": "Get cost participant by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "DELETE /travelExpense/costParticipant/{id}": {
+    "summary": "Delete cost participant.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "POST /travelExpense/drivingStop": {
+    "summary": "Create mileage allowance driving stop.",
+    "bodySchema": "DrivingStop"
+  },
+  "GET /travelExpense/drivingStop/{id}": {
+    "summary": "Get driving stop by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "DELETE /travelExpense/drivingStop/{id}": {
+    "summary": "Delete mileage allowance stops.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/mileageAllowance": {
+    "summary": "Find mileage allowances corresponding with sent data.",
+    "params": [
+      {
+        "name": "travelExpenseId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "rateTypeId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "rateCategoryId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "kmFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "kmTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "rateFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "rateTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "amountFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "amountTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "departureLocation",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "destination",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "dateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "dateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "isCompanyCar",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /travelExpense/mileageAllowance": {
+    "summary": "Create mileage allowance.",
+    "bodySchema": "MileageAllowance"
+  },
+  "GET /travelExpense/mileageAllowance/{id}": {
+    "summary": "Get mileage allowance by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /travelExpense/mileageAllowance/{id}": {
+    "summary": "Update mileage allowance.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "MileageAllowance"
+  },
+  "DELETE /travelExpense/mileageAllowance/{id}": {
+    "summary": "Delete mileage allowance.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/passenger": {
+    "summary": "Find passengers corresponding with sent data.",
+    "params": [
+      {
+        "name": "mileageAllowance",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "POST /travelExpense/passenger": {
+    "summary": "Create passenger.",
+    "bodySchema": "Passenger"
+  },
+  "POST /travelExpense/passenger/list": {
+    "summary": "Create passengers."
+  },
+  "DELETE /travelExpense/passenger/list": {
+    "summary": "Delete passengers."
+  },
+  "GET /travelExpense/passenger/{id}": {
+    "summary": "Get passenger by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /travelExpense/passenger/{id}": {
+    "summary": "Update passenger.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "Passenger"
+  },
+  "DELETE /travelExpense/passenger/{id}": {
+    "summary": "Delete passenger.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/paymentType": {
+    "summary": "Find payment type corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "description",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isInactive",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "showOnEmployeeExpenses",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      }
+    ]
+  },
+  "GET /travelExpense/paymentType/{id}": {
+    "summary": "Get payment type by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/perDiemCompensation": {
+    "summary": "Find per diem compensations corresponding with sent data.",
+    "params": [
+      {
+        "name": "travelExpenseId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "rateTypeId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "rateCategoryId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "overnightAccommodation",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "countFrom",
+        "required": false,
+        "type": "integer",
+        "desc": "From and including"
+      },
+      {
+        "name": "countTo",
+        "required": false,
+        "type": "integer",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "rateFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "rateTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "amountFrom",
+        "required": false,
+        "type": "number",
+        "desc": "From and including"
+      },
+      {
+        "name": "amountTo",
+        "required": false,
+        "type": "number",
+        "desc": "To and excluding"
+      },
+      {
+        "name": "location",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "address",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isDeductionForBreakfast",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isLunchDeduction",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isDinnerDeduction",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      }
+    ]
+  },
+  "POST /travelExpense/perDiemCompensation": {
+    "summary": "Create per diem compensation.",
+    "bodySchema": "PerDiemCompensation"
+  },
+  "GET /travelExpense/perDiemCompensation/{id}": {
+    "summary": "Get per diem compensation by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /travelExpense/perDiemCompensation/{id}": {
+    "summary": "Update per diem compensation.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "PerDiemCompensation"
+  },
+  "DELETE /travelExpense/perDiemCompensation/{id}": {
+    "summary": "Delete per diem compensation.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/rate": {
+    "summary": "Find rates corresponding with sent data.",
+    "params": [
+      {
+        "name": "rateCategoryId",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "type",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "isValidDayTrip",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isValidAccommodation",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isValidDomestic",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isValidForeignTravel",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "requiresZone",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "requiresOvernightAccommodation",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "dateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "dateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "GET /travelExpense/rate/{id}": {
+    "summary": "Get travel expense rate by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/rateCategory": {
+    "summary": "Find rate categories corresponding with sent data.",
+    "params": [
+      {
+        "name": "type",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "travelReportRateCategoryGroupId",
+        "required": false,
+        "type": "integer",
+        "desc": "Equals"
+      },
+      {
+        "name": "ameldingWageCode",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "wageCodeNumber",
+        "required": false,
+        "type": "string",
+        "desc": "Equals"
+      },
+      {
+        "name": "isValidDayTrip",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isValidAccommodation",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isValidDomestic",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "requiresZone",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "isRequiresOvernightAccommodation",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "dateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "dateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "GET /travelExpense/rateCategory/{id}": {
+    "summary": "Get travel expense rate category by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/rateCategoryGroup": {
+    "summary": "Find rate categoriy groups corresponding with sent data.",
+    "params": [
+      {
+        "name": "name",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "isForeignTravel",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "dateFrom",
+        "required": false,
+        "type": "string",
+        "desc": "From and including"
+      },
+      {
+        "name": "dateTo",
+        "required": false,
+        "type": "string",
+        "desc": "To and excluding"
+      }
+    ]
+  },
+  "GET /travelExpense/rateCategoryGroup/{id}": {
+    "summary": "Get travel report rate category group by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/settings": {
+    "summary": "Get travel expense settings of logged in company."
+  },
+  "GET /travelExpense/zone": {
+    "summary": "Find travel expense zones corresponding with sent data.",
+    "params": [
+      {
+        "name": "id",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "code",
+        "required": false,
+        "type": "string",
+        "desc": "List of IDs"
+      },
+      {
+        "name": "isDisabled",
+        "required": false,
+        "type": "boolean",
+        "desc": "Equals"
+      },
+      {
+        "name": "query",
+        "required": false,
+        "type": "string",
+        "desc": "Containing"
+      },
+      {
+        "name": "date",
+        "required": false,
+        "type": "string",
+        "desc": "yyyy-MM-dd. Defaults to today."
+      }
+    ]
+  },
+  "GET /travelExpense/zone/{id}": {
+    "summary": "Get travel expense zone by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/{id}": {
+    "summary": "Get travel expense by ID.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /travelExpense/{id}": {
+    "summary": "Update travel expense.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ],
+    "bodySchema": "TravelExpense"
+  },
+  "DELETE /travelExpense/{id}": {
+    "summary": "Delete travel expense.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "PUT /travelExpense/{id}/convert": {
+    "summary": "Convert travel to/from employee expense.",
+    "params": [
+      {
+        "name": "id",
+        "required": true,
+        "type": "integer",
+        "desc": "Element ID"
+      }
+    ]
+  },
+  "GET /travelExpense/{travelExpenseId}/attachment": {
+    "summary": "Get attachment by travel expense ID.",
+    "params": [
+      {
+        "name": "travelExpenseId",
+        "required": true,
+        "type": "integer",
+        "desc": "Travel Expense ID from which PDF is downloaded."
+      }
+    ]
+  },
+  "POST /travelExpense/{travelExpenseId}/attachment": {
+    "summary": "Upload attachment to travel expense.",
+    "params": [
+      {
+        "name": "travelExpenseId",
+        "required": true,
+        "type": "integer",
+        "desc": "Travel Expense ID to upload attachment to."
+      },
+      {
+        "name": "createNewCost",
+        "required": false,
+        "type": "boolean",
+        "desc": "Create new cost row when you add the attachment"
+      }
+    ]
+  },
+  "DELETE /travelExpense/{travelExpenseId}/attachment": {
+    "summary": "Delete attachment.",
+    "params": [
+      {
+        "name": "travelExpenseId",
+        "required": true,
+        "type": "integer",
+        "desc": "ID of attachment containing the attachment to delete."
+      },
+      {
+        "name": "version",
+        "required": false,
+        "type": "integer",
+        "desc": "Version of voucher containing the attachment to delete."
+      },
+      {
+        "name": "sendToInbox",
+        "required": false,
+        "type": "boolean",
+        "desc": "Should the attachment be sent to inbox rather than deleted?"
+      },
+      {
+        "name": "split",
+        "required": false,
+        "type": "boolean",
+        "desc": "If sendToInbox is true, should the attachment be split into one voucher per page"
+      }
+    ]
+  },
+  "POST /travelExpense/{travelExpenseId}/attachment/list": {
+    "summary": "Upload multiple attachments to travel expense.",
+    "params": [
+      {
+        "name": "travelExpenseId",
+        "required": true,
+        "type": "integer",
+        "desc": "Travel Expense ID to upload attachment to."
+      },
+      {
+        "name": "createNewCost",
+        "required": false,
+        "type": "boolean",
+        "desc": "Create new cost row when you add the attachment"
+      }
+    ]
+  }
+}
