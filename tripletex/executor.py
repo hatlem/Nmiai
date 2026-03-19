@@ -118,11 +118,15 @@ def resolve_refs(obj: Any, results: dict[int, dict]) -> Any:
 
 
 def _strip_unresolved_placeholders(obj: Any) -> Any:
-    """Remove fields that still contain {{placeholder}} or unresolved $step_N values."""
+    """Remove fields that still contain {{placeholder}}, unresolved $step_N values,
+    or None values from resolved references (e.g. empty search results)."""
     if isinstance(obj, dict):
         cleaned = {}
         for k, v in obj.items():
             v = _strip_unresolved_placeholders(v)
+            if v is None:
+                logger.debug(f"Stripping None field '{k}' (likely unresolved reference)")
+                continue
             if isinstance(v, str) and re.search(r'\{\{.*?\}\}', v):
                 logger.warning(f"Stripping unresolved placeholder field '{k}': {v}")
                 continue
@@ -136,7 +140,8 @@ def _strip_unresolved_placeholders(obj: Any) -> Any:
             cleaned[k] = v
         return cleaned
     if isinstance(obj, list):
-        return [_strip_unresolved_placeholders(item) for item in obj]
+        cleaned_list = [_strip_unresolved_placeholders(item) for item in obj]
+        return [item for item in cleaned_list if item is not None]
     return obj
 
 

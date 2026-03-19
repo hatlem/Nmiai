@@ -427,19 +427,23 @@ async def classify_task(prompt: str) -> tuple[str, float]:
     quick = _quick_classify(prompt)
     if quick:
         task_type, confidence = quick
-        if confidence >= CONFIDENCE_THRESHOLD:
-            logger.info(f"Quick classify: {task_type} (conf={confidence:.2f})")
-            # FAST PATH: only skip LLM for high-confidence keyword matches (>=0.85)
-            # Medium confidence often misclassifies (e.g. "customer" in invoice tasks)
-            if confidence >= 0.85:
-                logger.info(f"Fast path (conf={confidence:.2f}): skipping LLM")
+        if confidence >= 0.85:
+            logger.info(f"Quick classify (high conf): {task_type} (conf={confidence:.2f})")
             return task_type, confidence
+        elif confidence >= CONFIDENCE_THRESHOLD:
+            logger.info(f"Quick classify (medium conf): {task_type} (conf={confidence:.2f}), validating with LLM")
+            # Fall through to Flash-Lite with the keyword hint
 
     # Flash-Lite classification
+    hint_prefix = ""
+    if quick:
+        task_type, confidence = quick
+        if confidence >= CONFIDENCE_THRESHOLD:
+            hint_prefix = f"[Keyword hint: {task_type} ({confidence:.0%})] "
     model = _get_model(MODEL_FLASH_LITE, CLASSIFIER_PROMPT)
     try:
         response = await model.generate_content_async(
-            prompt,
+            hint_prefix + prompt,
             generation_config={"temperature": 0.0, "max_output_tokens": 200},
         )
         result = _parse_json(response.text)
