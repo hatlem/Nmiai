@@ -521,8 +521,7 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     task_text += f"Complete this accounting task:\n\n{prompt}"
     parts.append(Part.from_text(task_text))
 
-    # More tokens for complex tasks (tier 3 = opening_balance, bank_reconciliation, etc.)
-    max_tokens = 8192 if tier >= 3 else 4096
+    max_tokens = 8192
     logger.info(f"Planning {task_type} (tier={tier}): {prompt[:80]}...")
     response = await model.generate_content_async(
         parts,
@@ -538,13 +537,25 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
         plan = _parse_json(raw_text)
     except (json.JSONDecodeError, Exception) as e:
         logger.error(f"Failed to parse plan JSON: {e}. Raw: {raw_text[:300]}")
-        template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
-        plan = {
-            "task_type": task_type,
-            "reasoning": "Fallback - LLM JSON parse failed",
-            "steps": template["steps"],
-            "extracted_values": {},
-        }
+        # Retry once with a simpler prompt asking for just the JSON
+        try:
+            retry_model = _get_model(MODEL_PRO, "Return ONLY valid JSON. No markdown fences. Keep reasoning under 20 words.")
+            retry_response = await retry_model.generate_content_async(
+                f"Fix this truncated JSON and complete it:\n{raw_text[:800]}\n\nReturn the complete valid JSON object.",
+                generation_config={"temperature": 0.0, "max_output_tokens": 8192},
+            )
+            retry_text = retry_response.text if hasattr(retry_response, 'text') else ""
+            plan = _parse_json(retry_text)
+            logger.info("Plan JSON recovered via retry")
+        except Exception:
+            logger.error("Plan JSON retry also failed, using template fallback")
+            template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+            plan = {
+                "task_type": task_type,
+                "reasoning": "Fallback - LLM JSON parse failed",
+                "steps": template["steps"],
+                "extracted_values": {},
+            }
 
     plan["task_type"] = plan.get("task_type", task_type)
     plan["tier"] = tier
