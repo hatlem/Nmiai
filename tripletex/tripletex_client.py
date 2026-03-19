@@ -17,7 +17,7 @@ class TripletexClient:
         self.auth = ("0", session_token)
         self._client = httpx.AsyncClient(
             auth=self.auth,
-            timeout=30.0,
+            timeout=httpx.Timeout(45.0, connect=10.0),
             headers={"Content-Type": "application/json"},
         )
         self.call_count = 0
@@ -35,12 +35,18 @@ class TripletexClient:
                     method=method, url=url, json=body, params=params
                 )
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
+                err_str = str(e)
+                # DNS errors won't resolve with retry — fail fast
+                if "Name or service not known" in err_str or "nodename nor servname" in err_str:
+                    logger.error(f"{method} {path} DNS error (no retry): {e}")
+                    self._dns_ok = False
+                    return {"status_code": 0, "ok": False, "data": {"error": err_str, "network_error": True}}
                 if attempt < MAX_RETRIES:
                     wait = RETRY_BACKOFF[attempt]
                     logger.warning(f"{method} {path} network error, retry {attempt+1} in {wait}s: {e}")
                     await asyncio.sleep(wait)
                     continue
-                return {"status_code": 0, "ok": False, "data": {"error": str(e)}}
+                return {"status_code": 0, "ok": False, "data": {"error": err_str, "network_error": True}}
 
             result = {
                 "status_code": response.status_code,

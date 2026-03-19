@@ -60,7 +60,7 @@ DEFAULT_PARAMS: Dict[str, float] = {
     "winter_severity": 0.4,
     "faction_aggression": 0.3,
     "trade_activity": 0.5,
-    "forest_growth_rate": 0.15,
+    "forest_growth_rate": 0.05,
     "expansion_rate": 0.2,
     "raid_range": 5.0,
     "food_per_forest": 0.3,
@@ -480,19 +480,27 @@ class NorseSimulator:
                         break
 
             if not reclaimed:
-                # Forest reclaims ruin (use precomputed adjacency)
-                if rng.random() < forest_rate * (0.3 + 0.3 * forest_adj_count[ry, rx]):
+                # Forest reclaims ruin — rare, mainly when adjacent to existing forest
+                # Base rate ~1% per year, boosted to ~5-8% if adjacent to forest
+                adj_forest = forest_adj_count[ry, rx]
+                if adj_forest > 0:
+                    prob = forest_rate * 0.15 * min(adj_forest, 3)
+                else:
+                    prob = forest_rate * 0.02  # Very rare spontaneous forest on ruin
+                if rng.random() < prob:
                     grid[ry, rx] = FOREST
-                elif rng.random() < 0.05:
+                elif rng.random() < 0.03:
                     # Fade to plains
                     grid[ry, rx] = PLAINS
 
-        # Forest slowly grows on empty/plains land near existing forest
+        # Forest grows on empty/plains ONLY adjacent to existing forest, very slowly
+        # "Forests are mostly static" — spreading is rare
         empty_mask = (grid == PLAINS) | (grid == EMPTY)
         grow_candidates = np.where(empty_mask & (forest_adj_count > 0))
 
         for y, x in zip(grow_candidates[0], grow_candidates[1]):
-            prob = forest_rate * 0.08 * forest_adj_count[y, x]
+            # ~1-2% per year when adjacent to forest, scaled by forest_growth_rate
+            prob = forest_rate * 0.02 * min(forest_adj_count[y, x], 3)
             if rng.random() < prob:
                 grid[y, x] = FOREST
 

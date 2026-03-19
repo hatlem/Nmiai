@@ -21,24 +21,61 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-NUM_CLASSES = 6
-PROB_FLOOR = 0.01
+from priors import (
+    CALIBRATED_PRIORS as DOMAIN_PRIORS,
+    MOUNTAIN_PRIOR,
+    OCEAN_PRIOR,
+    get_domain_prior,
+    NUM_CLASSES,
+    PROB_FLOOR,
+)
+
+# Additional floor constants used locally in prediction layers
+STATIC_FLOOR = 0.002  # Tighter floor for near-impossible transitions (mountain/ocean)
+REMOTE_FLOOR = 0.003  # Floor for unlikely transitions on remote cells
 
 TERRAIN_TO_CLASS: dict[int, int] = {10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
 
-# Domain priors per initial terrain class
-DOMAIN_PRIORS: dict[int, np.ndarray] = {
-    0: np.array([0.90, 0.02, 0.005, 0.02, 0.05, 0.005]),   # Empty/Ocean/Plains
-    1: np.array([0.05, 0.55, 0.08, 0.25, 0.05, 0.02]),     # Settlement
-    2: np.array([0.05, 0.10, 0.60, 0.18, 0.05, 0.02]),     # Port
-    3: np.array([0.15, 0.10, 0.02, 0.50, 0.20, 0.03]),     # Ruin
-    4: np.array([0.08, 0.01, 0.005, 0.02, 0.88, 0.005]),   # Forest
-    5: np.array([0.005, 0.005, 0.005, 0.005, 0.005, 0.975]), # Mountain
-}
 
-# Hard constraints for static terrain
-MOUNTAIN_PRIOR = np.array([PROB_FLOOR] * 5 + [1.0 - 5 * PROB_FLOOR])
-OCEAN_PRIOR = np.array([1.0 - 5 * PROB_FLOOR] + [PROB_FLOOR] * 5)
+def _get_cell_floors(init_grid: np.ndarray, sett_dist: np.ndarray) -> np.ndarray:
+    """Compute per-cell, per-class probability floors based on initial terrain and context.
+
+    Returns (H, W, 6) array of minimum probability floors per class.
+    Key insight: some transitions are near-impossible, so we can use tighter floors
+    to recover wasted probability mass for the likely classes.
+    """
+    H, W = init_grid.shape
+    floors = np.full((H, W, NUM_CLASSES), PROB_FLOOR, dtype=np.float64)
+
+    # Mountain cells: classes 0-4 get tight floor (mountains NEVER change)
+    mountain_mask = (init_grid == 5)
+    if mountain_mask.any():
+        floors[mountain_mask, :5] = STATIC_FLOOR
+
+    # Ocean cells: classes 1-5 get tight floor (ocean never changes)
+    ocean_mask = (init_grid == 10)
+    if ocean_mask.any():
+        floors[ocean_mask, 1:] = STATIC_FLOOR
+
+    # Empty cells far from settlements: settlement/port/ruin are very unlikely
+    init_cls = np.zeros_like(init_grid, dtype=np.int32)
+    for code, cls in TERRAIN_TO_CLASS.items():
+        init_cls[init_grid == code] = cls
+
+    remote_empty = (init_cls == 0) & (sett_dist > 8) & ~ocean_mask
+    if remote_empty.any():
+        floors[remote_empty, 1] = REMOTE_FLOOR  # settlement
+        floors[remote_empty, 2] = REMOTE_FLOOR  # port
+        floors[remote_empty, 3] = REMOTE_FLOOR  # ruin
+
+    # Forest cells far from settlements: settlement/port/ruin are very unlikely
+    remote_forest = (init_cls == 4) & (sett_dist > 8)
+    if remote_forest.any():
+        floors[remote_forest, 1] = REMOTE_FLOOR  # settlement
+        floors[remote_forest, 2] = REMOTE_FLOOR  # port
+        floors[remote_forest, 3] = REMOTE_FLOOR  # ruin
+
+    return floors
 
 
 def _compute_coastal_map(grid: np.ndarray) -> np.ndarray:
@@ -121,6 +158,7 @@ class PredictionEngine:
         self.W = W
         self.H = H
         self.seeds_count = seeds_count
+        self._DOMAIN_PRIORS = DOMAIN_PRIORS
 
         # Precompute per-seed spatial features
         self._init_grids: list[np.ndarray] = []
@@ -141,6 +179,82 @@ class PredictionEngine:
                 _compute_settlement_distance(grid, settlements, W, H))
             self._neighbor_setts.append(
                 _compute_neighbor_settlements(grid, H, W))
+
+    def _get_cell_prior(self, init_cls: int, sett_dist: float, food: float,
+                        coastal: bool, neighbor_sett: int) -> np.ndarray:
+        """Return informative Dirichlet prior (6,) for a cell based on context."""
+        base = self._DOMAIN_PRIORS.get(init_cls, self._DOMAIN_PRIORS[0]).copy()
+
+        # Coastal settlement/port: boost port probability
+        if coastal and init_cls in (1, 2):
+            base[2] += 0.08  # Port more likely on coast
+            base[0] -= 0.04  # Less likely to become empty
+
+        # High food + settlement: boost settlement survival
+        if food >= 2 and init_cls == 1:
+            base[1] += 0.10  # Settlement survives better with food
+            base[0] -= 0.05  # Less likely to vanish
+            base[3] -= 0.03  # Less likely to become ruin
+
+        # Far from settlements: empty cells stay empty
+        if sett_dist > 6 and init_cls == 0:
+            base[0] = 0.92
+            base[1] = 0.01
+            base[2] = 0.01
+            base[3] = 0.01
+            base[4] = 0.04
+            base[5] = 0.01
+
+        # Far from settlements: forest stays forest
+        if sett_dist > 6 and init_cls == 4:
+            base[4] = 0.90
+            base[0] = 0.04
+            base[1] = 0.01
+            base[2] = 0.01
+            base[3] = 0.01
+            base[5] = 0.01
+
+        # Near settlements + empty: boost settlement/ruin probability
+        if sett_dist <= 3 and init_cls == 0:
+            base[1] += 0.06  # More likely to become settlement
+            base[3] += 0.03  # Slightly more likely to become ruin
+            base[0] -= 0.06  # Less likely to stay empty
+
+        # Near settlements with many neighbors: even stronger settlement boost
+        if neighbor_sett >= 2 and init_cls == 0 and sett_dist <= 4:
+            base[1] += 0.04
+            base[0] -= 0.03
+
+        # Ensure non-negative and normalized
+        base = np.maximum(base, PROB_FLOOR)
+        base /= base.sum()
+        return base
+
+    def _get_prior_strength(self, init_cls: int, sett_dist: float,
+                            n_obs: float) -> float:
+        """Return prior strength that decays with observations.
+
+        Static terrain gets strong prior, dynamic cells get weaker prior.
+        Strength decays as 1/(1 + n_obs/base_strength) to trust data more.
+        """
+        # Base strength by terrain type
+        if init_cls == 5:  # Mountain (static)
+            base = 4.0
+        elif init_cls == 10 or (init_cls == 0 and sett_dist > 6):
+            base = 3.0  # Far from settlements, unlikely to change
+        elif init_cls in (1, 2):  # Settlement/Port (most dynamic)
+            base = 1.5
+        elif sett_dist <= 3:  # Near settlements (dynamic area)
+            base = 2.0
+        else:
+            base = 2.5  # Default moderate prior
+
+        # Decay with observations: effective_strength = base / (1 + n_obs / base)
+        # This means at n_obs == base, strength is halved
+        if n_obs > 0:
+            base = base / (1.0 + n_obs / base)
+
+        return base
 
     def build_predictions(
         self,
@@ -206,7 +320,13 @@ class PredictionEngine:
         sett_dist = self._sett_dists[seed_idx]
         neighbor_sett = self._neighbor_setts[seed_idx]
 
+        # Remap terrain code bins to class bins
+        # Terrain codes 10 (Ocean) and 11 (Plains) map to class 0
         cell_counts = counts[:, :, :NUM_CLASSES].astype(np.float64)
+        if counts.shape[2] > 10:
+            cell_counts[:, :, 0] += counts[:, :, 10].astype(np.float64)  # Ocean → class 0
+        if counts.shape[2] > 11:
+            cell_counts[:, :, 0] += counts[:, :, 11].astype(np.float64)  # Plains → class 0
         n_obs = cell_counts.sum(axis=2)
         observed_mask = n_obs > 0
 
@@ -224,7 +344,7 @@ class PredictionEngine:
 
         # === Layer 2: Monte Carlo simulator ===
         if simulator_pred is not None:
-            n_sim_equiv = 2.0  # Low weight: simulator is approximate
+            n_sim_equiv = 1.5  # Very low weight: simulator overestimates forest
             # For observed cells: geometric mean blend (optimal for KL divergence)
             weight_obs = n_obs / (n_obs + n_sim_equiv)
             weight_sim = 1.0 - weight_obs
@@ -233,9 +353,21 @@ class PredictionEngine:
                 [weight_obs[:, :, np.newaxis], weight_sim[:, :, np.newaxis]],
             )
             pred[obs_cells] = blended[obs_cells]
-            # For unobserved cells: use simulator directly
+            # For unobserved cells: blend simulator with domain prior (NOT use directly)
+            # Simulator has systematic biases (too much forest growth)
             unobs = ~observed_mask
-            pred[unobs] = simulator_pred[unobs]
+            if unobs.any():
+                # Build per-cell domain priors for unobserved cells
+                domain_prior_grid = np.zeros((H, W, NUM_CLASSES), dtype=np.float64)
+                for ic_val in range(NUM_CLASSES):
+                    ic_mask = (init_cls == ic_val)
+                    domain_prior_grid[ic_mask] = DOMAIN_PRIORS.get(ic_val, DOMAIN_PRIORS[0])
+                # Blend: 30% simulator, 70% domain prior for unobserved
+                sim_weight_unobs = 0.30
+                pred[unobs] = (
+                    sim_weight_unobs * simulator_pred[unobs] +
+                    (1.0 - sim_weight_unobs) * domain_prior_grid[unobs]
+                )
             # Mark simulator-covered cells so we skip lower layers
             has_prediction = np.ones((H, W), dtype=bool)
         else:
@@ -341,48 +473,48 @@ class PredictionEngine:
         is_coast = coastal[y, x]
         sd = sett_dist[y, x]
 
-        # Settlement/Port dynamics
+        # Settlement/Port dynamics — moderate adjustments
         if init_cls in (1, 2):
             if food >= 2:
-                dist[1] += 0.25
-                dist[3] += 0.08
+                dist[1] += 0.10
+                dist[3] += 0.04
             elif food >= 1:
-                dist[1] += 0.15
-                dist[3] += 0.20
-            else:
                 dist[1] += 0.06
-                dist[3] += 0.28
+                dist[3] += 0.08
+            else:
+                dist[1] += 0.02
+                dist[3] += 0.12
 
             if init_cls == 2 or is_coast:
-                dist[2] += 0.10
+                dist[2] += 0.05
 
-            # Hidden param adjustments
-            dist[3] += 0.18 * aggression + 0.15 * winter
-            dist[1] -= 0.08 * (aggression + winter)
+            # Hidden param adjustments (reduced magnitude)
+            dist[3] += 0.08 * aggression + 0.06 * winter
+            dist[1] -= 0.04 * (aggression + winter)
             if is_coast:
-                dist[2] += 0.12 * trade
+                dist[2] += 0.06 * trade
 
-        # Near-settlement boost for non-settlement cells
+        # Near-settlement boost for non-settlement cells (reduced)
         if init_cls == 0 and sd <= 3:
-            dist[1] += 0.08
-            dist[3] += 0.04
+            dist[1] += 0.03
+            dist[3] += 0.02
 
-        # Forest dynamics
+        # Forest dynamics — forest is very stable, barely grows into other cells
         if init_cls == 4:
             forest_pref = DOMAIN_PRIORS[4].copy()
-            dist = 0.5 * dist + 0.5 * forest_pref
-            dist[4] += 0.08 * forest_growth
+            dist = 0.4 * dist + 0.6 * forest_pref
+            dist[4] += 0.03 * forest_growth
 
-        # Empty near forest -> forest growth
+        # Empty near forest -> very mild forest growth (was massively overestimated)
         if init_cls == 0 and food >= 2:
-            dist[4] += 0.08 + 0.12 * forest_growth
+            dist[4] += 0.02 + 0.03 * forest_growth
 
-        # Ruin reclamation
+        # Ruin reclamation — forest growth into ruins is also overestimated
         if init_cls == 3:
             if sd <= 4:
-                dist[1] += 0.10
-            dist[4] += 0.06 + 0.10 * forest_growth
-            dist[0] += 0.05
+                dist[1] += 0.06
+            dist[4] += 0.03 + 0.04 * forest_growth
+            dist[0] += 0.08
 
         # Suppress impossible transitions
         if raw_code != 5:
@@ -449,21 +581,32 @@ class PredictionEngine:
         H, W = self.H, self.W
         result = pred.copy()
 
-        # Compatibility matrix: same-class pairs have higher compatibility
-        # Settlement/port/ruin cluster together
-        compat = np.eye(NUM_CLASSES) * 0.6 + 0.4 / NUM_CLASSES
-        # Boost settlement-related compatibility
+        # Compatibility matrix: terrain-type aware to prevent forest bleeding
+        # Start with strong self-compatibility
+        compat = np.eye(NUM_CLASSES) * 0.75 + 0.25 / NUM_CLASSES
+        # Boost settlement-related compatibility (they cluster)
         for i in [1, 2, 3]:
             for j in [1, 2, 3]:
                 if i != j:
-                    compat[i, j] = 0.15
+                    compat[i, j] = 0.12
+        # Reduce forest -> non-forest propagation (forest is spatially stable)
+        # Forest should NOT bleed into empty/settlement/port/ruin cells
+        for j in [0, 1, 2, 3]:
+            compat[4, j] = 0.02  # Forest belief barely propagates to non-forest
+            compat[j, 4] = 0.02  # Non-forest belief barely propagates to forest
+        # Empty <-> empty is fine (keep default)
+        # Mountain is static anyway but reduce its propagation too
+        for j in range(5):
+            compat[5, j] = 0.01
+            compat[j, 5] = 0.01
+        compat[5, 5] = 0.95
 
         # Static cells: mountains and ocean are anchored
         static_mask = (initial_grid == 5) | (initial_grid == 10)
         anchor_mask = observed_mask | static_mask
 
-        # Damping factor to prevent oscillation
-        damping = 0.3
+        # Damping factor — low to prevent over-smoothing toward neighbors
+        damping = 0.15
 
         # Precompute the update mask (cells that belief propagation may modify)
         update_mask = ~anchor_mask
@@ -540,32 +683,25 @@ class PredictionEngine:
         """
         Calibrate predictions to minimize expected KL divergence.
 
-        With few observations, shrink toward uniform to hedge against uncertainty.
-        With many observations, trust the empirical distribution more.
+        IMPORTANT: For unobserved cells we do NOT shrink toward uniform.
+        The domain priors are already well-calibrated from validation data.
+        Shrinking toward uniform destroys the strong Empty-stays-Empty signal
+        and causes catastrophic KL loss.
 
-        Optimal prediction under KL loss with n observations:
-            pred_cal = (n * empirical + alpha * prior) / (n + alpha)
-        where alpha controls shrinkage toward a safe uniform-ish prior.
+        For observed cells with few observations, use very mild shrinkage.
         """
         H, W = self.H, self.W
         uniform = np.full(NUM_CLASSES, 1.0 / NUM_CLASSES)
 
-        # Shrinkage strength: fewer observations -> more shrinkage
-        # alpha = 1.5: lighter shrinkage since we now have repeated queries
-        alpha = 1.5
-
         calibrated = pred.copy()
 
-        # Unobserved cells: mild shrinkage toward uniform
-        unobs_mask = n_observations <= 0
-        if unobs_mask.any():
-            shrink = 0.15
-            calibrated[unobs_mask] = (
-                (1 - shrink) * pred[unobs_mask] + shrink * uniform[np.newaxis, :]
-            )
+        # Unobserved cells: NO shrinkage toward uniform.
+        # The domain priors and heuristics already encode our best guess.
+        # Shrinking toward uniform makes Empty cells ~0.11 per class which is terrible.
 
-        # Few observations (1-3): significant shrinkage
-        few_obs_mask = (n_observations > 0) & (n_observations <= 3)
+        # Few observations (1-2): very mild shrinkage
+        alpha = 2.0
+        few_obs_mask = (n_observations > 0) & (n_observations <= 2)
         if few_obs_mask.any():
             n_few = n_observations[few_obs_mask]
             weight_obs = (n_few / (n_few + alpha))[:, np.newaxis]
@@ -574,7 +710,7 @@ class PredictionEngine:
                 weight_obs * pred[few_obs_mask] + weight_prior * uniform[np.newaxis, :]
             )
 
-        # n > 3: trust empirical (KT already handles this well)
+        # n > 2: trust empirical (KT already handles this well)
 
         return calibrated
 

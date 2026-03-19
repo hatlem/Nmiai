@@ -5,7 +5,7 @@ Integrates all improvements:
   2. SAHI tiled inference (small object detection)
   3. Multi-model ensemble (if multiple models exist)
   4. Soft-NMS (dense shelf-aware suppression)
-  5. Two-stage classification (EfficientNet-B3 embedding matching)
+  5. Two-stage classification (DINOv2/EfficientNet-B3 auto-selection)
   6. Time budget manager (skips SAHI if running slow)
 
 Graceful fallbacks:
@@ -28,13 +28,19 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F
 from PIL import Image
-from torchvision import transforms
 from ultralytics import YOLO
 
+from src.classifier import ProductClassifier
 from src.utils import enhance_retail_image
 from src.wbf import weighted_boxes_fusion
+
+# Try importing ONNX detector
+try:
+    from src.onnx_detector import ONNXDetector
+    ONNX_AVAILABLE = True
+except ImportError:
+    ONNX_AVAILABLE = False
 
 # Try importing optional modules — fall back gracefully
 try:
@@ -60,15 +66,15 @@ TOTAL_TIMEOUT = 280          # seconds — leave 20s margin from 300s limit
 SAHI_TIME_BUDGET_RATIO = 0.7 # if avg time > budget, skip SAHI for rest
 
 # Detection
-CONF_THRESHOLD = 0.10
-NMS_IOU = 0.45
+CONF_THRESHOLD = 0.001
+NMS_IOU = 0.65
 IMGSZ_FULL = 1280
 IMGSZ_SAHI_TILE = 640
-SAHI_OVERLAP = 0.2
+SAHI_OVERLAP = 0.3
 
 # Multi-scale WBF (fallback when SAHI unavailable)
 SCALES = [640, 1280]
-WBF_IOU_THR = 0.55
+WBF_IOU_THR = 0.6
 WBF_SKIP_BOX_THR = 0.001
 
 # Soft-NMS
@@ -77,7 +83,6 @@ SOFT_NMS_SCORE_THR = 0.01
 
 # Classification
 CLASSIFIER_BATCH_SIZE = 64
-TEMPERATURE = 0.07
 CROP_PAD_RATIO = 0.05
 MIN_BOX_SIZE = 5
 
@@ -133,82 +138,6 @@ class TimeBudget:
             f"Time: {self.elapsed():.1f}s total, {avg:.2f}s/img avg | "
             f"SAHI used: {self.sahi_used}, skipped: {self.sahi_skipped}"
         )
-
-
-# ── Classifier Loading ────────────────────────────────────────────────
-
-def load_classifier(model_dir: Path, device: str):
-    """Load EfficientNet-B3 classifier and reference embeddings.
-
-    Returns None tuple if classifier files are missing.
-    """
-    config_path = model_dir / "embedding_config.json"
-    embeddings_path = model_dir / "product_embeddings.npy"
-
-    if not config_path.exists() or not embeddings_path.exists():
-        print("[CLASSIFIER] Config or embeddings not found — detection-only mode")
-        return None, None, None, None, None
-
-    try:
-        import timm
-    except ImportError:
-        print("[CLASSIFIER] timm not available — detection-only mode")
-        return None, None, None, None, None
-
-    with open(str(config_path)) as f:
-        config = json.load(f)
-
-    weights_path = model_dir / "efficientnet_b3_weights.pt"
-    model = timm.create_model(config["model_name"], pretrained=False, num_classes=0)
-
-    if weights_path.exists():
-        state_dict = torch.load(str(weights_path), map_location=device)
-        model.load_state_dict(state_dict, strict=False)
-        print(f"[CLASSIFIER] Loaded fine-tuned weights from {weights_path.name}")
-    else:
-        print("[CLASSIFIER] WARNING: No fine-tuned weights — classification will be poor")
-
-    model = model.to(device).eval()
-
-    embeddings = np.load(str(embeddings_path))
-    ref_embeddings = torch.from_numpy(embeddings).to(device)
-    valid_mask = ref_embeddings.norm(dim=1) > 0.1
-
-    transform = transforms.Compose([
-        transforms.Resize((300, 300)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-
-    print(f"[CLASSIFIER] Loaded {ref_embeddings.shape[0]} reference embeddings")
-    return model, ref_embeddings, valid_mask, transform, config
-
-
-def classify_crops(
-    model, ref_embeddings, valid_mask, transform, crops: list, device: str,
-) -> list[tuple[int, float]]:
-    """Classify cropped product images via temperature-scaled embedding similarity."""
-    if not crops:
-        return []
-
-    batch = torch.stack([transform(crop) for crop in crops]).to(device)
-
-    with torch.no_grad():
-        embeddings = model(batch)
-        embeddings = F.normalize(embeddings, dim=1)
-
-    similarities = embeddings @ ref_embeddings.T
-    similarities[:, ~valid_mask] = float("-inf")
-
-    probs = F.softmax(similarities / TEMPERATURE, dim=1)
-
-    results = []
-    for i in range(len(crops)):
-        best_idx = probs[i].argmax().item()
-        best_prob = probs[i, best_idx].item()
-        results.append((best_idx, best_prob))
-
-    return results
 
 
 # ── Detection Strategies ───────────────────────────────────────────────
@@ -319,14 +248,14 @@ def process_image(
     img_bgr: np.ndarray,
     device: str,
     use_sahi: bool,
-    classifier_components: tuple,
+    classifier: ProductClassifier,
 ) -> list[dict]:
     """Full pipeline for a single image.
 
     1. CLAHE enhance
     2. Detect (SAHI/ensemble/multi-scale/simple — best available)
     3. Soft-NMS on merged detections
-    4. Classify crops with EfficientNet-B3
+    4. Classify crops with best available classifier (DINOv2/EfficientNet)
     5. Combine detection score x classification confidence
 
     Returns list of (box_xyxy, w, h, category_id, score) dicts ready for output.
@@ -379,11 +308,9 @@ def process_image(
         return []
 
     # Step 4: Classification (if classifier is available)
-    cls_model, ref_embeddings, valid_mask, cls_transform, cls_config = classifier_components
-
     detections = []
 
-    if cls_model is not None:
+    if classifier.mode != "none":
         # Prepare crops
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(img_rgb)
@@ -413,15 +340,8 @@ def process_image(
             ))
             crops.append(crop)
 
-        # Batch classification
-        all_classifications = []
-        for batch_start in range(0, len(crops), CLASSIFIER_BATCH_SIZE):
-            batch_crops = crops[batch_start:batch_start + CLASSIFIER_BATCH_SIZE]
-            classifications = classify_crops(
-                cls_model, ref_embeddings, valid_mask, cls_transform,
-                batch_crops, device,
-            )
-            all_classifications.extend(classifications)
+        # Batch classification via unified ProductClassifier
+        all_classifications = classifier.classify(crops, batch_size=CLASSIFIER_BATCH_SIZE)
 
         # Step 5: Combine detection score x classification confidence
         for idx, (cat_id, cls_conf) in zip(valid_indices, all_classifications):
@@ -470,6 +390,7 @@ def main():
     model_dir = Path(__file__).parent
 
     print(f"[INIT] Device: {device}")
+    print(f"[INIT] ONNX detector available: {ONNX_AVAILABLE}")
     print(f"[INIT] SAHI available: {SAHI_AVAILABLE}")
     print(f"[INIT] Soft-NMS available: {SOFT_NMS_AVAILABLE}")
     print(f"[INIT] Ensemble module available: {ENSEMBLE_AVAILABLE}")
@@ -477,34 +398,76 @@ def main():
     # ── Load detection models ──────────────────────────────────────────
     models = []
 
-    primary_path = model_dir / "best.pt"
-    if primary_path.exists():
-        models.append(YOLO(str(primary_path)))
-        print(f"[MODELS] Loaded primary detector: {primary_path.name}")
-    else:
-        print("[MODELS] ERROR: best.pt not found!")
-        # Write empty predictions
+    # Discover all model files (.pt and .onnx)
+    pt_files = sorted(model_dir.glob("*.pt"))
+    onnx_files = sorted(model_dir.glob("*.onnx")) if ONNX_AVAILABLE else []
+
+    # Preferred loading order: best.onnx > best.pt, then secondary models
+    primary_loaded = False
+
+    # Try ONNX primary first (e.g. YOLO26 exported)
+    primary_onnx = model_dir / "best.onnx"
+    if primary_onnx.exists() and ONNX_AVAILABLE:
+        try:
+            models.append(ONNXDetector(str(primary_onnx), conf_threshold=CONF_THRESHOLD))
+            print(f"[MODELS] Loaded primary ONNX detector: {primary_onnx.name}")
+            primary_loaded = True
+        except Exception as e:
+            print(f"[MODELS] Failed to load {primary_onnx.name}: {e}")
+
+    # Fall back to .pt primary
+    if not primary_loaded:
+        primary_pt = model_dir / "best.pt"
+        if primary_pt.exists():
+            models.append(YOLO(str(primary_pt)))
+            print(f"[MODELS] Loaded primary detector: {primary_pt.name}")
+            primary_loaded = True
+
+    if not primary_loaded:
+        print("[MODELS] ERROR: No primary model found (best.onnx or best.pt)!")
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(str(output_path), "w") as f:
             json.dump([], f)
         return
 
-    # Try loading secondary model for ensemble
-    secondary_path = model_dir / "rtdetr_best.pt"
-    if secondary_path.exists():
-        try:
-            models.append(YOLO(str(secondary_path)))
-            print(f"[MODELS] Loaded secondary detector: {secondary_path.name}")
-        except Exception as e:
-            print(f"[MODELS] Failed to load {secondary_path.name}: {e}")
+    # Load secondary models for ensemble (both .pt and .onnx)
+    secondary_names_pt = ["rtdetr_best.pt", "yolo26_best.pt", "yolo11_best.pt"]
+    secondary_names_onnx = ["rtdetr_best.onnx", "yolo26_best.onnx", "yolo11_best.onnx"]
+
+    for name in secondary_names_onnx:
+        path = model_dir / name
+        if path.exists() and ONNX_AVAILABLE:
+            try:
+                models.append(ONNXDetector(str(path), conf_threshold=CONF_THRESHOLD))
+                print(f"[MODELS] Loaded secondary ONNX detector: {path.name}")
+            except Exception as e:
+                print(f"[MODELS] Failed to load {path.name}: {e}")
+
+    for name in secondary_names_pt:
+        path = model_dir / name
+        if path.exists():
+            try:
+                models.append(YOLO(str(path)))
+                print(f"[MODELS] Loaded secondary detector: {path.name}")
+            except Exception as e:
+                print(f"[MODELS] Failed to load {path.name}: {e}")
+
+    # Also pick up any other .onnx files not already loaded
+    loaded_names = {"best.onnx"} | set(secondary_names_onnx)
+    for onnx_path in onnx_files:
+        if onnx_path.name not in loaded_names:
+            try:
+                models.append(ONNXDetector(str(onnx_path), conf_threshold=CONF_THRESHOLD))
+                print(f"[MODELS] Loaded extra ONNX detector: {onnx_path.name}")
+            except Exception as e:
+                print(f"[MODELS] Failed to load {onnx_path.name}: {e}")
 
     print(f"[MODELS] Total detectors: {len(models)} ({'ensemble' if len(models) > 1 else 'single'})")
 
     # ── Load classifier ────────────────────────────────────────────────
-    classifier_components = load_classifier(model_dir, device)
-    has_classifier = classifier_components[0] is not None
-    print(f"[INIT] Classification: {'enabled' if has_classifier else 'detection-only (category_id=0)'}")
+    classifier = ProductClassifier(model_dir / "models", device)
+    print(f"[INIT] Classification: {classifier.mode}")
 
     # ── Discover images ────────────────────────────────────────────────
     input_dir = Path(args.input)
@@ -556,7 +519,7 @@ def main():
             continue
 
         detections = process_image(
-            models, img_bgr, device, use_sahi, classifier_components,
+            models, img_bgr, device, use_sahi, classifier,
         )
 
         for det in detections:

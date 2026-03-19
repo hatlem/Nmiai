@@ -99,3 +99,16 @@ echo "=== Checking scores ==="
 MONITOR_ARGS=(--token "$TOKEN")
 $POLL && MONITOR_ARGS+=(--poll)
 python3 "$SCRIPT_DIR/monitor.py" "${MONITOR_ARGS[@]}"
+
+# ── Report to dashboard ──
+echo ""
+echo "=== Reporting to dashboard ==="
+# Try to extract best score from monitor output
+SCORE=$(python3 "$SCRIPT_DIR/monitor.py" --token "$TOKEN" 2>/dev/null | grep -oP 'Score: \K[0-9.]+' | head -1)
+if [[ -n "${SCORE:-}" ]]; then
+    curl -s -X POST http://localhost:8090/api/score \
+      -H 'Content-Type: application/json' \
+      -d "{\"task\":\"astar\",\"raw\":${SCORE},\"note\":\"auto-reported from run_round.sh\"}" \
+      2>/dev/null || echo "Dashboard not running, skipping report"
+    echo "Reported score: ${SCORE}"
+fi

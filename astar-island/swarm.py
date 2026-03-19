@@ -374,6 +374,135 @@ class SettlementTrajectoryAgent(SwarmAgent):
         return pred
 
 
+class ContextualPoolingAgent(SwarmAgent):
+    """
+    Pools observations across ALL seeds by context key for much better
+    distribution estimates than per-cell Jeffreys with n=1.
+
+    Key insight: hidden parameters are shared across seeds, so a settlement
+    with food=2, coastal=True on seed 0 behaves identically on seed 4.
+    """
+
+    def __init__(self, all_counts: dict, all_initial_states: list, W: int, H: int, weight: float = 2.0):
+        super().__init__(name="contextual_pooling", weight=weight)
+        self.ctx_distributions = self._build_context_distributions(all_counts, all_initial_states, W, H)
+
+    def _build_context_distributions(self, all_counts, all_initial_states, W, H):
+        """Build per-context probability distributions from pooled cross-seed data."""
+        from collections import defaultdict
+        ctx_counts = defaultdict(lambda: np.zeros(NUM_CLASSES))
+
+        for seed_idx, state in enumerate(all_initial_states):
+            if seed_idx not in all_counts:
+                continue
+            init_grid = np.asarray(state["grid"], dtype=np.int64)
+            seed_counts = all_counts[seed_idx]
+
+            food_map = _food_map(init_grid)
+            coastal = _coastal_mask(init_grid)
+            settlements = state.get("settlements", [])
+            sett_dist = _settlement_distance(init_grid, settlements, W, H)
+
+            # Count neighbor settlements
+            sett_mask = np.isin(init_grid, [1, 2]).astype(np.int32)
+            n_sett = np.zeros((H, W), dtype=np.int32)
+            for dy in range(-2, 3):
+                for dx in range(-2, 3):
+                    if dy == 0 and dx == 0:
+                        continue
+                    shifted = np.zeros_like(sett_mask)
+                    sy = slice(max(0, -dy), min(H, H - dy))
+                    sx = slice(max(0, -dx), min(W, W - dx))
+                    ty = slice(max(0, dy), min(H, H + dy))
+                    tx = slice(max(0, dx), min(W, W + dx))
+                    shifted[ty, tx] = sett_mask[sy, sx]
+                    n_sett += shifted
+
+            init_cls = _classify_grid(init_grid)
+
+            for y in range(H):
+                for x in range(W):
+                    cell_obs = seed_counts[y, x, :NUM_CLASSES].astype(np.float64)
+                    if cell_obs.sum() == 0:
+                        continue
+
+                    ic = int(init_cls[y, x])
+                    food = int(min(food_map[y, x], 3))
+                    is_coast = bool(coastal[y, x])
+                    ns = min(int(n_sett[y, x]), 4)
+                    db = "near" if sett_dist[y, x] <= 3 else "mid" if sett_dist[y, x] <= 7 else "far"
+
+                    key = (ic, food, is_coast, ns, db)
+                    ctx_counts[key] += cell_obs
+
+        # Normalize with Jeffreys smoothing
+        ctx_probs = {}
+        for key, counts_arr in ctx_counts.items():
+            total = counts_arr.sum()
+            if total > 0:
+                ctx_probs[key] = (counts_arr + 0.5) / (total + NUM_CLASSES * 0.5)
+
+        return ctx_probs
+
+    def predict(self, seed_idx, initial_state, W, H, counts, observations,
+                settlements_data, inferred_params) -> np.ndarray:
+        init_grid = np.asarray(initial_state["grid"], dtype=np.int64)
+        init_cls = _classify_grid(init_grid)
+        food_map = _food_map(init_grid)
+        coastal = _coastal_mask(init_grid)
+        settlements = initial_state.get("settlements", [])
+        sett_dist = _settlement_distance(init_grid, settlements, W, H)
+
+        sett_mask = np.isin(init_grid, [1, 2]).astype(np.int32)
+        n_sett = np.zeros((H, W), dtype=np.int32)
+        for dy in range(-2, 3):
+            for dx in range(-2, 3):
+                if dy == 0 and dx == 0:
+                    continue
+                shifted = np.zeros_like(sett_mask)
+                sy = slice(max(0, -dy), min(H, H - dy))
+                sx = slice(max(0, -dx), min(W, W - dx))
+                ty = slice(max(0, dy), min(H, H + dy))
+                tx = slice(max(0, dx), min(W, W + dx))
+                shifted[ty, tx] = sett_mask[sy, sx]
+                n_sett += shifted
+
+        pred = np.full((H, W, NUM_CLASSES), 1.0 / NUM_CLASSES)
+
+        for y in range(H):
+            for x in range(W):
+                raw = int(init_grid[y, x])
+                if raw == 5:
+                    pred[y, x] = _mountain_prior()
+                    continue
+                if raw == 10:
+                    pred[y, x] = _ocean_prior()
+                    continue
+
+                ic = int(init_cls[y, x])
+                food = int(min(food_map[y, x], 3))
+                is_coast = bool(coastal[y, x])
+                ns = min(int(n_sett[y, x]), 4)
+                db = "near" if sett_dist[y, x] <= 3 else "mid" if sett_dist[y, x] <= 7 else "far"
+
+                key = (ic, food, is_coast, ns, db)
+                if key in self.ctx_distributions:
+                    pred[y, x] = self.ctx_distributions[key]
+                else:
+                    # Try less specific key (drop neighbor count)
+                    for ns2 in range(5):
+                        key2 = (ic, food, is_coast, ns2, db)
+                        if key2 in self.ctx_distributions:
+                            pred[y, x] = self.ctx_distributions[key2]
+                            break
+                    else:
+                        pred[y, x] = _domain_prior(ic)
+
+        pred = np.maximum(pred, PROB_FLOOR)
+        pred /= pred.sum(axis=2, keepdims=True)
+        return pred
+
+
 # ── Swarm Coordinator ────────────────────────────────────────────────────────
 
 
@@ -421,13 +550,16 @@ class SwarmCoordinator:
 
         # ── Add non-MC agents ────────────────────────────────────────────
         self.agents.append(StatisticalAgent(weight=2.5))
-        self.agents.append(TransitionAgent(weight=0.8))
-        self.agents.append(SpatialAgent(weight=0.6))
-        self.agents.append(HeuristicAgent(weight=1.0))
         self.agents.append(SettlementTrajectoryAgent(weight=1.5))
+        self.agents.append(TransitionAgent(weight=0.8))
+        self.agents.append(HeuristicAgent(weight=1.0))
+        self.agents.append(SpatialAgent(weight=0.6))
+
+        # Add contextual pooling agent (needs cross-seed data, added later in predict_all)
+        self._contextual_agent_weight = 2.0
 
         print(f"Swarm initialized: {len(self.agents)} agents "
-              f"({n_mc} MC + 5 statistical/heuristic)")
+              f"({n_mc} MC + 5 statistical/heuristic + contextual pooling pending)")
 
     def predict_all(
         self,
@@ -438,14 +570,21 @@ class SwarmCoordinator:
         """Run all agents and combine predictions for all seeds."""
         predictions = {}
 
+        # Create contextual pooling agent with actual observation data
+        ctx_agent = ContextualPoolingAgent(
+            all_counts=counts, all_initial_states=self.initial_states,
+            W=self.W, H=self.H, weight=self._contextual_agent_weight,
+        )
+        all_agents = self.agents + [ctx_agent]
+
         for seed_idx in range(self.seeds_count):
-            print(f"\n  Seed {seed_idx}: running {len(self.agents)} agents...")
+            print(f"\n  Seed {seed_idx}: running {len(all_agents)} agents...")
             t0 = time.time()
 
             agent_preds = []
             agent_weights = []
 
-            for agent in self.agents:
+            for agent in all_agents:
                 try:
                     pred = agent.predict(
                         seed_idx=seed_idx,
@@ -467,7 +606,7 @@ class SwarmCoordinator:
             # Ensemble via weighted geometric mean
             combined = self._geometric_ensemble(agent_preds, agent_weights)
 
-            # Final calibration
+            # Light calibration for few-observation cells only
             cell_counts = counts[seed_idx][:, :, :NUM_CLASSES].astype(np.float64)
             n_obs = cell_counts.sum(axis=2)
             combined = self._calibrate(combined, n_obs)
@@ -516,21 +655,22 @@ class SwarmCoordinator:
         pred: np.ndarray,
         n_obs: np.ndarray,
     ) -> np.ndarray:
-        """Shrink toward uniform for cells with few/no observations."""
+        """Light calibration — do NOT shrink unobserved toward uniform.
+
+        The domain priors are already well-calibrated. Shrinking toward uniform
+        destroys the strong Empty-stays-Empty signal and causes catastrophic KL.
+        Only apply mild shrinkage for cells with very few (1-2) observations.
+        """
         uniform = np.full(NUM_CLASSES, 1.0 / NUM_CLASSES)
         result = pred.copy()
 
-        # Unobserved: mild shrinkage
-        unobs = n_obs <= 0
-        if unobs.any():
-            shrink = 0.12
-            result[unobs] = (1 - shrink) * pred[unobs] + shrink * uniform
+        # Unobserved: NO shrinkage. Domain priors from ensemble are our best guess.
 
-        # Few observations (1-2): some shrinkage
+        # Few observations (1-2): very mild shrinkage
         few = (n_obs > 0) & (n_obs <= 2)
         if few.any():
             n_few = n_obs[few]
-            alpha = 1.5
+            alpha = 2.0
             w_obs = (n_few / (n_few + alpha))[:, np.newaxis]
             result[few] = w_obs * pred[few] + (1 - w_obs) * uniform
 
@@ -564,13 +704,14 @@ def _ocean_prior() -> np.ndarray:
 
 
 def _domain_prior(init_cls: int) -> np.ndarray:
+    # Calibrated from Round 1 ground truth analysis
     priors = {
-        0: np.array([0.90, 0.02, 0.005, 0.02, 0.05, 0.005]),
-        1: np.array([0.05, 0.55, 0.08, 0.25, 0.05, 0.02]),
-        2: np.array([0.05, 0.10, 0.60, 0.18, 0.05, 0.02]),
-        3: np.array([0.15, 0.10, 0.02, 0.50, 0.20, 0.03]),
-        4: np.array([0.08, 0.01, 0.005, 0.02, 0.88, 0.005]),
-        5: np.array([0.005, 0.005, 0.005, 0.005, 0.005, 0.975]),
+        0: np.array([0.82, 0.13, 0.012, 0.010, 0.028, 0.01]),  # Empty: 13% become settlement!
+        1: np.array([0.37, 0.41, 0.008, 0.031, 0.181, 0.01]),  # Settlement: only 41% survive, 37% vanish
+        2: np.array([0.36, 0.12, 0.319, 0.021, 0.176, 0.01]),  # Port: 32% survive, 36% vanish
+        3: np.array([0.17, 0.17, 0.17, 0.17, 0.17, 0.15]),     # Ruin: near-uniform (rare terrain)
+        4: np.array([0.07, 0.16, 0.014, 0.012, 0.744, 0.01]),  # Forest: 74% stable, 16% become settlement
+        5: np.array([0.005, 0.005, 0.005, 0.005, 0.005, 0.975]), # Mountain: never changes
     }
     p = priors.get(init_cls, priors[0]).copy()
     p = np.maximum(p, PROB_FLOOR)

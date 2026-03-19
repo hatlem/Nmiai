@@ -214,6 +214,20 @@ async def _execute_step(
         logger.error(f"Step {idx} exception: {e}")
         response = {"status_code": 0, "ok": False, "data": {"error": str(e)}}
 
+    # Detect empty search results that will break downstream references
+    if method == "GET" and response["ok"]:
+        data = response.get("data", {})
+        # Check both direct values and nested value.values
+        values = data.get("values", [])
+        if not values:
+            inner = data.get("value", {})
+            if isinstance(inner, dict):
+                values = inner.get("values", [])
+        # If this is a search endpoint (has params but no ID in path) with no results
+        if not values and params and not re.search(r'/\d+', path) and "value" not in data:
+            logger.warning(f"Step {idx}: GET {path} returned empty results")
+            response["empty_search"] = True
+
     return idx, response, response["ok"]
 
 

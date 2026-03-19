@@ -372,9 +372,9 @@ class ParameterInference:
         if n_empty > 20:
             # Also check Ruin -> Forest as confirmation
             ruin_to_forest, n_ruin = self._safe_rate(3, 4)
-            forest_signal = empty_to_forest * 5.0
+            forest_signal = empty_to_forest * 3.0  # Reduced from 5.0 — was overestimating
             if n_ruin > 5:
-                forest_signal = (forest_signal + ruin_to_forest * 3.0) / 2.0
+                forest_signal = (forest_signal + ruin_to_forest * 2.0) / 2.0
             results["forest_growth_rate"] = (float(np.clip(forest_signal, 0, 1)), conf_forest)
 
         # Empty -> Settlement: expansion_rate
@@ -400,7 +400,7 @@ class ParameterInference:
         # Provide a weak estimate based on overall settlement survival
         if n_sett > 10:
             results["food_per_forest"] = (
-                float(np.clip(sett_survival * 1.5, 0, 1)), conf_sett * 0.3
+                float(np.clip(sett_survival * 0.8, 0, 1)), conf_sett * 0.3
             )
 
         return results
@@ -430,7 +430,7 @@ class ParameterInference:
         results["winter_severity"] = (float(winter_from_food), conf * 0.6)
 
         # food_per_forest: food level correlates directly
-        results["food_per_forest"] = (float(np.clip(avg_food * 0.4, 0, 1)), conf * 0.5)
+        results["food_per_forest"] = (float(np.clip(avg_food * 0.25, 0, 1)), conf * 0.5)
 
         # Average wealth: correlates with trade_activity
         avg_wealth = stats["avg_wealth"]
@@ -495,7 +495,7 @@ class ParameterInference:
         if stats["forest_border_growth"]:
             avg_growth = np.mean(stats["forest_border_growth"])
             conf = min(len(stats["forest_border_growth"]) / 3, 1.0)
-            results["forest_growth_rate"] = (float(np.clip(avg_growth * 3.0, 0, 1)), float(conf) * 0.6)
+            results["forest_growth_rate"] = (float(np.clip(avg_growth * 2.0, 0, 1)), float(conf) * 0.6)
 
         return results
 
@@ -560,13 +560,28 @@ class ParameterInference:
 
         return combined
 
+    # ── Rescaling to simulator scale ─────────────────────────────────────
+
+    def _rescale_to_simulator(self, params: dict) -> dict:
+        """
+        Map inferred 0-1 values to the scales expected by simulator.py's DEFAULT_PARAMS.
+
+        Most parameters are already 0-1, but raid_range expects 3-10 (manhattan distance).
+        """
+        rescaled = dict(params)
+
+        # raid_range: inference outputs 0-1, simulator expects 3-10
+        rescaled["raid_range"] = 3.0 + rescaled["raid_range"] * 7.0
+
+        return rescaled
+
     # ── Public API ────────────────────────────────────────────────────────
 
     def infer(self) -> dict:
         """
         Infer MAP (maximum a posteriori) estimates of hidden parameters.
 
-        Returns dict of parameter_name -> float (0.0-1.0).
+        Returns dict of parameter values on the same scale as simulator.py DEFAULT_PARAMS.
         """
         trans_est = self._infer_from_transitions()
         sett_est = self._infer_from_settlements()
@@ -574,7 +589,8 @@ class ParameterInference:
 
         combined = self._combine_estimates(trans_est, sett_est, spatial_est)
 
-        return {param: val for param, (val, _, _) in combined.items()}
+        raw = {param: val for param, (val, _, _) in combined.items()}
+        return self._rescale_to_simulator(raw)
 
     def infer_with_uncertainty(self) -> Dict[str, Tuple[float, float, float]]:
         """
@@ -652,7 +668,8 @@ class ParameterInference:
             # Not enough data for rejection, use all candidates
             accepted = candidates[:n_samples]
 
-        return accepted
+        # Rescale all accepted samples to simulator scale
+        return [self._rescale_to_simulator(s) for s in accepted]
 
     def _compute_summary_stats(self) -> Optional[np.ndarray]:
         """

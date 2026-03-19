@@ -8,7 +8,7 @@ from collections import deque
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 
-from agent import create_plan, self_repair
+from agent import create_plan, self_repair, get_tier
 from executor import execute_plan
 from verifier import verify_execution, format_verification_for_repair
 from tripletex_client import TripletexClient
@@ -128,6 +128,14 @@ async def solve(request: Request):
                 logger.info("All API calls succeeded, skipping further verification repairs")
                 break
 
+            # Skip verification for simple tier 1 tasks when all calls succeeded
+            # Verification GETs count as API calls and hurt efficiency bonus
+            tier = get_tier(task_type)
+            if not has_http_errors and tier == 1 and attempt == 0:
+                logger.info(f"Skipping verification for tier 1 task {task_type} (efficiency)")
+                verified = True
+                break
+
             if not has_http_errors:
                 try:
                     verify_result = await verify_execution(
@@ -186,6 +194,7 @@ async def solve(request: Request):
                     prompt, current_plan, current_result["results"],
                     current_result.get("failed", []),
                     verification_errors=verification_errors,
+                    files=files,
                 )
 
                 # If repaired plan has no steps, nothing to fix

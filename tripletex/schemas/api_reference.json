@@ -397,6 +397,27 @@
     "rate": "number",
     "amount": "number"
   },
+  "TravelDetails": {
+    "departureDate": "string (date, required)",
+    "returnDate": "string (date, required)",
+    "departureFrom": "string",
+    "destination": "string",
+    "purpose": "string",
+    "isDayTrip": "boolean",
+    "isForeignTravel": "boolean",
+    "departureTime": "string",
+    "returnTime": "string"
+  },
+  "Cost": {
+    "currency": "string",
+    "costCategory": "CostCategory",
+    "paymentType": "string (own_payment|company_payment)",
+    "count": "number",
+    "rate": "number",
+    "amountCurrencyIncVat": "number",
+    "isRepetition": "boolean",
+    "date": "string (date)"
+  },
   "Activity": {
     "name": "string",
     "number": "string",

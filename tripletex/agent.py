@@ -37,6 +37,7 @@ TIER_MAP: dict[str, int] = {
     "create_invoice_existing_customer": 2,
     "create_invoice_with_payment": 3,
     "register_payment": 2,
+    "register_payment_by_search": 2,
     "create_credit_note": 2,
     "send_invoice": 1,
     "create_travel_expense": 2,
@@ -44,8 +45,12 @@ TIER_MAP: dict[str, int] = {
     "deliver_travel_expense": 1,
     "approve_travel_expense": 1,
     "create_project": 2,
+    "create_project_existing_customer": 2,
     "create_internal_project": 1,
     "update_project": 2,
+    "update_supplier": 2,
+    "update_department": 2,
+    "update_product": 2,
     "create_voucher": 2,
     "reverse_voucher": 1,
     "delete_entity": 1,
@@ -115,7 +120,30 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
     """Try keyword-based classification before calling LLM."""
     prompt_lower = prompt.lower()
 
+    # Detect "payment on invoice NUMBER" pattern -> register_payment_by_search
+    # This must come before high_conf_keywords since "betaling"/"payment" would match register_payment
+    _has_payment = bool(re.search(r'\b(betal|betaling|innbetaling|payment|paiement|zahlung|pago)\b', prompt_lower))
+    _has_invoice_number = bool(re.search(
+        r'(faktura\s*(nr|nummer|#)\s*\d+|invoice\s*(nr|number|#|no\.?)\s*\d+|factura\s*(nr|numero|#)\s*\d+|rechnung\s*(nr|nummer|#)\s*\d+)',
+        prompt_lower,
+    ))
+    if _has_payment and _has_invoice_number:
+        return "register_payment_by_search", 0.92
+
     high_conf_keywords = {
+        # Existing entity detection - must come BEFORE generic patterns
+        "faktura for eksisterende": ("create_invoice_existing_customer", 0.95),
+        "invoice for existing": ("create_invoice_existing_customer", 0.95),
+        "faktura til eksisterende": ("create_invoice_existing_customer", 0.95),
+        "invoice to existing": ("create_invoice_existing_customer", 0.95),
+        "factura para cliente existente": ("create_invoice_existing_customer", 0.90),
+        "rechnung fur bestehenden": ("create_invoice_existing_customer", 0.90),
+        "facture pour client existant": ("create_invoice_existing_customer", 0.90),
+        "prosjekt for eksisterende": ("create_project_existing_customer", 0.95),
+        "project for existing": ("create_project_existing_customer", 0.95),
+        "prosjekt til eksisterende": ("create_project_existing_customer", 0.95),
+        "proyecto para cliente existente": ("create_project_existing_customer", 0.90),
+        # Standard patterns
         "slett reiseregning": ("delete_travel_expense", 0.95),
         "delete travel": ("delete_travel_expense", 0.95),
         "lever reiseregning": ("deliver_travel_expense", 0.95),
@@ -132,6 +160,15 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "update customer": ("update_customer", 0.90),
         "oppdater prosjekt": ("update_project", 0.90),
         "update project": ("update_project", 0.90),
+        "oppdater leverandor": ("update_supplier", 0.90),
+        "endre leverandor": ("update_supplier", 0.90),
+        "update supplier": ("update_supplier", 0.90),
+        "oppdater avdeling": ("update_department", 0.90),
+        "endre avdeling": ("update_department", 0.90),
+        "update department": ("update_department", 0.90),
+        "oppdater produkt": ("update_product", 0.90),
+        "endre produkt": ("update_product", 0.90),
+        "update product": ("update_product", 0.90),
         "internt prosjekt": ("create_internal_project", 0.90),
         "internal project": ("create_internal_project", 0.90),
         "kontaktperson": ("create_contact", 0.90),
@@ -147,10 +184,79 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "inngaende faktura": ("create_supplier_invoice", 0.90),
         "kunde og leverandor": ("create_customer_supplier", 0.90),
         "customer and supplier": ("create_customer_supplier", 0.90),
+        "betal faktura nummer": ("register_payment_by_search", 0.92),
+        "betal faktura nr": ("register_payment_by_search", 0.92),
+        "registrer betaling pa faktura": ("register_payment_by_search", 0.92),
+        "registrer betaling på faktura": ("register_payment_by_search", 0.92),
+        "payment on invoice number": ("register_payment_by_search", 0.92),
+        "payment on invoice no": ("register_payment_by_search", 0.92),
+        "betaling for faktura": ("register_payment_by_search", 0.90),
+        "betaling på faktura": ("register_payment_by_search", 0.90),
+        "pay invoice number": ("register_payment_by_search", 0.90),
         "purring": ("create_reminder", 0.90),
         "reminder": ("create_reminder", 0.85),
         "ansettelse": ("create_employment", 0.85),
         "employment": ("create_employment", 0.85),
+        # Nynorsk patterns
+        "opprett tilsett": ("create_employee", 0.90),
+        "ny tilsett": ("create_employee", 0.90),
+        "registrer tilsett": ("create_employee", 0.90),
+        "opprett tilsatt": ("create_employee", 0.90),
+        # German patterns
+        "mitarbeiter erstellen": ("create_employee", 0.90),
+        "kunde erstellen": ("create_customer", 0.90),
+        "rechnung erstellen": ("create_invoice", 0.90),
+        "lieferant erstellen": ("create_supplier", 0.90),
+        "produkt erstellen": ("create_product", 0.90),
+        "projekt erstellen": ("create_project", 0.90),
+        "abteilung erstellen": ("create_department", 0.90),
+        # French patterns
+        "creer employe": ("create_employee", 0.90),
+        "creer client": ("create_customer", 0.90),
+        "creer facture": ("create_invoice", 0.90),
+        "creer fournisseur": ("create_supplier", 0.90),
+        "creer produit": ("create_product", 0.90),
+        # Spanish patterns
+        "crear empleado": ("create_employee", 0.90),
+        "crear cliente": ("create_customer", 0.90),
+        "crear factura": ("create_invoice", 0.90),
+        "crear proveedor": ("create_supplier", 0.90),
+        "crear producto": ("create_product", 0.90),
+        # Portuguese patterns
+        "criar empregado": ("create_employee", 0.90),
+        "criar cliente": ("create_customer", 0.90),
+        "criar fatura": ("create_invoice", 0.90),
+        # Invoice with payment
+        "faktura med betaling": ("create_invoice_with_payment", 0.95),
+        "invoice with payment": ("create_invoice_with_payment", 0.95),
+        "faktura og registrer betaling": ("create_invoice_with_payment", 0.92),
+        "faktura og betal": ("create_invoice_with_payment", 0.90),
+        # Opening balance
+        "apningsbalanse": ("create_opening_balance", 0.95),
+        "åpningsbalanse": ("create_opening_balance", 0.95),
+        "opening balance": ("create_opening_balance", 0.95),
+        "inngaende balanse": ("create_opening_balance", 0.90),
+        "inngående balanse": ("create_opening_balance", 0.90),
+        # Bank reconciliation
+        "bankavstemming": ("bank_reconciliation", 0.95),
+        "bank reconciliation": ("bank_reconciliation", 0.95),
+        # Asset
+        "anleggsmiddel": ("create_asset", 0.90),
+        "fixed asset": ("create_asset", 0.90),
+        # Salary
+        "lønnsutbetaling": ("create_salary_payment", 0.90),
+        "lonnsutbetaling": ("create_salary_payment", 0.90),
+        "salary payment": ("create_salary_payment", 0.90),
+        # Timesheet
+        "timeregistrering": ("create_timesheet_entry", 0.90),
+        "timesheet entry": ("create_timesheet_entry", 0.90),
+        "registrer timer": ("create_timesheet_entry", 0.90),
+        # Supplier invoice
+        "inngående faktura": ("create_supplier_invoice", 0.90),
+        # Purchase order
+        "innkjøpsordre": ("create_purchase_order", 0.90),
+        "bestilling fra leverandor": ("create_purchase_order", 0.88),
+        "bestilling fra leverandør": ("create_purchase_order", 0.88),
     }
     for phrase, (task_type, conf) in high_conf_keywords.items():
         if phrase in prompt_lower:
@@ -308,6 +414,7 @@ async def self_repair(
     results: dict,
     failed: list,
     verification_errors: list[dict] | None = None,
+    files: list[dict] | None = None,
 ) -> dict:
     """Self-repair: feed errors + optional verification mismatches to Pro model."""
     task_type = plan.get("task_type", "unknown")
@@ -318,9 +425,17 @@ async def self_repair(
 
     model = _get_model(MODEL_PRO, "You are an expert Tripletex API debugger. Fix the failed plan.")
 
-    logger.info(f"Self-repair (verification_errors={bool(verification_errors)})")
+    parts = []
+    if files:
+        for f in files:
+            file_data = base64.b64decode(f["content_base64"])
+            parts.append(Part.from_data(data=file_data, mime_type=f["mime_type"]))
+            parts.append(Part.from_text(f"[Attached file: {f['filename']}]"))
+    parts.append(Part.from_text(repair_prompt))
+
+    logger.info(f"Self-repair (verification_errors={bool(verification_errors)}, files={len(files or [])})")
     response = await model.generate_content_async(
-        repair_prompt,
+        parts,
         generation_config={"temperature": 0.0, "max_output_tokens": 4096},
     )
 

@@ -33,20 +33,32 @@ CLASSIFIER_PROMPT = f"""You are a task classifier for a Norwegian accounting sys
 - Spanish: "factura", "cliente", "empleado", "proveedor"
 - Portuguese: "fatura", "cliente", "empregado", "fornecedor"
 
+### CRITICAL: create_invoice vs create_invoice_existing_customer
+- ONLY use create_invoice_existing_customer if the prompt EXPLICITLY says "eksisterende"/"existing"/"bestehend"/"existant"/"existente"
+- "Opprett faktura til kunde Bergen Bygg AS" -> create_invoice (NOT existing — the customer will be created)
+- "Opprett faktura for kunde X" -> create_invoice (customer created as part of the task)
+- "Faktura til EKSISTERENDE kunde" -> create_invoice_existing_customer (keyword "eksisterende" present)
+- "Invoice for existing customer" -> create_invoice_existing_customer (keyword "existing" present)
+- DEFAULT to create_invoice unless "existing/eksisterende" is explicitly stated
+
 ### Tricky Cases
 - "Opprett kunde" -> create_customer
-- "Opprett faktura for kunde X" -> create_invoice
+- "Opprett faktura for kunde X" -> create_invoice (creates customer too)
 - "Faktura til eksisterende kunde" -> create_invoice_existing_customer
 - "Betal faktura" / "Registrer innbetaling" -> register_payment
 - "Kreditnota" / "Krediter faktura" -> create_credit_note
 - "Slett reiseregning" -> delete_travel_expense
 - "Lever reiseregning" -> deliver_travel_expense
 - "Godkjenn reiseregning" -> approve_travel_expense
+- "Prosjekt for eksisterende kunde" -> create_project_existing_customer
 - "Internt prosjekt" -> create_internal_project
 - "Kontaktperson" -> create_contact
 - "Bilag" / "postering" -> create_voucher
 - "Reverser bilag" -> reverse_voucher
 - "Endre epostadresse" / "oppdater telefon" -> update_employee
+- "Oppdater leverandor" / "endre leverandor" -> update_supplier
+- "Oppdater avdeling" / "endre avdeling" -> update_department
+- "Oppdater produkt" / "endre produkt" -> update_product
 - "Kunde og leverandor" -> create_customer_supplier
 - "Purring" -> create_reminder
 - "Ansettelse" / "arbeidsforhold" -> create_employment
@@ -84,11 +96,19 @@ CLASSIFIER_PROMPT_PRO = f"""You are an expert task classifier for a Norwegian ac
 5. If creating invoice AND customer, primary task is create_invoice
 6. If updating fields on existing entity, it's an update task
 
+## CRITICAL: Existing vs New Entity
+- ONLY use *_existing_customer variants if the prompt EXPLICITLY says "eksisterende"/"existing"/"bestehend"/"existant"/"existente"
+- "Opprett faktura til kunde X" -> create_invoice (customer is NEW, created as part of task)
+- "Faktura til eksisterende kunde X" -> create_invoice_existing_customer
+- When in doubt, use create_invoice (not the existing variant)
+
 ## Special Patterns
 - PDF with invoice data -> create_invoice or create_voucher
 - Multiple account numbers with debit/credit -> create_voucher
 - Role assignment for new employee -> create_employee (with role step)
 - Role assignment for existing employee -> update_employee
+- Project linked to existing customer -> create_project_existing_customer
+- Project with new customer -> create_project
 
 ## Nynorsk vs Bokmal
 - "tilsett"/"tilsatt" (Nynorsk) = "ansatt" (Bokmal) = employee

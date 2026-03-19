@@ -34,6 +34,7 @@ from simulator import (
 from inference import ParameterInference
 from prediction import PredictionEngine
 from query_optimizer import QueryOptimizer
+from swarm import SwarmCoordinator
 
 
 # ── Scoring (exact competition formula) ──────────────────────────────────────
@@ -211,7 +212,7 @@ def simulate_observations(
 
     for seed_idx in range(n_seeds):
         observations[seed_idx] = [[None] * W for _ in range(H)]
-        counts[seed_idx] = np.zeros((H, W, 16), dtype=np.float64)
+        counts[seed_idx] = np.zeros((H, W, NUM_CLASSES), dtype=np.float64)
         settlements_data[seed_idx] = []
 
     # Use QueryOptimizer to plan queries
@@ -302,6 +303,59 @@ def run_pipeline(
         inferred_params=inferred_params,
     )
     print(f"  Prediction engine done in {time.time() - t0:.1f}s")
+
+    return predictions
+
+
+def run_swarm_pipeline(
+    initial_states: list,
+    observations: dict,
+    counts: dict,
+    settlements_data: dict,
+    n_seeds: int = 5,
+    mc_runs: int = 30,
+    mc_agents: int = 5,
+) -> dict:
+    """
+    Run the swarm prediction pipeline (v6).
+
+    Returns dict seed_idx -> (H, W, 6) predictions.
+    """
+    H, W = 40, 40
+
+    # Step 1: Infer hidden parameters
+    print("  Inferring parameters...", end=" ", flush=True)
+    t0 = time.time()
+    inference = ParameterInference(initial_states, observations, counts, settlements_data)
+    inferred_params = inference.infer()
+    print(f"done in {time.time() - t0:.1f}s")
+    print(f"    Inferred: { {k: f'{v:.3f}' for k, v in inferred_params.items()} }")
+
+    # Step 2: Sample posterior
+    try:
+        posterior_samples = inference.infer_posterior(n_samples=mc_agents)
+    except Exception as e:
+        print(f"    Posterior sampling failed ({e}), using MAP only")
+        posterior_samples = [inferred_params]
+
+    # Step 3: Run swarm
+    print(f"  Running swarm ({mc_agents} MC agents × {mc_runs} runs + 5 statistical)...")
+    t0 = time.time()
+    swarm = SwarmCoordinator(
+        initial_states=initial_states,
+        W=W, H=H,
+        seeds_count=n_seeds,
+        inferred_params=inferred_params,
+        posterior_samples=posterior_samples,
+        mc_runs_per_agent=mc_runs,
+        n_mc_agents=mc_agents,
+    )
+    predictions = swarm.predict_all(
+        counts=counts,
+        observations=observations,
+        settlements_data=settlements_data,
+    )
+    print(f"  Swarm done in {time.time() - t0:.1f}s")
 
     return predictions
 
@@ -480,23 +534,40 @@ def run_scenario(
     )
     print(f"done in {time.time() - t0:.1f}s")
 
-    # Run pipeline
-    predictions = run_pipeline(
+    # Run BOTH pipelines for comparison
+    print("\n  --- Old pipeline (PredictionEngine) ---")
+    predictions_old = run_pipeline(
         initial_states, observations, counts, settlements_data,
         n_seeds=n_seeds, mc_runs=mc_runs,
     )
 
-    # Score each seed against the SAME ground truth
-    # (all seeds share the same hidden params and initial map)
+    print("\n  --- New pipeline (Swarm v6) ---")
+    predictions_swarm = run_swarm_pipeline(
+        initial_states, observations, counts, settlements_data,
+        n_seeds=n_seeds, mc_runs=30, mc_agents=5,
+    )
+
+    # Score both pipelines
+    for label, predictions in [("OLD", predictions_old), ("SWARM", predictions_swarm)]:
+        scores = []
+        for seed_idx in range(n_seeds):
+            pred = predictions[seed_idx]
+            score, kl, entropy = score_prediction(gt, pred)
+            scores.append(score)
+        avg = np.mean(scores)
+        per_seed = " ".join(f"{s:.1f}" for s in scores)
+        print(f"  {label:>5}: avg={avg:.2f}  seeds=[{per_seed}]")
+
+    # Use swarm for detailed analysis (it's our production pipeline)
+    predictions = predictions_swarm
     scores = []
     for seed_idx in range(n_seeds):
         pred = predictions[seed_idx]
         score, kl, entropy = score_prediction(gt, pred)
         scores.append(score)
-        print(f"  Seed {seed_idx}: score = {score:.2f}")
 
     avg_score = np.mean(scores)
-    print(f"\n  AVERAGE SCORE: {avg_score:.2f}")
+    print(f"\n  SWARM AVERAGE SCORE: {avg_score:.2f}")
 
     # Detailed analysis for the first seed
     print(f"\n  Detailed analysis (seed 0):")

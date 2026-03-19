@@ -23,11 +23,12 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_employee": {
         "entity_path": "/employee",
         "id_from_step": 1,
-        "search_params": {"fields": "id,firstName,lastName,email,phoneNumberMobile"},
+        "search_params": {"fields": "id,firstName,lastName,email,phoneNumberMobile,dateOfBirth"},
         "check_fields": {
             "firstName": "extract:firstName",
             "lastName": "extract:lastName",
             "email": "extract:email",
+            "phoneNumberMobile": "extract:phoneNumberMobile",
         },
     },
 
@@ -48,6 +49,8 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
             "name": "extract:name",
             "email": "extract:email",
             "isCustomer": "literal:True",
+            "organizationNumber": "extract:organizationNumber",
+            "phoneNumber": "extract:phoneNumber",
         },
     },
 
@@ -63,9 +66,10 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_product": {
         "entity_path": "/product",
         "id_from_step": 0,
-        "search_params": {"fields": "id,name,number,priceExcludingVatCurrency"},
+        "search_params": {"fields": "id,name,number,priceExcludingVatCurrency,description"},
         "check_fields": {
             "name": "extract:name",
+            "priceExcludingVatCurrency": "extract:priceExcludingVatCurrency",
         },
     },
 
@@ -145,7 +149,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_project_existing_customer": {
         "entity_path": "/project",
-        "id_from_step": 1,
+        "id_from_step": 2,
         "search_params": {"fields": "id,name,startDate,endDate,isInternal,customer"},
         "check_fields": {
             "name": "extract:project_name",
@@ -154,7 +158,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_internal_project": {
         "entity_path": "/project",
-        "id_from_step": 0,
+        "id_from_step": 1,
         "search_params": {"fields": "id,name,startDate,endDate,isInternal"},
         "check_fields": {
             "name": "extract:project_name",
@@ -177,6 +181,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         "search_params": {"fields": "id,name,departmentNumber"},
         "check_fields": {
             "name": "extract:name",
+            "departmentNumber": "extract:departmentNumber",
         },
     },
 
@@ -186,6 +191,8 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         "search_params": {"fields": "id,name,email,organizationNumber,phoneNumber"},
         "check_fields": {
             "name": "extract:name",
+            "email": "extract:email",
+            "organizationNumber": "extract:organizationNumber",
         },
     },
 
@@ -219,11 +226,12 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_contact": {
         "entity_path": "/contact",
         "id_from_step": 1,
-        "search_params": {"fields": "id,firstName,lastName,email,customer"},
+        "search_params": {"fields": "id,firstName,lastName,email,phoneNumber,customer"},
         "check_fields": {
             "firstName": "extract:firstName",
             "lastName": "extract:lastName",
             "email": "extract:email",
+            "phoneNumber": "extract:phoneNumber",
         },
     },
 
@@ -276,11 +284,13 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_customer_supplier": {
         "entity_path": "/customer",
         "id_from_step": 0,
-        "search_params": {"fields": "id,name,email,isCustomer,isSupplier"},
+        "search_params": {"fields": "id,name,email,isCustomer,isSupplier,organizationNumber,phoneNumber"},
         "check_fields": {
             "name": "extract:name",
+            "email": "extract:email",
             "isCustomer": "literal:True",
             "isSupplier": "literal:True",
+            "organizationNumber": "extract:organizationNumber",
         },
     },
 
