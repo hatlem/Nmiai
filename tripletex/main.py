@@ -19,10 +19,11 @@ app = FastAPI(title="Tripletex AI Agent")
 MAX_REPAIR_ATTEMPTS = 3
 REPAIR_DEADLINE_SECONDS = 280  # leave 20s buffer before 300s timeout
 
-# Simple task types where recovery cost > benefit
+# Simple single-step task types where recovery cost > benefit
 SKIP_RECOVERY_TYPES = {
     "create_customer", "create_product", "create_department",
     "create_supplier", "delete_travel_expense", "delete_entity",
+    "create_customer_supplier",
 }
 
 
@@ -73,11 +74,19 @@ async def solve(request: Request):
                 f"({len(current_result['failed'])} failed, {elapsed:.0f}s elapsed)"
             )
             try:
+                # Collect results from succeeded steps so LLM can skip them
+                succeeded_results = {
+                    idx: res for idx, res in current_result["results"].items()
+                    if res["ok"]
+                }
                 repaired_plan = await self_repair(
                     prompt, current_plan, current_result["results"], current_result["failed"]
                 )
                 if time.monotonic() - start < REPAIR_DEADLINE_SECONDS:
-                    current_result = await execute_plan(repaired_plan, client, start)
+                    # Pass succeeded results so $step_N refs from prior run still resolve
+                    current_result = await execute_plan(
+                        repaired_plan, client, start, prior_results=succeeded_results
+                    )
                     current_plan = repaired_plan
                     if current_result["success"]:
                         logger.info(f"Self-repair succeeded on attempt {attempt}")

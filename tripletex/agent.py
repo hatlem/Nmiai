@@ -15,11 +15,12 @@ logger = logging.getLogger(__name__)
 
 vertexai.init(project="ainm26osl-710", location="europe-north1")
 
-MODEL_ID = "gemini-3.1-pro"
+MODEL_PRO = "gemini-2.5-pro"
+MODEL_FLASH = "gemini-2.5-flash"
 
 
-def _get_model(system_instruction: str) -> GenerativeModel:
-    return GenerativeModel(MODEL_ID, system_instruction=system_instruction)
+def _get_model(system_instruction: str, model_id: str = MODEL_PRO) -> GenerativeModel:
+    return GenerativeModel(model_id, system_instruction=system_instruction)
 
 
 def _parse_json(text: str) -> dict:
@@ -67,13 +68,29 @@ def _parse_json(text: str) -> dict:
 
 
 def _quick_classify(prompt: str) -> str | None:
-    """Try keyword-based classification before calling LLM."""
+    """Try keyword-based classification before calling LLM.
+    Scores by keyword length — longer (more specific) matches win.
+    Returns None on ambiguous matches to let LLM decide."""
     prompt_lower = prompt.lower()
+    best_type = None
+    best_len = 0
+    second_best_len = 0
     for task_type, keywords in KEYWORD_HINTS.items():
         for kw in keywords:
             if kw.lower() in prompt_lower:
-                return task_type
-    return None
+                if len(kw) > best_len:
+                    second_best_len = best_len
+                    best_type = task_type
+                    best_len = len(kw)
+                elif len(kw) > second_best_len:
+                    second_best_len = len(kw)
+    # If the best match is only marginally better than second, let LLM decide
+    if best_type and best_len > second_best_len + 2:
+        return best_type
+    # Short keywords (< 5 chars) are too ambiguous on their own
+    if best_type and best_len < 5:
+        return None
+    return best_type
 
 
 async def classify_task(prompt: str) -> str:
@@ -83,7 +100,7 @@ async def classify_task(prompt: str) -> str:
         logger.info(f"Quick classify: {quick}")
         return quick
 
-    model = _get_model(CLASSIFIER_PROMPT)
+    model = _get_model(CLASSIFIER_PROMPT, model_id=MODEL_FLASH)
     response = await model.generate_content_async(
         prompt,
         generation_config={"temperature": 0.0, "max_output_tokens": 100},

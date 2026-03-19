@@ -1,8 +1,38 @@
 import re
+import time
 import logging
 from tripletex_client import TripletexClient
 
 logger = logging.getLogger(__name__)
+
+VALID_METHODS = {"GET", "POST", "PUT", "DELETE"}
+
+
+def validate_plan(plan: dict) -> list[str]:
+    """Validate plan structure before execution. Returns list of issues (empty = OK)."""
+    issues = []
+    steps = plan.get("steps")
+    if not isinstance(steps, list):
+        issues.append("Plan has no 'steps' list")
+        return issues
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            issues.append(f"Step {i} is not a dict")
+            continue
+        method = step.get("method", "").upper()
+        if method not in VALID_METHODS:
+            issues.append(f"Step {i}: invalid method '{method}'")
+        path = step.get("path", "")
+        if not path or not isinstance(path, str):
+            issues.append(f"Step {i}: missing or invalid path")
+        elif not path.startswith("/") and not path.startswith("$"):
+            issues.append(f"Step {i}: path should start with / (got '{path[:30]}')")
+        # POST/PUT should have body or params
+        if method in ("POST", "PUT") and not step.get("body") and not step.get("params"):
+            # Some action endpoints (like :deliver, :approve) use only params, that's OK
+            if ":" not in path:
+                issues.append(f"Step {i}: {method} {path} has no body or params")
+    return issues
 
 
 def _deep_get(obj, path_parts: list[str]):
@@ -93,20 +123,50 @@ def resolve_refs(obj, results: dict):
     return obj
 
 
-async def execute_plan(plan: dict, client: TripletexClient, start_time: float | None = None) -> dict:
+def _strip_unresolved_placeholders(obj):
+    """Remove fields that still contain {{placeholder}} values — the LLM didn't fill them.
+    Better to omit than send literal '{{foo}}' to the API."""
+    if isinstance(obj, dict):
+        cleaned = {}
+        for k, v in obj.items():
+            v = _strip_unresolved_placeholders(v)
+            if isinstance(v, str) and re.search(r'\{\{.*?\}\}', v):
+                logger.warning(f"Stripping unresolved placeholder field '{k}': {v}")
+                continue
+            cleaned[k] = v
+        return cleaned
+    if isinstance(obj, list):
+        return [_strip_unresolved_placeholders(item) for item in obj]
+    return obj
+
+
+async def execute_plan(
+    plan: dict,
+    client: TripletexClient,
+    start_time: float | None = None,
+    prior_results: dict | None = None,
+) -> dict:
     """Execute a structured plan of API calls.
-    Returns {success, results, failed}. No error fixing — that's the LLM's job.
+    Returns {success, results, failed}.
 
     start_time: monotonic timestamp for global timeout tracking (280s deadline).
+    prior_results: results from a previous run — allows $step_N refs to resolved IDs from succeeded steps.
     """
-    import time
     if start_time is None:
         start_time = time.monotonic()
 
     DEADLINE = 280  # seconds, leave buffer for response
 
     steps = plan.get("steps", [])
-    results = {}
+
+    # Validate plan structure
+    issues = validate_plan(plan)
+    if issues:
+        for issue in issues:
+            logger.warning(f"Plan validation: {issue}")
+
+    # Merge prior results so $step_N references from previous run still resolve
+    results = dict(prior_results) if prior_results else {}
     failed = []
 
     for i, step in enumerate(steps):
@@ -115,10 +175,30 @@ async def execute_plan(plan: dict, client: TripletexClient, start_time: float | 
             logger.warning(f"Global timeout reached at step {i}, stopping execution")
             break
 
-        method = step["method"].upper()
+        method = step.get("method", "GET").upper()
+        if method not in VALID_METHODS:
+            logger.error(f"Step {i}: invalid method '{method}', skipping")
+            results[i] = {"status_code": 0, "ok": False, "data": {"error": f"invalid method: {method}"}}
+            failed.append((i, results[i]))
+            continue
+
         path = resolve_ref(step.get("path", ""), results)
+
+        # Check for unresolved path references
+        if "$step_" in str(path):
+            logger.error(f"Step {i}: unresolved reference in path '{path}'")
+            results[i] = {"status_code": 0, "ok": False, "data": {"error": f"unresolved path reference: {path}"}}
+            failed.append((i, results[i]))
+            continue
+
         body = resolve_refs(step.get("body"), results) if step.get("body") else None
         params = resolve_refs(step.get("params"), results) if step.get("params") else None
+
+        # Strip any unresolved {{placeholder}} fields
+        if body:
+            body = _strip_unresolved_placeholders(body)
+        if params:
+            params = _strip_unresolved_placeholders(params)
 
         logger.info(f"Step {i}: {method} {path}")
 
