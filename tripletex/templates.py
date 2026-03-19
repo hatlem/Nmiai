@@ -215,7 +215,7 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "GET",
                 "path": "/invoice",
-                "params": {"invoiceNumber": "{{invoiceNumber}}", "fields": "id,invoiceNumber,amount"},
+                "params": {"invoiceNumber": "{{invoiceNumber}}", "invoiceDateFrom": "2020-01-01", "invoiceDateTo": "2030-12-31", "fields": "id,invoiceNumber,amount"},
             },
             {
                 "method": "GET",
