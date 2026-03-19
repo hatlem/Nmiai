@@ -49,7 +49,7 @@ TEMPLATES: dict[str, dict] = {
     "update_employee": {
         "description": "Update an existing employee's details (phone, email, address, etc.)",
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["search_name", "fields_to_update"],
+        "extract_fields": ["search_firstName", "search_lastName", "fields_to_update"],
         "optimal_calls": 2,
         "steps": [
             {
@@ -101,7 +101,8 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{name}}",
                     "number": "{{number}}",
-                    "priceExcludingVatCurrency": "{{price}}",
+                    "priceExcludingVatCurrency": "{{priceExcludingVatCurrency}}",
+                    "priceIncludingVatCurrency": "{{priceIncludingVatCurrency}}",
                     "description": "{{description}}",
                 },
             },
@@ -113,7 +114,7 @@ TEMPLATES: dict[str, dict] = {
     "create_invoice": {
         "description": "Create an invoice: customer -> order with orderLines -> invoice. NOTE: Company must have bankAccountNumber registered. If 422 about 'bankkontonummer', the sandbox is not properly set up.",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
-        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email", "orderDate", "deliveryDate"],
+        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "orderDate", "deliveryDate"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -123,6 +124,8 @@ TEMPLATES: dict[str, dict] = {
                     "name": "{{customer_name}}",
                     "isCustomer": True,
                     "email": "{{customer_email}}",
+                    "organizationNumber": "{{customer_organizationNumber}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
                 },
             },
             {
@@ -298,7 +301,7 @@ TEMPLATES: dict[str, dict] = {
             "  - count (WRONG — not a valid field)"
         ),
         "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost"],
-        "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel", "title"],
+        "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel", "title", "cost_amount", "cost_description_if_any"],
         "optimal_calls": 7,
         "steps": [
             {
@@ -411,7 +414,7 @@ TEMPLATES: dict[str, dict] = {
     "create_project": {
         "description": "Create a project linked to a customer. Must set projectManager.",
         "relevant_schemas": ["Project", "Customer"],
-        "extract_fields": ["name", "customer_name", "startDate", "endDate", "isInternal", "projectManager", "description"],
+        "extract_fields": ["project_name", "customer_name", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "startDate", "endDate", "isInternal", "projectManager", "project_description"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -425,6 +428,9 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{customer_name}}",
                     "isCustomer": True,
+                    "email": "{{customer_email}}",
+                    "organizationNumber": "{{customer_organizationNumber}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
                 },
             },
             {
@@ -446,7 +452,7 @@ TEMPLATES: dict[str, dict] = {
     "create_project_existing_customer": {
         "description": "Create a project linked to an existing customer (search by name first). Must set projectManager.",
         "relevant_schemas": ["Project", "Customer"],
-        "extract_fields": ["project_name", "customer_name", "startDate", "endDate", "description", "projectManager"],
+        "extract_fields": ["project_name", "customer_name", "startDate", "endDate", "project_description", "projectManager"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -478,7 +484,7 @@ TEMPLATES: dict[str, dict] = {
     "create_internal_project": {
         "description": "Create an internal project (no customer). Must set projectManager.",
         "relevant_schemas": ["Project"],
-        "extract_fields": ["name", "startDate", "endDate", "description"],
+        "extract_fields": ["project_name", "startDate", "endDate", "project_description"],
         "optimal_calls": 2,
         "steps": [
             {
@@ -506,7 +512,7 @@ TEMPLATES: dict[str, dict] = {
     "create_department": {
         "description": "Create a department",
         "relevant_schemas": ["Department"],
-        "extract_fields": ["name", "departmentNumber", "departmentManager"],
+        "extract_fields": ["name", "departmentNumber", "departmentManagerId"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -646,7 +652,7 @@ TEMPLATES: dict[str, dict] = {
             "they are system-generated and will cause a 422 error."
         ),
         "relevant_schemas": ["Voucher", "Posting", "Account"],
-        "extract_fields": ["date", "description", "postings_with_account_numbers"],
+        "extract_fields": ["date", "description", "postings_with_account_numbers", "debit_account_number", "credit_account_number", "debit_amount", "credit_amount"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -710,7 +716,7 @@ TEMPLATES: dict[str, dict] = {
     "create_supplier_invoice": {
         "description": "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, due date, and voucher postings.",
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
-        "extract_fields": ["supplier_name", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description"],
+        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
         "optimal_calls": 4,
         "steps": [
             {
@@ -718,6 +724,9 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/supplier",
                 "body": {
                     "name": "{{supplier_name}}",
+                    "organizationNumber": "{{supplier_organizationNumber}}",
+                    "email": "{{supplier_email}}",
+                    "phoneNumber": "{{supplier_phoneNumber}}",
                 },
             },
             {
@@ -757,7 +766,7 @@ TEMPLATES: dict[str, dict] = {
     "create_purchase_order": {
         "description": "Create a purchase order to a supplier",
         "relevant_schemas": ["Supplier"],
-        "extract_fields": ["supplier_name", "deliveryDate", "orderLines", "ourContact"],
+        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "deliveryDate", "orderLines", "ourContact"],
         "optimal_calls": 2,
         "steps": [
             {
@@ -765,6 +774,9 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/supplier",
                 "body": {
                     "name": "{{supplier_name}}",
+                    "organizationNumber": "{{supplier_organizationNumber}}",
+                    "email": "{{supplier_email}}",
+                    "phoneNumber": "{{supplier_phoneNumber}}",
                 },
             },
             {
@@ -870,7 +882,7 @@ TEMPLATES: dict[str, dict] = {
             "Postings format: [{\"account\": {\"id\": <id>}, \"amountGross\": <positive_for_debit_negative_for_credit>}]"
         ),
         "relevant_schemas": ["Voucher", "Posting"],
-        "extract_fields": ["date", "entries"],
+        "extract_fields": ["date", "entries", "account_number_1"],
         "optimal_calls": 4,
         "steps": [
             {
@@ -992,7 +1004,7 @@ TEMPLATES: dict[str, dict] = {
     "create_employment": {
         "description": "Create or update employment details for an employee (ansettelsesforhold)",
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["employee_name", "startDate", "employmentType", "percentageOfFullTimeEquivalent"],
+        "extract_fields": ["search_firstName", "search_lastName", "startDate", "employmentType", "percentageOfFullTimeEquivalent"],
         "optimal_calls": 2,
         "steps": [
             {
@@ -1061,7 +1073,8 @@ TEMPLATES: dict[str, dict] = {
         "description": "Create an invoice and immediately register a payment on it",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": [
-            "customer_name", "orderLines", "invoiceDate", "invoiceDueDate",
+            "customer_name", "customer_email", "customer_organizationNumber", "customer_phoneNumber",
+            "orderLines", "invoiceDate", "invoiceDueDate",
             "paymentDate", "paymentAmount", "orderDate", "deliveryDate",
         ],
         "optimal_calls": 5,
@@ -1077,6 +1090,9 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{customer_name}}",
                     "isCustomer": True,
+                    "email": "{{customer_email}}",
+                    "organizationNumber": "{{customer_organizationNumber}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
                 },
             },
             {
@@ -1115,7 +1131,7 @@ TEMPLATES: dict[str, dict] = {
     "enable_modules": {
         "description": "Enable accounting modules on the company (e.g., invoicing, project, travel expense, salary modules)",
         "relevant_schemas": [],
-        "extract_fields": ["modules"],
+        "extract_fields": ["modules_to_enable"],
         "optimal_calls": 1,
         "steps": [
             {

@@ -223,7 +223,8 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
             continue
         # Ensure amounts are numbers, not strings
         if k in ("amount", "amountGross", "paidAmount", "priceExcludingVatCurrency",
-                  "priceIncludingVatCurrency", "acquisitionCost", "hours",
+                  "priceIncludingVatCurrency", "amountCurrencyIncVat",
+                  "acquisitionCost", "hours",
                   "percentageOfFullTimeEquivalent"):
             if isinstance(v, str):
                 try:
