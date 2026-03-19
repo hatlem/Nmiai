@@ -213,14 +213,21 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
         print(f"Budget: {queries_used}/{budget_max} ({remaining} left)")
 
         if remaining > 0:
-            # Settlement-focused repeated-query strategy
             optimizer = QueryOptimizer(
                 W, H, seeds_count, remaining, initial_states,
             )
-            plan = optimizer.plan_queries()
-            print(optimizer.summary())
 
-            for qi, (seed_idx, x, y, w, h) in enumerate(plan):
+            # Phase 1: Static plan for initial coverage (60% of budget)
+            # Ensures every settlement gets at least 2 observations
+            phase1_budget = int(remaining * 0.60)
+            plan = optimizer.plan_queries()
+            phase1_plan = plan[:phase1_budget]
+            print(optimizer.summary())
+            print(f"  Phase 1: {len(phase1_plan)} planned, "
+                  f"Phase 2: {remaining - len(phase1_plan)} adaptive")
+
+            # Execute Phase 1: static plan
+            for qi, (seed_idx, x, y, w, h) in enumerate(phase1_plan):
                 if queries_used >= budget_max:
                     break
 
@@ -233,7 +240,7 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
                         "viewport_w": w, "viewport_h": h,
                     })
                 except RuntimeError as e:
-                    print(f"  Query failed: {e}")
+                    print(f"  Q{queries_used+1} failed: {e}")
                     time.sleep(1)
                     continue
 
@@ -252,7 +259,50 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
 
                 save_state("observations.json", round_id, queries_used,
                            observations, counts, settlements_data, query_log)
-                time.sleep(0.22)  # Stay under 5 req/s rate limit
+                time.sleep(0.22)
+
+            # Phase 2: Adaptive queries using real observation data
+            # Each query is chosen based on where info gain is highest
+            phase2_remaining = budget_max - queries_used
+            if phase2_remaining > 0:
+                print(f"\n  Phase 2: {phase2_remaining} adaptive queries "
+                      f"using observation data...")
+
+            while queries_used < budget_max:
+                seed_idx, x, y, w, h = optimizer.next_query(
+                    observations, counts, budget_max - queries_used,
+                )
+
+                try:
+                    result = api_request(session, "POST",
+                                         "/astar-island/simulate", {
+                        "round_id": round_id,
+                        "seed_index": seed_idx,
+                        "viewport_x": x, "viewport_y": y,
+                        "viewport_w": w, "viewport_h": h,
+                    })
+                except RuntimeError as e:
+                    print(f"  Q{queries_used+1} adaptive failed: {e}")
+                    time.sleep(1)
+                    continue
+
+                new_cells = store_observation(
+                    result, seed_idx, x, y, H, W,
+                    observations, counts, settlements_data, queries_used,
+                )
+
+                queries_used += 1
+                n_obs = int(counts[seed_idx][y:y+h, x:x+w].sum(axis=2).max())
+                query_log.append({
+                    "seed": seed_idx, "x": x, "y": y, "w": w, "h": h,
+                    "adaptive": True,
+                })
+                print(f"  Q{queries_used}*: seed={seed_idx} "
+                      f"({x},{y},{w},{h}) +{new_cells} new, max_obs={n_obs}")
+
+                save_state("observations.json", round_id, queries_used,
+                           observations, counts, settlements_data, query_log)
+                time.sleep(0.22)
 
     # ── Phase 2: Infer hidden parameters ─────────────────────────────────
     print("\nInferring hidden parameters...")
@@ -292,8 +342,10 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
     for seed_idx in range(seeds_count):
         pred = predictions[seed_idx]
 
-        # Final safety checks
-        pred = np.maximum(pred, PROB_FLOOR)
+        # Final safety: ensure no zeros (KL=inf). Use STATIC_FLOOR (0.002)
+        # as absolute minimum — matches the tightest floor used by the swarm
+        # for near-impossible transitions (mountain→settlement, etc.).
+        pred = np.maximum(pred, 0.002)
         pred /= pred.sum(axis=-1, keepdims=True)
 
         np.save(f"predictions_seed_{seed_idx}.npy", pred)
@@ -334,9 +386,9 @@ if __name__ == "__main__":
     parser.add_argument("--no-mc", action="store_true",
                         help="Skip Monte Carlo agents in swarm")
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--mc-runs", type=int, default=30,
+    parser.add_argument("--mc-runs", type=int, default=80,
                         help="Monte Carlo runs per swarm agent")
-    parser.add_argument("--mc-agents", type=int, default=8,
+    parser.add_argument("--mc-agents", type=int, default=10,
                         help="Number of MC agents in swarm")
     args = parser.parse_args()
 

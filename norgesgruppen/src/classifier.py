@@ -42,11 +42,15 @@ class ProductClassifier:
         self._supervised_transform = None
         self._embedding_transform = None
 
-        # Priority 1: DINOv2 supervised head
-        self._try_load_dinov2_supervised(model_dir)
+        # Try consolidated file first (dinov2_all.pt = classifier + embeddings in one file)
+        self._try_load_consolidated(model_dir)
 
-        # Priority 2: DINOv2 embedding matching
-        self._try_load_dinov2_embedding(model_dir)
+        # Fallback: individual files
+        if self._supervised_model is None:
+            self._try_load_dinov2_supervised(model_dir)
+
+        if self._embedding_model is None:
+            self._try_load_dinov2_embedding(model_dir)
 
         # Priority 3: EfficientNet-B3 embedding matching
         if self._embedding_model is None:
@@ -71,6 +75,71 @@ class ProductClassifier:
             self._mode = "none"
             print("[CLASSIFIER] Mode: none (detection-only, category_id=0)")
 
+    def _try_load_consolidated(self, model_dir: Path) -> None:
+        """Load from consolidated dinov2_all.pt (classifier + embeddings in one file)."""
+        all_path = model_dir / "dinov2_all.pt"
+        if not all_path.exists():
+            return
+
+        try:
+            import timm
+        except ImportError:
+            return
+
+        try:
+            data = torch.load(str(all_path), map_location=self.device, weights_only=False)
+
+            # Load supervised classifier
+            if "classifier" in data:
+                cls_data = data["classifier"]
+                model = timm.create_model(
+                    "vit_base_patch14_dinov2.lvd142m", pretrained=False, num_classes=0, img_size=224,
+                )
+                head = nn.Linear(cls_data.get("embed_dim", 768), NUM_CLASSES)
+
+                if "backbone" in cls_data and "classifier_head" in cls_data:
+                    model.load_state_dict(cls_data["backbone"], strict=False)
+                    head.load_state_dict(cls_data["classifier_head"])
+                elif "backbone" in cls_data and "head" in cls_data:
+                    model.load_state_dict(cls_data["backbone"], strict=False)
+                    head.load_state_dict(cls_data["head"])
+
+                model = model.to(self.device).eval()
+                head = head.to(self.device).eval()
+                self._supervised_model = model
+                self._supervised_head = head
+                self._supervised_transform = transforms.Compose([
+                    transforms.Resize((224, 224)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ])
+                print(f"[CLASSIFIER] Loaded DINOv2 supervised from consolidated file")
+
+            # Load embedding model
+            if "embedding_backbone" in data and "product_embeddings" in data:
+                emb_model = timm.create_model(
+                    "vit_base_patch14_dinov2.lvd142m", pretrained=False, num_classes=0, img_size=224,
+                )
+                emb_model.load_state_dict(data["embedding_backbone"], strict=False)
+                emb_model = emb_model.to(self.device).eval()
+
+                ref_embeddings = data["product_embeddings"].to(self.device)
+                valid_mask = ref_embeddings.norm(dim=1) > 0.1
+
+                self._embedding_model = emb_model
+                self._ref_embeddings = ref_embeddings
+                self._valid_mask = valid_mask
+                self._embedding_is_dinov2 = True
+                self._embedding_transform = transforms.Compose([
+                    transforms.Resize((224, 224)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ])
+                print(f"[CLASSIFIER] Loaded DINOv2 embeddings from consolidated file")
+
+        except Exception as e:
+            print(f"[CLASSIFIER] Failed to load consolidated: {e}")
+
     def _try_load_dinov2_supervised(self, model_dir: Path) -> None:
         """Load DINOv2 backbone + linear head for direct classification."""
         weights_path = model_dir / "dinov2_classifier_weights.pt"
@@ -88,6 +157,7 @@ class ProductClassifier:
                 "vit_base_patch14_dinov2.lvd142m",
                 pretrained=False,
                 num_classes=0,
+                img_size=224,
             )
             model = model.to(self.device).eval()
 
@@ -152,6 +222,7 @@ class ProductClassifier:
                 "vit_base_patch14_dinov2.lvd142m",
                 pretrained=False,
                 num_classes=0,
+                img_size=224,
             )
             state_dict = torch.load(
                 str(weights_path), map_location=self.device, weights_only=True

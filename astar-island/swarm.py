@@ -553,14 +553,16 @@ class SwarmCoordinator:
             ))
 
         # ── Add non-MC agents ────────────────────────────────────────────
-        self.agents.append(StatisticalAgent(weight=2.5))
-        self.agents.append(SettlementTrajectoryAgent(weight=1.5))
+        # Weights reflect reliability. Statistical + contextual pooling are most
+        # reliable as they're based on calibrated empirical data.
+        self.agents.append(StatisticalAgent(weight=3.0))
+        self.agents.append(SettlementTrajectoryAgent(weight=2.0))
         self.agents.append(TransitionAgent(weight=0.8))
-        self.agents.append(HeuristicAgent(weight=1.0))
-        self.agents.append(SpatialAgent(weight=0.6))
+        self.agents.append(HeuristicAgent(weight=0.8))
+        self.agents.append(SpatialAgent(weight=0.5))
 
-        # Add contextual pooling agent (needs cross-seed data, added later in predict_all)
-        self._contextual_agent_weight = 2.0
+        # Contextual pooling: cross-seed empirical data is extremely valuable
+        self._contextual_agent_weight = 3.0
 
         print(f"Swarm initialized: {len(self.agents)} agents "
               f"({n_mc} MC + 5 statistical/heuristic + contextual pooling pending)")
@@ -610,10 +612,42 @@ class SwarmCoordinator:
             # Ensemble via weighted geometric mean
             combined = self._geometric_ensemble(agent_preds, agent_weights)
 
-            # Light calibration for few-observation cells only
             cell_counts = counts[seed_idx][:, :, :NUM_CLASSES].astype(np.float64)
             n_obs = cell_counts.sum(axis=2)
-            combined = self._calibrate(combined, n_obs)
+
+            # ── KT blending with informative priors: trust data over ensemble ──
+            # Use informative Dirichlet priors instead of uniform Jeffreys
+            init_grid_kt = np.asarray(self.initial_states[seed_idx]["grid"], dtype=np.int64)
+            settlements_kt = self.initial_states[seed_idx].get("settlements", [])
+            kt_pred = _build_kt_with_priors(init_grid_kt, cell_counts, n_obs, settlements_kt, self.H, self.W)
+
+            # More observations → trust KT more
+            # n=1: 33%, n=3: 60%, n=5: 71%, n=10: 83%
+            observed = n_obs > 0
+            if observed.any():
+                kt_weight = (n_obs[observed] / (n_obs[observed] + 2.0))[:, np.newaxis]
+                combined[observed] = (
+                    kt_weight * kt_pred[observed] +
+                    (1.0 - kt_weight) * combined[observed]
+                )
+
+            # ── Unobserved cells: blend domain prior with ensemble ──
+            # Pure ensemble → too uniform. Pure prior → ignores inferred params.
+            # 50/50 blend: prior anchors, ensemble adds param-specific info.
+            init_cls = _classify_grid(
+                np.asarray(self.initial_states[seed_idx]["grid"], dtype=np.int64)
+            )
+            unobserved = ~observed
+            if unobserved.any():
+                # For unobserved cells, domain priors are much more reliable
+                # than the ensemble geometric mean (which averages toward uniform).
+                # Use 80% domain prior / 20% ensemble to retain some ensemble signal
+                # from cross-seed contextual pooling agent.
+                for cls_id in range(NUM_CLASSES):
+                    cls_mask = unobserved & (init_cls == cls_id)
+                    if cls_mask.any():
+                        prior = get_domain_prior(cls_id)
+                        combined[cls_mask] = 0.80 * prior + 0.20 * combined[cls_mask]
 
             # Final safety with class-conditional floors
             init_grid = np.asarray(self.initial_states[seed_idx]["grid"], dtype=np.int64)
@@ -622,6 +656,20 @@ class SwarmCoordinator:
             settlements = self.initial_states[seed_idx].get("settlements", [])
             sett_dist = _settlement_distance(init_grid, settlements, self.W, self.H)
             cell_floors = _get_cell_floors_swarm(init_grid, sett_dist)
+            combined = np.maximum(combined, cell_floors)
+            combined /= combined.sum(axis=-1, keepdims=True)
+
+            # Temperature scaling: slightly soften predictions (T > 1) for
+            # unobserved/low-observation cells to reduce KL risk.
+            # KL(p||q) punishes underestimation exponentially more than
+            # overestimation, so being slightly too uncertain is safer.
+            # For well-observed cells (n>=3), keep sharp. For others, soften.
+            combined = self._temperature_scale(combined, n_obs, init_grid)
+
+            # Re-apply floors after temperature scaling (sharpening can push
+            # values below class-conditional floors, e.g. T=0.95: 0.01 → 0.0086)
+            combined[init_grid == 5] = MOUNTAIN_PRIOR
+            combined[init_grid == 10] = OCEAN_PRIOR
             combined = np.maximum(combined, cell_floors)
             combined /= combined.sum(axis=-1, keepdims=True)
 
@@ -655,6 +703,50 @@ class SwarmCoordinator:
         result = np.exp(log_sum)
         result = np.maximum(result, PROB_FLOOR)
         result /= result.sum(axis=-1, keepdims=True)
+        return result
+
+    def _temperature_scale(
+        self,
+        pred: np.ndarray,
+        n_obs: np.ndarray,
+        init_grid: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Apply cell-adaptive temperature scaling to minimize expected KL divergence.
+
+        KL(p||q) is asymmetric: underestimating p_i (q_i << p_i) is catastrophic.
+        Temperature T > 1 softens distributions (safer), T < 1 sharpens (riskier).
+
+        Strategy:
+        - Static terrain (mountain/ocean): T=1.0 (already near-certain, don't touch)
+        - Well-observed cells (n >= 4): T=0.95 (slightly sharpen — we have good data)
+        - Moderately observed (n = 2-3): T=1.0 (neutral)
+        - Barely observed (n = 1): T=1.05 (slightly soften — uncertain)
+        - Unobserved dynamic cells: T=1.10 (soften — domain priors are imperfect)
+        """
+        result = pred.copy()
+
+        static_mask = (init_grid == 5) | (init_grid == 10)
+
+        # Build per-cell temperature map
+        T = np.ones_like(n_obs, dtype=np.float64)
+        T[n_obs >= 4] = 0.95
+        T[(n_obs >= 2) & (n_obs < 4)] = 1.0
+        T[(n_obs == 1)] = 1.05
+        T[n_obs == 0] = 1.10
+        T[static_mask] = 1.0  # Don't touch static terrain
+
+        # Apply temperature: q_scaled = softmax(log(q) / T)
+        # = q^(1/T) / sum(q^(1/T))
+        dynamic_mask = ~static_mask
+        if dynamic_mask.any():
+            log_pred = np.log(result[dynamic_mask] + 1e-12)
+            T_cells = T[dynamic_mask, np.newaxis]
+            scaled = np.exp(log_pred / T_cells)
+            scaled = np.maximum(scaled, 1e-12)
+            scaled /= scaled.sum(axis=1, keepdims=True)
+            result[dynamic_mask] = scaled
+
         return result
 
     def _calibrate(self, pred: np.ndarray, n_obs: np.ndarray) -> np.ndarray:

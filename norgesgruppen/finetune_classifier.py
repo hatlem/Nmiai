@@ -58,7 +58,7 @@ IMAGE_SIZE = 300
 # Training hyperparameters
 MAX_CROPS_PER_CATEGORY = 0    # 0 = no limit, use ALL crops
 EPOCHS = 50
-BATCH_SIZE = 128              # GPU-optimized
+BATCH_SIZE = 16               # Safe for L4 GPU (22GB)
 LR = 1e-4
 WEIGHT_DECAY = 1e-4
 VAL_SPLIT = 0.2

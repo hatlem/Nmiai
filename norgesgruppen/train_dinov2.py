@@ -41,7 +41,7 @@ from torchvision import transforms
 # ---------------------------------------------------------------------------
 NUM_CATEGORIES = 356
 UNKNOWN_CATEGORY_ID = 355
-IMAGE_SIZE = 518  # DINOv2 ViT-B/14: 518 = 37 * 14 (native patch size)
+IMAGE_SIZE = 224  # Use 224 to match inference & save GPU memory (DINOv2 handles any resolution)
 ANGLES = ["main", "front", "back", "left", "right", "top", "bottom"]
 
 DATA_DIR = Path("data")
@@ -286,7 +286,7 @@ def load_dinov2_backbone(device: str) -> tuple[nn.Module, int, str]:
     import timm
 
     model_name = resolve_dinov2_model_name()
-    backbone = timm.create_model(model_name, pretrained=True, num_classes=0)
+    backbone = timm.create_model(model_name, pretrained=True, num_classes=0, img_size=IMAGE_SIZE)
     embed_dim = backbone.num_features
     backbone = backbone.to(device)
 
@@ -774,6 +774,55 @@ def rebuild_embeddings(backbone: nn.Module, embed_dim: int, model_name: str, dev
 
 
 # ---------------------------------------------------------------------------
+# Consolidate into single file for submission (max 3 weight files rule)
+# ---------------------------------------------------------------------------
+def consolidate_weights():
+    """Pack classifier weights + embeddings into a single .pt file.
+
+    Submission gets: best.pt (detector) + dinov2_all.pt (classifier+embeddings) = 2 weight files.
+    This leaves 1 slot free for a secondary detector if needed.
+    """
+    combined = {}
+
+    # Classifier weights (supervised head)
+    cls_path = MODELS_DIR / "dinov2_classifier_weights.pt"
+    if cls_path.exists():
+        combined["classifier"] = torch.load(str(cls_path), map_location="cpu")
+        print(f"[CONSOLIDATE] Added classifier weights from {cls_path.name}")
+
+    # Embedding weights (arcface-trained backbone)
+    emb_weights_path = MODELS_DIR / "dinov2_embeddings_weights.pt"
+    if emb_weights_path.exists():
+        combined["embedding_backbone"] = torch.load(str(emb_weights_path), map_location="cpu")
+        print(f"[CONSOLIDATE] Added embedding backbone from {emb_weights_path.name}")
+
+    # Product embeddings (.npy -> tensor inside .pt)
+    emb_path = MODELS_DIR / "dinov2_product_embeddings.npy"
+    if emb_path.exists():
+        embeddings = np.load(str(emb_path))
+        combined["product_embeddings"] = torch.from_numpy(embeddings)
+        print(f"[CONSOLIDATE] Added product embeddings shape={embeddings.shape}")
+
+    # Config
+    for cfg_name in ["dinov2_embedding_config.json", "embedding_config.json"]:
+        cfg_path = MODELS_DIR / cfg_name
+        if cfg_path.exists():
+            with open(str(cfg_path)) as f:
+                combined["config"] = json.load(f)
+            print(f"[CONSOLIDATE] Added config from {cfg_name}")
+            break
+
+    if combined:
+        out_path = MODELS_DIR / "dinov2_all.pt"
+        torch.save(combined, str(out_path))
+        size_mb = out_path.stat().st_size / 1024 / 1024
+        print(f"[CONSOLIDATE] Saved consolidated file: {out_path} ({size_mb:.1f} MB)")
+        print(f"[CONSOLIDATE] Submission: best.pt + dinov2_all.pt = 2 weight files (1 slot free)")
+    else:
+        print("[CONSOLIDATE] No weights found to consolidate")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -797,6 +846,9 @@ def main():
 
     if args.mode in ("crossentropy", "both"):
         train_crossentropy(args.epochs, args.batch_size, args.lr, args.device, args.unfreeze_epoch)
+
+    # Consolidate into a single .pt file for submission (max 3 weight files rule)
+    consolidate_weights()
 
     print("\nDone! Weights saved to models/ directory.")
 

@@ -29,6 +29,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
             "lastName": "extract:lastName",
             "email": "extract:email",
             "phoneNumberMobile": "extract:phoneNumberMobile",
+            "dateOfBirth": "extract:dateOfBirth",
         },
     },
 

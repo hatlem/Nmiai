@@ -56,20 +56,26 @@ if [ "$MODE" = "best" ]; then
 
     # Classifier files — placed in models/ subdirectory
     mkdir -p submission_pkg/models
-    for f in "models/product_embeddings.npy" "models/embedding_config.json" "models/efficientnet_b3_weights.pt"; do
-        if [ -f "$f" ]; then
-            cp "$f" submission_pkg/models/
-            echo "  Included: $f"
-        fi
-    done
 
-    # DINOv2 classifier files (if available)
-    for f in "models/dinov2_classifier_weights.pt" "models/dinov2_embeddings_weights.pt" "models/dinov2_product_embeddings.npy"; do
-        if [ -f "$f" ]; then
-            cp "$f" submission_pkg/models/
-            echo "  Included: $f"
-        fi
-    done
+    # Prefer consolidated file (classifier + embeddings in one .pt)
+    if [ -f "models/dinov2_all.pt" ]; then
+        cp models/dinov2_all.pt submission_pkg/models/
+        echo "  Included: models/dinov2_all.pt (consolidated classifier)"
+    else
+        # Fallback: individual files
+        for f in "models/product_embeddings.npy" "models/embedding_config.json" "models/efficientnet_b3_weights.pt"; do
+            if [ -f "$f" ]; then
+                cp "$f" submission_pkg/models/
+                echo "  Included: $f"
+            fi
+        done
+        for f in "models/dinov2_classifier_weights.pt" "models/dinov2_embeddings_weights.pt" "models/dinov2_product_embeddings.npy"; do
+            if [ -f "$f" ]; then
+                cp "$f" submission_pkg/models/
+                echo "  Included: $f"
+            fi
+        done
+    fi
 
     # Optional: secondary models for ensemble
     for f in "rtdetr_best.pt" "yolo11_best.pt" "yolo26_best.pt" "rtdetr_best.onnx" "yolo11_best.onnx" "yolo26_best.onnx"; do

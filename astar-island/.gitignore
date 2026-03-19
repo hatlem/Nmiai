@@ -3,6 +3,7 @@ __pycache__/
 *.npy
 *.png
 *.json
+*.txt
 !requirements.txt
 observations.json
 predictions_seed_*.npy

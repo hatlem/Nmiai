@@ -364,7 +364,7 @@ To fix field mismatches:
 9. 422 "Brukertype" on employee -> Add "userType": "STANDARD" to body
 10. 422 "department" on employee -> GET /department first, include "department": {{"id": <id>}} in body
 11. 422 "deliveryDate" or "orderDate" null on order -> Add deliveryDate and orderDate (use invoiceDate or today)
-12. 422 "systemgenererte" or "kan ikke opprettes" on voucher postings -> Remove "row" and "guiRow" fields from postings. Use ONLY {"account": {"id": X}, "amountGross": Y} per posting. Use "amountGross" not "amount".
+12. 422 "systemgenererte" or "rad 0" on voucher postings -> Row numbers MUST start from 1, NEVER 0. Row 0 is reserved. Fix: set "row": 1, 2, 3... Also include BOTH "amountGross" AND "amountGrossCurrency" (same value). Example: {{"row": 1, "account": {{"id": X}}, "amountGross": 1500, "amountGrossCurrency": 1500}}
 13. 422 "Feltet eksisterer ikke" on /travelExpense/cost -> You used WRONG field names. CORRECT fields: travelExpense({"id":X}), vatType({"id":X}), paymentType({"id":X}), amountCurrencyIncVat(number), date(string). WRONG: "amount"→use "amountCurrencyIncVat", "description"→use "comments", "title"→remove it, "name"→remove it. Must also GET /ledger/vatType for vatType ID.
 
 ## Instructions

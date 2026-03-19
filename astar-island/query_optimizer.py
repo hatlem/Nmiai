@@ -372,23 +372,28 @@ class QueryOptimizer:
 
     def plan_queries(self) -> list[tuple[int, int, int, int, int]]:
         """
-        Two-phase query plan optimized for entropy-weighted KL divergence scoring.
+        Concentrated query plan: deep observation beats thin coverage.
 
-        Phase 1 (60% budget): Cover each settlement viewport at least twice per
-            seed, plus expansion zone viewports. Seeds with more settlements get
-            proportionally more queries (unequal allocation).
-        Phase 2 (40% budget): Adaptive — pick highest information gain viewport
-            across all seeds using entropy-based scoring.
+        Key insights:
+        1. Each query is an independent MC sample. Re-querying the same viewport
+           gives a DIFFERENT stochastic outcome → more samples → better KT estimates.
+        2. Hidden params are shared across all 5 seeds. Deep observation on 2-3 seeds
+           gives excellent parameter inference; remaining seeds use cross-seed transfer.
+        3. Entropy-weighted KL means only dynamic cells (settlements) matter.
+           Observing static terrain is wasted budget.
+
+        Strategy:
+        - Pick top 3 seeds by settlement count ("focus seeds")
+        - Allocate 80% of budget to focus seeds, 20% to others
+        - Within each seed: re-query settlement viewports 3-5x each
+        - Expansion viewports get 1-2x (lower priority but still valuable)
+        - NO full-coverage tiles (static terrain = wasted queries)
 
         Returns: list of (seed_idx, x, y, w, h)
         """
-        phase1_budget = max(1, int(self.budget * 0.60))
-        phase2_budget = self.budget - phase1_budget
-
         plan: list[tuple[int, int, int, int, int]] = []
 
-        # Track observation counts for info gain computation
-        # Simulated counts: how many times each cell has been observed in our plan
+        # Track observation counts
         sim_counts: dict[int, np.ndarray] = {
             i: np.zeros((self.H, self.W), dtype=np.float64)
             for i in range(self.seeds_count)
@@ -397,133 +402,148 @@ class QueryOptimizer:
         def record_query(seed_idx: int, x: int, y: int, w: int, h: int):
             sim_counts[seed_idx][y:y+h, x:x+w] += 1.0
 
-        # ── Phase 1: Coverage with unequal seed allocation ──────────────
+        # ── Classify seeds: top 3 get 80% of budget ──────────────────────
 
-        # Compute per-seed budget based on settlement weights
-        seed_budgets = {}
-        for i in range(self.seeds_count):
-            seed_budgets[i] = max(2, int(phase1_budget * self._seed_weights[i]))
+        n_focus = min(3, self.seeds_count)
+        focus_seeds = self._seed_rank[:n_focus]
+        other_seeds = self._seed_rank[n_focus:]
 
-        # Ensure total doesn't exceed phase1_budget
-        total_allocated = sum(seed_budgets.values())
-        if total_allocated > phase1_budget:
-            # Scale down proportionally
-            scale = phase1_budget / total_allocated
-            for i in seed_budgets:
-                seed_budgets[i] = max(1, int(seed_budgets[i] * scale))
+        focus_budget = int(self.budget * 0.80)
+        other_budget = self.budget - focus_budget
 
-        phase1_used = 0
+        # Distribute focus budget weighted by settlement count
+        focus_sett_counts = [max(len(self.settlement_coords[s]), 1) for s in focus_seeds]
+        focus_total = sum(focus_sett_counts)
+        focus_per_seed = {
+            s: max(3, int(focus_budget * focus_sett_counts[i] / focus_total))
+            for i, s in enumerate(focus_seeds)
+        }
 
-        for seed_idx in self._seed_rank:
-            seed_budget = seed_budgets[seed_idx]
+        # Distribute other budget evenly
+        other_per_seed = {}
+        if other_seeds:
+            per_other = max(2, other_budget // len(other_seeds))
+            for s in other_seeds:
+                other_per_seed[s] = per_other
+
+        # ── Focus seeds: deep observation ─────────────────────────────────
+
+        for seed_idx in focus_seeds:
+            seed_budget = focus_per_seed[seed_idx]
             seed_used = 0
 
-            # First pass: settlement viewports (at least 2x each)
             sett_vps = self._seed_viewports[seed_idx]
-            for vp in sett_vps:
-                for _ in range(2):  # 2 observations per settlement viewport
-                    if seed_used >= seed_budget or phase1_used >= phase1_budget:
+            exp_vps = self._expansion_viewports[seed_idx]
+
+            # Round-robin settlement viewports: each gets multiple observations
+            # Target: 4-5 observations per settlement viewport
+            target_per_vp = max(3, seed_budget // max(len(sett_vps), 1))
+            target_per_vp = min(target_per_vp, 6)  # Cap to avoid over-concentration
+
+            for repeat in range(target_per_vp):
+                for vp in sett_vps:
+                    if seed_used >= seed_budget:
                         break
                     plan.append((seed_idx, *vp))
                     record_query(seed_idx, *vp)
                     seed_used += 1
-                    phase1_used += 1
 
-            # Second pass: expansion zone viewports (at least 1x each)
-            exp_vps = self._expansion_viewports[seed_idx]
+            # Expansion viewports: 1-2x each with remaining budget
             for vp in exp_vps:
-                if seed_used >= seed_budget or phase1_used >= phase1_budget:
+                if seed_used >= seed_budget:
                     break
                 plan.append((seed_idx, *vp))
                 record_query(seed_idx, *vp)
                 seed_used += 1
-                phase1_used += 1
 
-            # Third pass: remaining budget on highest-value viewports
-            all_vps = sett_vps + exp_vps
-            if seed_used < seed_budget and phase1_used < phase1_budget:
-                # Add full coverage tiles not yet covered
-                for tile in self._full_coverage_tiles:
-                    if tile not in all_vps:
-                        all_vps.append(tile)
+            # If still have budget, re-query highest-entropy settlement viewports
+            if seed_used < seed_budget and sett_vps:
+                ranked = self._rank_viewports_by_value(seed_idx, sett_vps)
+                while seed_used < seed_budget:
+                    for _score, vp in ranked:
+                        if seed_used >= seed_budget:
+                            break
+                        plan.append((seed_idx, *vp))
+                        record_query(seed_idx, *vp)
+                        seed_used += 1
 
-                ranked = self._rank_viewports_by_value(seed_idx, all_vps)
-                for _score, vp in ranked:
-                    if seed_used >= seed_budget or phase1_used >= phase1_budget:
+        # ── Other seeds: minimal coverage ─────────────────────────────────
+
+        for seed_idx in other_seeds:
+            seed_budget = other_per_seed.get(seed_idx, 2)
+            seed_used = 0
+
+            sett_vps = self._seed_viewports[seed_idx]
+
+            # At least 2x per settlement viewport
+            for vp in sett_vps:
+                for _ in range(2):
+                    if seed_used >= seed_budget:
                         break
                     plan.append((seed_idx, *vp))
                     record_query(seed_idx, *vp)
                     seed_used += 1
-                    phase1_used += 1
 
-        # Use any remaining phase1 budget
-        remaining_p1 = phase1_budget - phase1_used
-        if remaining_p1 > 0:
-            phase2_budget += remaining_p1
-
-        # ── Phase 2: Adaptive information gain ──────────────────────────
-
-        # Build candidate viewports for all seeds
-        all_candidates: list[tuple[int, tuple[int, int, int, int]]] = []
-        for seed_idx in range(self.seeds_count):
-            for vp in self._seed_viewports[seed_idx]:
-                all_candidates.append((seed_idx, vp))
+            # Fill remaining with expansion viewports
             for vp in self._expansion_viewports[seed_idx]:
-                all_candidates.append((seed_idx, vp))
-            for vp in self._full_coverage_tiles:
-                all_candidates.append((seed_idx, vp))
+                if seed_used >= seed_budget:
+                    break
+                plan.append((seed_idx, *vp))
+                record_query(seed_idx, *vp)
+                seed_used += 1
 
-        # Remove exact duplicates
-        seen = set()
-        deduped = []
-        for seed_idx, vp in all_candidates:
-            key = (seed_idx, *vp)
-            if key not in seen:
-                seen.add(key)
-                deduped.append((seed_idx, vp))
-        all_candidates = deduped
+        # ── Overflow: use any remaining budget on info-gain ───────────────
 
-        # Wrap sim_counts into a format compatible with _viewport_info_gain
-        # We need a fake counts dict with shape (H, W, K) but we only track
-        # total observations, so we broadcast.
-        def make_fake_counts():
-            fake = {}
-            for i in range(self.seeds_count):
-                # Shape (H, W, K) where the sum along axis 2 = sim_counts
-                c = np.zeros((self.H, self.W, NUM_CLASSES), dtype=np.float64)
-                # Distribute observations evenly across classes for gain calc
-                # (doesn't matter for the formula since we only use sum)
-                c[:, :, 0] = sim_counts[i]
-                fake[i] = c
-            return fake
+        used = len(plan)
+        remaining = self.budget - used
 
-        phase2_used = 0
-        for _ in range(phase2_budget):
-            if phase2_used >= phase2_budget:
-                break
+        if remaining > 0:
+            # Adaptive: pick highest info-gain viewport across ALL seeds
+            all_candidates = []
+            for seed_idx in range(self.seeds_count):
+                for vp in self._seed_viewports[seed_idx]:
+                    all_candidates.append((seed_idx, vp))
+                for vp in self._expansion_viewports[seed_idx]:
+                    all_candidates.append((seed_idx, vp))
 
-            fake_counts = make_fake_counts()
-
-            best_gain = -1.0
-            best_query = None
-
+            # Deduplicate
+            seen = set()
+            deduped = []
             for seed_idx, vp in all_candidates:
-                x, y, w, h = vp
-                gain = self._viewport_info_gain(
-                    seed_idx, x, y, w, h, counts=fake_counts
-                )
-                if gain > best_gain:
-                    best_gain = gain
-                    best_query = (seed_idx, *vp)
+                key = (seed_idx, *vp)
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append((seed_idx, vp))
+            all_candidates = deduped
 
-            if best_query is None:
-                break
+            def make_fake_counts():
+                fake = {}
+                for i in range(self.seeds_count):
+                    c = np.zeros((self.H, self.W, NUM_CLASSES), dtype=np.float64)
+                    c[:, :, 0] = sim_counts[i]
+                    fake[i] = c
+                return fake
 
-            plan.append(best_query)
-            seed_idx = best_query[0]
-            record_query(seed_idx, best_query[1], best_query[2],
-                         best_query[3], best_query[4])
-            phase2_used += 1
+            for _ in range(remaining):
+                fake_counts = make_fake_counts()
+                best_gain = -1.0
+                best_query = None
+
+                for seed_idx, vp in all_candidates:
+                    x, y, w, h = vp
+                    gain = self._viewport_info_gain(
+                        seed_idx, x, y, w, h, counts=fake_counts
+                    )
+                    if gain > best_gain:
+                        best_gain = gain
+                        best_query = (seed_idx, *vp)
+
+                if best_query is None:
+                    break
+
+                plan.append(best_query)
+                record_query(best_query[0], best_query[1], best_query[2],
+                             best_query[3], best_query[4])
 
         return plan
 
@@ -546,9 +566,10 @@ class QueryOptimizer:
            across all seeds, considering settlement viewports, expansion zones,
            and full coverage tiles.
         """
-        # Priority 1: Completely unobserved seeds
+        # Priority 1: Completely unobserved seeds (no observations at all)
         for seed_idx in self._seed_rank:
-            if counts.get(seed_idx) is None:
+            seed_counts = counts.get(seed_idx)
+            if seed_counts is None or seed_counts.sum() == 0:
                 vps = self._seed_viewports[seed_idx]
                 return (seed_idx, *vps[0])
 
@@ -557,9 +578,6 @@ class QueryOptimizer:
         best_query: Optional[tuple[int, int, int, int, int]] = None
 
         for seed_idx in range(self.seeds_count):
-            seed_counts = counts.get(seed_idx)
-            if seed_counts is None:
-                continue
 
             # Build candidate list: settlement + expansion + coverage tiles
             candidates = list(self._seed_viewports[seed_idx])
@@ -603,30 +621,14 @@ class QueryOptimizer:
                 seed_info[seed_idx]["viewports"].add(vp)
             seed_info[seed_idx]["count"] += 1
 
+        n_focus = min(3, self.seeds_count)
+        focus_seeds = self._seed_rank[:n_focus]
+
         lines = [
             f"Query plan: {len(plan)} queries, "
-            f"2-phase info-gain strategy"
+            f"concentrated deep-observation strategy",
+            f"  Focus seeds: {focus_seeds} (80% budget)",
         ]
-
-        # Phase breakdown
-        phase1_budget = max(1, int(self.budget * 0.60))
-        phase2_budget = self.budget - phase1_budget
-        lines.append(
-            f"  Phase 1 (coverage): {phase1_budget} queries"
-        )
-        lines.append(
-            f"  Phase 2 (adaptive info gain): {phase2_budget} queries"
-        )
-
-        # Seed weights
-        for seed_idx in range(self.seeds_count):
-            n_sett = len(self.settlement_coords[seed_idx])
-            n_exp = len(self._expansion_viewports[seed_idx])
-            weight_pct = self._seed_weights[seed_idx] * 100
-            lines.append(
-                f"  Seed {seed_idx}: weight={weight_pct:.0f}%, "
-                f"{n_sett} settlements, {n_exp} expansion viewports"
-            )
 
         for seed_idx in range(self.seeds_count):
             info = seed_info.get(seed_idx, {
@@ -636,8 +638,10 @@ class QueryOptimizer:
             n_vp = len(info["viewports"])
             n_reobs = info["reobserves"]
             n_sett = len(self.settlement_coords[seed_idx])
+            avg_obs = n / max(n_vp, 1)
+            focus = "*" if seed_idx in focus_seeds else " "
             lines.append(
-                f"  Seed {seed_idx}: {n} queries, {n_vp} unique viewports, "
-                f"{n_reobs} re-observations ({n_sett} settlements)"
+                f" {focus}Seed {seed_idx}: {n} queries, {n_vp} viewports, "
+                f"{avg_obs:.1f}x avg obs/vp ({n_sett} settlements)"
             )
         return "\n".join(lines)

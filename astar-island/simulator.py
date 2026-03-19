@@ -588,8 +588,8 @@ class NorseSimulator:
         alpha = 0.5
         probs = (counts.astype(np.float64) + alpha) / (n_runs + NUM_CLASSES * alpha)
 
-        # Floor at 0.01 and renormalize
-        probs = np.maximum(probs, 0.01)
+        # Tiny floor to prevent log(0), but let swarm/prediction handle proper floors
+        probs = np.maximum(probs, 1e-6)
         probs /= probs.sum(axis=2, keepdims=True)
 
         return probs

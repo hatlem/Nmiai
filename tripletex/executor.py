@@ -52,7 +52,8 @@ def resolve_ref(value: Any, results: dict[int, dict]) -> Any:
     pattern = r'\$step_(\d+)\.([\w\[\]\.]+)'
 
     def _resolve_single(step_idx: int, field_path: str) -> Any:
-        step_data = results.get(step_idx, {}).get("data", {})
+        step_result = results.get(step_idx, {})
+        step_data = step_result.get("data", {})
         parts = field_path.split(".")
 
         # Try resolving from the "value" object first (POST/PUT responses)
@@ -75,6 +76,14 @@ def resolve_ref(value: Any, results: dict[int, dict]) -> Any:
         if parts == ["id"] and isinstance(val, dict) and "id" in val:
             return val["id"]
 
+        # Debug logging when resolution fails
+        data_keys = list(step_data.keys()) if isinstance(step_data, dict) else type(step_data).__name__
+        values_info = f", values count={len(step_data['values'])}" if isinstance(step_data, dict) and "values" in step_data else ""
+        logger.warning(
+            f"resolve_ref: $step_{step_idx}.{field_path} returned None. "
+            f"step ok={step_result.get('ok')}, status={step_result.get('status_code')}, "
+            f"data keys={data_keys}, value type={type(val).__name__}{values_info}"
+        )
         return None
 
     single_match = re.fullmatch(pattern, value)
@@ -309,6 +318,29 @@ async def _execute_step(
         body = _pre_validate_body(method, path, body, params)
     if params:
         params = _pre_validate_params(params)
+
+    # Fallback: if this is a /:payment step and paymentTypeId was stripped (unresolved),
+    # fetch it on-the-fly from GET /invoice/paymentType
+    if "/:payment" in str(path) and (params is None or "paymentTypeId" not in params):
+        logger.warning(f"Step {idx}: paymentTypeId missing for /:payment — fetching on-the-fly")
+        if params is None:
+            params = {}
+        try:
+            pt_resp = await client.request("GET", "/invoice/paymentType", params={"fields": "id,description"})
+            if pt_resp.get("ok"):
+                pt_data = pt_resp.get("data", {})
+                pt_values = pt_data.get("values", [])
+                if not pt_values and isinstance(pt_data.get("value"), dict):
+                    pt_values = pt_data["value"].get("values", [])
+                if pt_values and isinstance(pt_values[0], dict) and "id" in pt_values[0]:
+                    params["paymentTypeId"] = pt_values[0]["id"]
+                    logger.info(f"Step {idx}: resolved paymentTypeId={pt_values[0]['id']} via fallback")
+                else:
+                    logger.error(f"Step {idx}: GET /invoice/paymentType returned no values: {pt_data}")
+            else:
+                logger.error(f"Step {idx}: GET /invoice/paymentType failed: {pt_resp.get('status_code')}")
+        except Exception as e:
+            logger.error(f"Step {idx}: fallback GET /invoice/paymentType exception: {e}")
 
     logger.info(f"Step {idx}: {method} {path}")
 
