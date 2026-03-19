@@ -65,13 +65,24 @@ Gir en URL som `https://my-agent-xxxxx-lz.a.run.app` — submit denne på app.ai
 - **Anbefaling:** Tren med nyeste YOLO26/11, eksporter til ONNX (opset ≤ 20) for submission.
 
 ### Vertex AI fra Cloud Run
+
+**VIKTIG: Gemini 3.1-modeller krever `location="global"`, IKKE `europe-north1`!**
+- `gemini-3.1-pro-preview` og `gemini-3.1-flash-lite-preview` finnes KUN via `locations/global`
+- `gemini-2.5-pro` og `gemini-2.5-flash` fungerer i `europe-north1`
+- Cloud Run-tjenesten kan fortsatt ligge i `europe-north1` — bare Vertex AI init endres
+
 ```python
 import vertexai
 from vertexai.generative_models import GenerativeModel
 
-vertexai.init(project="ainm26osl-710", location="europe-north1")
-model = GenerativeModel("gemini-3.1-pro")  # eller "gemini-3.1-flash-lite" for speed
+# Gemini 3.1 (beste) — MÅ bruke location="global"
+vertexai.init(project="ainm26osl-710", location="global")
+model = GenerativeModel("gemini-3.1-pro-preview")  # eller "gemini-3.1-flash-lite-preview"
 response = model.generate_content("Parse this accounting task: ...")
+
+# Gemini 2.5 (fallback) — fungerer i europe-north1
+# vertexai.init(project="ainm26osl-710", location="europe-north1")
+# model = GenerativeModel("gemini-2.5-pro")  # eller "gemini-2.5-flash"
 ```
 
 ## Tre oppgaver

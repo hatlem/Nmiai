@@ -225,12 +225,20 @@ gcloud run services logs read my-agent --region europe-north1 --limit 50
 
 ### Using Vertex AI from Your Endpoint
 
+**VIKTIG: Gemini 3.1-modeller krever `location="global"`, ikke region-spesifikk!**
+
 ```python
 import vertexai
 from vertexai.generative_models import GenerativeModel
 
-vertexai.init(project="your-project-id", location="europe-north1")
-model = GenerativeModel("gemini-2.0-flash")
+# Gemini 3.1 (nyeste, beste) — MÅ bruke location="global"
+vertexai.init(project="your-project-id", location="global")
+model = GenerativeModel("gemini-3.1-pro-preview")
+# Alternativer: "gemini-3.1-flash-lite-preview" (rask/billig)
+
+# Gemini 2.5 (fallback) — fungerer med europe-north1
+# vertexai.init(project="your-project-id", location="europe-north1")
+# model = GenerativeModel("gemini-2.5-pro")
 
 response = model.generate_content("Parse this accounting task: ...")
 print(response.text)
