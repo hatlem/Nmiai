@@ -267,10 +267,39 @@ TEMPLATES: dict[str, dict] = {
     # ===== TRAVEL EXPENSES =====
 
     "create_travel_expense": {
-        "description": "Register a travel expense report with travel details. If costs are mentioned, add them as perDiemCompensations or mileageAllowances within travelDetails, or as individual cost entries via POST /travelExpense/cost after creating the expense.",
+        "description": (
+            "Register a travel expense report. Steps:\n"
+            "1. GET /employee to find employee ID\n"
+            "2. POST /travelExpense with travelDetails (dates, destination, purpose)\n"
+            "3. If costs are mentioned: GET /travelExpense/costCategory, GET /travelExpense/paymentType, GET /ledger/vatType, GET /currency?code=NOK\n"
+            "4. For EACH cost: POST /travelExpense/cost with the EXACT fields listed below.\n"
+            "\n"
+            "CRITICAL: POST /travelExpense/cost REQUIRED fields:\n"
+            "  - travelExpense: {\"id\": <travel_expense_id>}\n"
+            "  - vatType: {\"id\": <vat_type_id>}  (REQUIRED! GET /ledger/vatType first)\n"
+            "  - paymentType: {\"id\": <payment_type_id>}\n"
+            "  - amountCurrencyIncVat: <number> (the cost amount INCLUDING VAT)\n"
+            "  - date: \"YYYY-MM-DD\"\n"
+            "OPTIONAL fields:\n"
+            "  - currency: {\"id\": <currency_id>}\n"
+            "  - costCategory: {\"id\": <cost_category_id>}\n"
+            "  - comments: \"string\" (use this for any description/note about the cost)\n"
+            "  - rate: <number>\n"
+            "  - amountNOKInclVAT: <number>\n"
+            "  - isChargeable: boolean\n"
+            "  - category: \"string\"\n"
+            "\n"
+            "FORBIDDEN fields (DO NOT USE — will cause 422 error):\n"
+            "  - amount (WRONG — use amountCurrencyIncVat)\n"
+            "  - title (WRONG — does not exist)\n"
+            "  - description (WRONG — use comments)\n"
+            "  - name (WRONG — does not exist)\n"
+            "  - rateCurrency (WRONG — not a valid field)\n"
+            "  - count (WRONG — not a valid field)"
+        ),
         "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost"],
-        "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel"],
-        "optimal_calls": 2,
+        "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel", "title"],
+        "optimal_calls": 7,
         "steps": [
             {
                 "method": "GET",
@@ -293,6 +322,45 @@ TEMPLATES: dict[str, dict] = {
                     },
                     "title": "{{title}}",
                 },
+            },
+            {
+                "method": "GET",
+                "path": "/travelExpense/costCategory",
+                "params": {"fields": "id,description"},
+                "note": "Only include if costs are mentioned. Match category to cost type (e.g. 'Taxi' for taxi).",
+            },
+            {
+                "method": "GET",
+                "path": "/travelExpense/paymentType",
+                "params": {"fields": "id,description"},
+                "note": "Only include if costs are mentioned.",
+            },
+            {
+                "method": "GET",
+                "path": "/ledger/vatType",
+                "params": {"fields": "id,name,number"},
+                "note": "REQUIRED for costs. Get VAT types to find correct vatType ID. Use VAT type 0 (exempt) if unsure.",
+            },
+            {
+                "method": "GET",
+                "path": "/currency",
+                "params": {"code": "NOK", "fields": "id,code"},
+                "note": "Only include if costs are mentioned.",
+            },
+            {
+                "method": "POST",
+                "path": "/travelExpense/cost",
+                "body": {
+                    "travelExpense": {"id": "$step_1.id"},
+                    "vatType": {"id": "$step_4.values[0].id"},
+                    "paymentType": {"id": "$step_3.values[0].id"},
+                    "currency": {"id": "$step_5.values[0].id"},
+                    "costCategory": {"id": "{{matched_category_id_from_step_2}}"},
+                    "amountCurrencyIncVat": "{{cost_amount}}",
+                    "date": "{{departureDate}}",
+                    "comments": "{{cost_description_if_any}}",
+                },
+                "note": "One POST per cost item. REQUIRED: travelExpense, vatType, paymentType, amountCurrencyIncVat, date. FORBIDDEN: amount, title, description, name, rateCurrency, count.",
             },
         ],
     },
@@ -572,7 +640,10 @@ TEMPLATES: dict[str, dict] = {
             "you must first GET /ledger/account?number=X to find the real account ID.\n"
             "For vouchers with MORE than 2 accounts, add additional GET /ledger/account steps. "
             "Each posting needs the account ID from the GET response. If parsing a file, "
-            "each line in the file becomes a posting — parse EVERY line."
+            "each line in the file becomes a posting — parse EVERY line.\n"
+            "CRITICAL posting format: each posting is {\"account\": {\"id\": <account_id>}, \"amountGross\": <amount>}. "
+            "Positive amountGross = debit, negative = credit. Do NOT include 'row', 'guiRow', or any other fields — "
+            "they are system-generated and will cause a 422 error."
         ),
         "relevant_schemas": ["Voucher", "Posting", "Account"],
         "extract_fields": ["date", "description", "postings_with_account_numbers"],
@@ -595,8 +666,12 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "date": "{{date}}",
                     "description": "{{description}}",
-                    "postings": "{{postings_using_account_ids_from_step_0_and_1}}",
+                    "postings": [
+                        {"account": {"id": "$step_0.values[0].id"}, "amountGross": "{{debit_amount}}"},
+                        {"account": {"id": "$step_1.values[0].id"}, "amountGross": "-{{credit_amount}}"},
+                    ],
                 },
+                "note": "Each posting ONLY has 'account.id' and 'amountGross'. No 'row', 'guiRow', or other fields.",
             },
         ],
     },
@@ -668,8 +743,8 @@ TEMPLATES: dict[str, dict] = {
                         "date": "{{invoiceDate}}",
                         "description": "{{description}}",
                         "postings": [
-                            {"account": {"id": "$step_1.values[0].id"}, "amount": "{{amount}}"},
-                            {"account": {"id": "$step_2.values[0].id"}, "amount": "-{{amount}}"},
+                            {"account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}"},
+                            {"account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}"},
                         ],
                     },
                 },

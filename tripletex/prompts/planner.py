@@ -128,12 +128,20 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 11. Department on employee: If GET /department returns results, include "department": {"id": <first_dept_id>} in POST /employee body.
 11b. userType on employee: ALWAYS include "userType": "STANDARD" when creating employees. Without it you get 422.
 12. Version field for PUTs: ALL PUT requests require the 'version' field from the GET response. Include it in the body. Missing version causes 409 Conflict.
+19. POST /travelExpense/cost FIELD NAMES: The REQUIRED fields are: travelExpense({"id":X}), vatType({"id":X}), paymentType({"id":X}), amountCurrencyIncVat(number), date(string). FORBIDDEN fields that cause 422: "amount", "title", "description", "name". Use "comments" instead of "description". Use "amountCurrencyIncVat" instead of "amount". GET /ledger/vatType first to get vatType ID.
 
 ## TIER 3 PITFALLS (complex tasks)
 13. Opening balance — postings MUST sum to zero: Total debit must equal total credit. If you only have
     asset accounts, add a balancing equity posting (e.g. account 2050). Format each posting as:
-    {"account": {"id": <id>}, "amountGross": <amount>} where positive = debit, negative = credit.
+    {{"row": N, "account": {{"id": <id>}}, "amountGross": <amount>, "amountGrossCurrency": <amount>}}
+    where positive = debit, negative = credit. Row numbers MUST start from 1 (row 0 is reserved).
     Do NOT fetch all accounts (count=1000) — only GET the specific account numbers mentioned in the task.
+18. Voucher postings format: Each posting MUST include ALL of these fields:
+    - "row": integer starting from 1 (NEVER 0 — row 0 is reserved for system postings and causes 422)
+    - "account": {{"id": <account_id>}}
+    - "amountGross": number (positive = debit, negative = credit)
+    - "amountGrossCurrency": number (MUST equal amountGross)
+    Example: {{"row": 1, "account": {{"id": 123}}, "amountGross": 1500, "amountGrossCurrency": 1500}}
 14. Bank reconciliation — accounting period must be open: The reconciliation date range must fall within
     an open accounting period. If you get a 422 error about closed period, the dates are wrong.
     After creating the reconciliation, you may need to POST individual payment/match entries.
@@ -222,7 +230,9 @@ If not mentioned, omit entirely.
 
 ## Task Tier: {tier} ({"simple" if tier == 1 else "medium" if tier == 2 else "complex"})
 
-## Template Steps (adapt — fill values from prompt)
+## Template Steps (FOLLOW THIS STRUCTURE — fill values from prompt)
+IMPORTANT: Use these steps as your base plan. Do NOT invent different API paths or field names.
+Only ADD steps if the prompt requires additional operations not covered by the template.
 {template_json}
 {conditional_section}
 ## Fields to Extract
@@ -354,6 +364,8 @@ To fix field mismatches:
 9. 422 "Brukertype" on employee -> Add "userType": "STANDARD" to body
 10. 422 "department" on employee -> GET /department first, include "department": {{"id": <id>}} in body
 11. 422 "deliveryDate" or "orderDate" null on order -> Add deliveryDate and orderDate (use invoiceDate or today)
+12. 422 "systemgenererte" or "kan ikke opprettes" on voucher postings -> Remove "row" and "guiRow" fields from postings. Use ONLY {"account": {"id": X}, "amountGross": Y} per posting. Use "amountGross" not "amount".
+13. 422 "Feltet eksisterer ikke" on /travelExpense/cost -> You used WRONG field names. CORRECT fields: travelExpense({"id":X}), vatType({"id":X}), paymentType({"id":X}), amountCurrencyIncVat(number), date(string). WRONG: "amount"→use "amountCurrencyIncVat", "description"→use "comments", "title"→remove it, "name"→remove it. Must also GET /ledger/vatType for vatType ID.
 
 ## Instructions
 1. Analyze WHY each step failed
