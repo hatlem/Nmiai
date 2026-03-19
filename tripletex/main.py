@@ -174,6 +174,43 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             new_steps.append(fixed_step)
             continue
 
+        # 422 with "systemgenererte" or "rad 0" on voucher postings - fix row numbering
+        if status == 422 and ("systemgenererte" in error_msg or "rad 0" in error_msg or "guirow 0" in error_msg):
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            postings = fixed_body.get("postings", [])
+            if isinstance(postings, list) and postings:
+                fixed_postings = []
+                for i, p in enumerate(postings):
+                    fp = dict(p) if isinstance(p, dict) else p
+                    if isinstance(fp, dict):
+                        fp["row"] = i + 1  # Start from 1, not 0
+                        fp.pop("guiRow", None)
+                        # Ensure amountGrossCurrency equals amountGross
+                        if "amountGross" in fp and "amountGrossCurrency" not in fp:
+                            fp["amountGrossCurrency"] = fp["amountGross"]
+                    fixed_postings.append(fp)
+                fixed_body["postings"] = fixed_postings
+                fixed_step["body"] = fixed_body
+                new_steps.append(fixed_step)
+                logger.info("Quick-fix: fixed voucher posting rows (start from 1) and added amountGrossCurrency")
+                continue
+
+        # 422 with "amountGrossCurrency" - add missing field
+        if status == 422 and "amountgrosscurrency" in error_msg:
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            postings = fixed_body.get("postings", [])
+            if isinstance(postings, list):
+                for p in postings:
+                    if isinstance(p, dict) and "amountGross" in p and "amountGrossCurrency" not in p:
+                        p["amountGrossCurrency"] = p["amountGross"]
+                fixed_body["postings"] = postings
+                fixed_step["body"] = fixed_body
+                new_steps.append(fixed_step)
+                logger.info("Quick-fix: added amountGrossCurrency to voucher postings")
+                continue
+
         # 422 with "bankkontonummer" - company needs bank account number
         # PUT /company returns 405 in dev sandbox. Competition sandboxes have this pre-configured.
         if status == 422 and "bankkontonummer" in error_msg:
@@ -248,6 +285,32 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
     }
 
 
+async def _ensure_bank_account(client: TripletexClient):
+    """Pre-flight: ensure the company has a bank account number for invoicing."""
+    try:
+        resp = await client.get("/company", params={"fields": "id,bankAccountNumber,version"})
+        values = resp.get("values", [])
+        if not values:
+            logger.warning("Pre-flight: no company found")
+            return
+        company = values[0]
+        if company.get("bankAccountNumber"):
+            logger.info("Pre-flight: bank account already set")
+            return
+        logger.info("Pre-flight: setting bankAccountNumber on company")
+        await client.put(
+            f"/company/{company['id']}",
+            body={
+                "id": company["id"],
+                "version": company.get("version", 0),
+                "bankAccountNumber": "15031750204",
+            },
+        )
+        logger.info("Pre-flight: bankAccountNumber set successfully")
+    except Exception as e:
+        logger.warning(f"Pre-flight bank account failed: {e}")
+
+
 @app.post("/solve")
 async def solve(request: Request):
     start = time.monotonic()
@@ -273,8 +336,9 @@ async def solve(request: Request):
         extracted_values = plan.get("extracted_values", {})
         logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
 
-        # NOTE: Bank account pre-flight moved to quick-fix repair
-        # to avoid unnecessary API calls on the happy path
+        # Pre-flight: ensure bank account for invoice tasks
+        if "invoice" in task_type:
+            await _ensure_bank_account(client)
 
         # Phase 2: Execute
         result = await execute_plan(plan, client, start)
