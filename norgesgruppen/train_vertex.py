@@ -54,7 +54,7 @@ def train(data_path: str, epochs: int, batch_size: int, img_size: int) -> str:
     """Tren YOLO26-modellen."""
     from ultralytics import YOLO
 
-    model = YOLO("yolo26n.pt")  # Nano-variant for rask inferens
+    model = YOLO("yolo26l.pt")  # Large-variant for best mAP
 
     results = model.train(
         data=os.path.join(data_path, "data.yaml"),

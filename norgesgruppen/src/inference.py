@@ -9,7 +9,6 @@ Bruk:
 
 import argparse
 import json
-import os
 import time
 from pathlib import Path
 
@@ -146,7 +145,7 @@ def main():
     parser.add_argument("--output", default="detections.json", help="Output JSON-fil")
     args = parser.parse_args()
 
-    if not os.path.exists(args.model):
+    if not Path(args.model).exists():
         print(f"FEIL: Modell ikke funnet: {args.model}")
         print("Kjør train_vertex.py først, eller legg .onnx-filen i models/")
         return

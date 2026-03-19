@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.npy
+*.png
+observations.json
+predictions_seed_*.npy
+.venv/

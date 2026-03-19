@@ -1,0 +1,11 @@
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+
+WORKDIR /app
+
+RUN pip install ultralytics==8.1.0 albumentations>=1.3.1
+
+COPY convert_coco_to_yolo.py train.py ./
+
+# Data should be mounted or copied in
+# docker run --gpus all -v $(pwd)/data:/app/data train-yolo
+CMD ["python", "train.py", "--device", "0", "--epochs", "300", "--batch", "4", "--imgsz", "1280"]
