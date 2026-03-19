@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 vertexai.init(project="ainm26osl-710", location="global")
 
+# Suppress async REST credential warnings and ensure async works
+import warnings
+warnings.filterwarnings("ignore", message=".*REST async clients.*")
+warnings.filterwarnings("ignore", message=".*deprecated.*")
+
 # ---------- Model IDs ----------
 MODEL_PRO = "gemini-3.1-pro-preview"
 MODEL_FLASH_LITE = "gemini-3.1-flash-lite-preview"
@@ -424,11 +429,10 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         task_type, confidence = quick
         if confidence >= CONFIDENCE_THRESHOLD:
             logger.info(f"Quick classify: {task_type} (conf={confidence:.2f})")
-            # FAST PATH: skip LLM for keyword matches with decent confidence
-            # High confidence (>=0.85) always skips regardless of prompt length
-            # Medium confidence (>=0.60) skips for shorter prompts
-            if confidence >= 0.85 or (len(prompt) < 200 and confidence >= 0.60):
-                logger.info(f"Fast path (conf={confidence:.2f}, {len(prompt)} chars): skipping LLM")
+            # FAST PATH: only skip LLM for high-confidence keyword matches (>=0.85)
+            # Medium confidence often misclassifies (e.g. "customer" in invoice tasks)
+            if confidence >= 0.85:
+                logger.info(f"Fast path (conf={confidence:.2f}): skipping LLM")
             return task_type, confidence
 
     # Flash-Lite classification
