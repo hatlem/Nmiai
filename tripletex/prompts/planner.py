@@ -105,7 +105,8 @@ After execution, the system verifies EVERY field against expected values.
 - Include dateOfBirth if mentioned (for employees)
 - Include description if mentioned (for products, projects)
 - For updates: ALWAYS include the version field from the GET response in the PUT body
-- Amounts with MVA/VAT: Extract the gross amount and let the API handle VAT calculation
+- Amounts with MVA/VAT: Use the EXACT amount from the prompt. If prompt says "2500 kr eksklusiv MVA", use 2500 as priceExcludingVatCurrency — do NOT add VAT yourself. If prompt says "inklusiv MVA", use that as priceIncludingVatCurrency.
+- Product prices: priceExcludingVatCurrency = the price WITHOUT VAT. Do NOT calculate or add VAT — just use the number from the prompt.
 - For customer creation: ALWAYS include isCustomer: true
 - For employee creation: ALWAYS include userType: 'STANDARD'
 - For orders: ALWAYS include both orderDate AND deliveryDate (use same date if only one is given)
