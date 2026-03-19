@@ -105,6 +105,19 @@ resp = requests.get(
 matches = resp.json()["values"]
 ```
 
+## Anbefalte LLM-modeller (mars 2026)
+
+Vi har ubegrenset GCP — bruk Vertex AI for LLM-kall fra Cloud Run.
+
+| Modell | Bruk | Vertex AI model ID |
+|---|---|---|
+| Gemini 3.1 Pro | Komplekse multi-step oppgaver, Tier 2/3 | `gemini-3.1-pro` |
+| Gemini 3.1 Flash-Lite | Enkel parsing, rask, billig | `gemini-3.1-flash-lite` |
+| Claude Sonnet 4.6 | God allrounder, 98% av Opus | Via Model Garden |
+| Claude Opus 4.6 | Dypest reasoning for Tier 3 | Via Model Garden |
+
+**Strategi:** Bruk Flash-Lite for enkel prompt-parsing og Tier 1-oppgaver. Eskaler til Gemini 3.1 Pro eller Claude for Tier 2/3 med komplekse multi-step workflows. Effektivitetsbonus belønner færre API-kall, så bedre reasoning = færre feil = høyere score.
+
 ## Building an Effective Agent
 
 1. **Parse the prompt** — Use an LLM to extract the task type, entity names, field values, and relationships from the Norwegian prompt

@@ -124,10 +124,12 @@ These frameworks are pre-installed. If you train with the exact same version, yo
 
 ### Models not in the sandbox
 
-YOLOv9, YOLOv10, YOLO11, RF-DETR, Detectron2, MMDetection, HuggingFace Transformers — these packages are not installed. Two options:
+YOLOv9, YOLOv10, YOLO11, **YOLO26**, RF-DETR, Detectron2, MMDetection, HuggingFace Transformers — these packages are not installed. Two options:
 
 1. **Export to ONNX:** Export from any framework, load with onnxruntime in your run.py. Use opset version ≤ 20. Use CUDAExecutionProvider for GPU acceleration.
 2. **Include model code:** Put your model class in your .py files + .pt state_dict weights. Works if the model only uses standard PyTorch ops.
+
+**Anbefaling (mars 2026):** Tren med YOLO26 (nyeste, NMS-fri, 43% raskere CPU-inferens) eller YOLO11 (22% færre params enn YOLOv8, bedre mAP), og eksporter til ONNX for sandbox. YOLOv8 er enkleste path (kjører native), men YOLO26/11 gir bedre resultater.
 
 **HuggingFace .bin files:** The .bin extension is not allowed, but the format is identical to .pt (PyTorch pickle). Rename .bin → .pt, or convert with `safetensors.torch.save_file(state_dict, "model.safetensors")`.
 

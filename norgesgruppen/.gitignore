@@ -1,5 +1,6 @@
 models/*.onnx
 models/*.pt
+data/
 test_output.jpg
 test_enhanced.jpg
 detections.json
