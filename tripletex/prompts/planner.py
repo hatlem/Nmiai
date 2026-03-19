@@ -177,7 +177,20 @@ If not mentioned, omit entirely.
 }}
 ```
 
-The extracted_values dict MUST contain every piece of data you extracted. Keys should match API field names.
+## CRITICAL: extracted_values
+The extracted_values dict MUST contain EVERY piece of data you extracted from the prompt.
+Keys MUST match Tripletex API field names exactly. For example:
+- Employee: firstName, lastName, email, phoneNumberMobile, dateOfBirth
+- Customer: name, email, organizationNumber, phoneNumber
+- Product: name, priceExcludingVatCurrency, number
+- Project: project_name, startDate, endDate
+- Department: name, departmentNumber
+- Invoice: customer_name, invoiceDate, invoiceDueDate
+- Travel: departureDate, returnDate, departureFrom, destination
+
+If the prompt says "Kari Nordmann, kari@test.no" your extracted_values MUST include:
+{{"firstName": "Kari", "lastName": "Nordmann", "email": "kari@test.no"}}
+NEVER return an empty extracted_values if the prompt contains any data.
 """
 
 
