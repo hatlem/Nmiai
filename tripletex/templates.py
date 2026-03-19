@@ -412,15 +412,24 @@ TEMPLATES: dict[str, dict] = {
     # ===== PROJECTS =====
 
     "create_project": {
-        "description": "Create a project linked to a customer. Must set projectManager.",
+        "description": "Create a project linked to a customer. Must set projectManager with proper entitlements.",
         "relevant_schemas": ["Project", "Customer"],
         "extract_fields": ["project_name", "customer_name", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "startDate", "endDate", "isInternal", "projectManager", "project_description"],
-        "optimal_calls": 3,
+        "optimal_calls": 4,
         "steps": [
             {
                 "method": "GET",
                 "path": "/employee",
                 "params": {"fields": "id", "count": 1},
+            },
+            {
+                "method": "PUT",
+                "path": "/employee/entitlement/:grantEntitlementsByTemplate",
+                "params": {
+                    "employeeId": "$step_0.values[0].id",
+                    "template": "ALL_PRIVILEGES",
+                },
+                "note": "Grant project manager access to employee",
             },
             {
                 "method": "POST",
@@ -439,7 +448,7 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{project_name}}",
                     "description": "{{project_description}}",
-                    "customer": {"id": "$step_1.id"},
+                    "customer": {"id": "$step_2.id"},
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
                     "isInternal": False,
@@ -482,15 +491,24 @@ TEMPLATES: dict[str, dict] = {
     },
 
     "create_internal_project": {
-        "description": "Create an internal project (no customer). Must set projectManager.",
+        "description": "Create an internal project (no customer). Must set projectManager with proper entitlements.",
         "relevant_schemas": ["Project"],
         "extract_fields": ["project_name", "startDate", "endDate", "project_description"],
-        "optimal_calls": 2,
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "GET",
                 "path": "/employee",
                 "params": {"fields": "id", "count": 1},
+            },
+            {
+                "method": "PUT",
+                "path": "/employee/entitlement/:grantEntitlementsByTemplate",
+                "params": {
+                    "employeeId": "$step_0.values[0].id",
+                    "template": "ALL_PRIVILEGES",
+                },
+                "note": "Grant project manager access to employee",
             },
             {
                 "method": "POST",
