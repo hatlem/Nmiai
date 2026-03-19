@@ -23,24 +23,47 @@ def _get_model(system_instruction: str) -> GenerativeModel:
 
 
 def _parse_json(text: str) -> dict:
-    """Parse LLM response, stripping markdown fences if present."""
+    """Parse LLM response, handling various markdown/fence formats."""
     text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:])
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
 
+    # Strip any markdown fences (```json, ```, etc.)
+    import re
+    text = re.sub(r'^```\w*\n?', '', text)
+    text = re.sub(r'\n?```$', '', text)
+    text = text.strip()
+
+    # Try direct parse first
     try:
         return json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.warning(f"JSON parse failed: {e}. Trying to extract JSON from response...")
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start >= 0 and end > start:
+    except json.JSONDecodeError:
+        pass
+
+    # Try to find JSON object with balanced braces
+    start = text.find("{")
+    if start >= 0:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        pass
+                    break
+
+    # Last resort: find first { to last }
+    end = text.rfind("}") + 1
+    if start >= 0 and end > start:
+        try:
             return json.loads(text[start:end])
-        raise
+        except json.JSONDecodeError:
+            pass
+
+    logger.error(f"Could not parse JSON from: {text[:200]}")
+    raise json.JSONDecodeError("No valid JSON found", text, 0)
 
 
 def _quick_classify(prompt: str) -> str | None:

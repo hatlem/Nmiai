@@ -93,26 +93,46 @@ def resolve_refs(obj, results: dict):
     return obj
 
 
-async def execute_plan(plan: dict, client: TripletexClient) -> dict:
+async def execute_plan(plan: dict, client: TripletexClient, start_time: float | None = None) -> dict:
     """Execute a structured plan of API calls.
-    Returns {success, results, failed}. No error fixing — that's the LLM's job."""
+    Returns {success, results, failed}. No error fixing — that's the LLM's job.
+
+    start_time: monotonic timestamp for global timeout tracking (280s deadline).
+    """
+    import time
+    if start_time is None:
+        start_time = time.monotonic()
+
+    DEADLINE = 280  # seconds, leave buffer for response
+
     steps = plan.get("steps", [])
     results = {}
     failed = []
 
     for i, step in enumerate(steps):
+        # Global timeout check
+        if time.monotonic() - start_time > DEADLINE:
+            logger.warning(f"Global timeout reached at step {i}, stopping execution")
+            break
+
         method = step["method"].upper()
         path = resolve_ref(step.get("path", ""), results)
         body = resolve_refs(step.get("body"), results) if step.get("body") else None
         params = resolve_refs(step.get("params"), results) if step.get("params") else None
 
         logger.info(f"Step {i}: {method} {path}")
-        response = await client.request(method, path, body=body, params=params)
+
+        try:
+            response = await client.request(method, path, body=body, params=params)
+        except Exception as e:
+            logger.error(f"Step {i} exception: {e}")
+            response = {"status_code": 0, "ok": False, "data": {"error": str(e)}}
+
         results[i] = response
 
         if not response["ok"]:
             failed.append((i, response))
-            logger.error(f"Step {i} failed: {response['status_code']} - {response['data']}")
+            logger.error(f"Step {i} failed: {response['status_code']}")
 
     return {
         "success": len(failed) == 0,

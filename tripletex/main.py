@@ -16,9 +16,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tripletex AI Agent")
 
-# Time budget: 5 min total, reserve 60s for self-repair
-MAX_PLAN_EXECUTE_SECONDS = 240
-REPAIR_DEADLINE_SECONDS = 290  # leave 10s buffer before 300s timeout
+MAX_REPAIR_ATTEMPTS = 3
+REPAIR_DEADLINE_SECONDS = 280  # leave 20s buffer before 300s timeout
 
 # Simple task types where recovery cost > benefit
 SKIP_RECOVERY_TYPES = {
@@ -54,36 +53,52 @@ async def solve(request: Request):
         logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
 
         # Phase 2: Execute
-        result = await execute_plan(plan, client)
+        result = await execute_plan(plan, client, start)
 
-        # Phase 3: Self-repair (conditional)
-        elapsed = time.monotonic() - start
-        should_repair = (
-            not result["success"]
+        # Phase 3: Self-repair loop (up to MAX_REPAIR_ATTEMPTS)
+        attempt = 0
+        current_plan = plan
+        current_result = result
+
+        while (
+            not current_result["success"]
             and task_type not in SKIP_RECOVERY_TYPES
-            and elapsed < MAX_PLAN_EXECUTE_SECONDS
-        )
-
-        if should_repair:
-            logger.warning(f"{len(result['failed'])} steps failed, self-repairing... ({elapsed:.0f}s elapsed)")
+            and attempt < MAX_REPAIR_ATTEMPTS
+            and time.monotonic() - start < REPAIR_DEADLINE_SECONDS
+        ):
+            attempt += 1
+            elapsed = time.monotonic() - start
+            logger.warning(
+                f"Repair attempt {attempt}/{MAX_REPAIR_ATTEMPTS} "
+                f"({len(current_result['failed'])} failed, {elapsed:.0f}s elapsed)"
+            )
             try:
                 repaired_plan = await self_repair(
-                    prompt, plan, result["results"], result["failed"]
+                    prompt, current_plan, current_result["results"], current_result["failed"]
                 )
                 if time.monotonic() - start < REPAIR_DEADLINE_SECONDS:
-                    repair_result = await execute_plan(repaired_plan, client)
-                    if repair_result["success"]:
-                        logger.info("Self-repair succeeded")
-                    else:
-                        logger.error(f"Self-repair failed: {len(repair_result['failed'])} steps")
+                    current_result = await execute_plan(repaired_plan, client, start)
+                    current_plan = repaired_plan
+                    if current_result["success"]:
+                        logger.info(f"Self-repair succeeded on attempt {attempt}")
+                        break
                 else:
-                    logger.warning("Skipping repair execution - time budget exceeded")
+                    logger.warning("Time budget exceeded before repair execution")
+                    break
             except Exception as e:
                 logger.error(f"Self-repair exception: {e}")
-        elif not result["success"]:
-            logger.warning(f"Skipping recovery for {task_type} (simple task or time exceeded)")
-        else:
-            logger.info(f"All steps succeeded in {elapsed:.1f}s")
+                break
+
+        if not current_result["success"] and attempt == 0:
+            logger.warning(f"Skipping recovery for {task_type}")
+
+        elapsed = time.monotonic() - start
+        logger.info(
+            f"Done in {elapsed:.1f}s | type={task_type} | "
+            f"success={current_result['success']} | repairs={attempt} | "
+            f"api_calls={len(current_result['results'])} | "
+            f"errors={len(current_result['failed'])}"
+        )
 
     except Exception as e:
         logger.error(f"Agent error: {e}", exc_info=True)
