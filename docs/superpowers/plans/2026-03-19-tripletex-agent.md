@@ -568,17 +568,27 @@ TEMPLATES: dict[str, dict] = {
     # ===== LEDGER / VOUCHERS =====
 
     "create_voucher": {
-        "description": "Create a ledger voucher with postings",
-        "relevant_schemas": ["Voucher", "Posting"],
-        "extract_fields": ["date", "description", "postings"],
+        "description": "Create a ledger voucher with postings. IMPORTANT: account numbers (e.g. 1920) are NOT IDs — you must first GET /ledger/account?number=X to find the real account ID.",
+        "relevant_schemas": ["Voucher", "Posting", "Account"],
+        "extract_fields": ["date", "description", "postings_with_account_numbers"],
         "steps": [
+            {
+                "method": "GET",
+                "path": "/ledger/account",
+                "params": {"number": "{{debit_account_number}}", "fields": "id,number,name"},
+            },
+            {
+                "method": "GET",
+                "path": "/ledger/account",
+                "params": {"number": "{{credit_account_number}}", "fields": "id,number,name"},
+            },
             {
                 "method": "POST",
                 "path": "/ledger/voucher",
                 "body": {
                     "date": "{{date}}",
                     "description": "{{description}}",
-                    "postings": "{{postings}}",
+                    "postings": "{{postings_using_account_ids_from_step_0_and_1}}",
                 },
             },
         ],
@@ -964,7 +974,7 @@ GLOSSARY = """## Norwegian Accounting Glossary
 """
 
 ACTION_ENDPOINTS = """## Key Action Endpoints
-- PUT /order/{id}/:invoice — invoiceDate (required), sendToCustomer (optional)
+- PUT /order/{id}/:invoice — invoiceDate (required), sendToCustomer (optional). NOTE: invoiceDueDate is set on the Invoice object AFTER creation, or use invoicesDueIn on the Order to control due date.
 - PUT /invoice/{id}/:payment — paymentDate, paymentTypeId, paidAmount (all required)
 - PUT /invoice/{id}/:createCreditNote — date (required), comment
 - PUT /invoice/{id}/:send — sendType (required)
@@ -1012,6 +1022,8 @@ def build_planner_prompt(task_type: str) -> str:
 4. Dates in YYYY-MM-DD format. Use today's date if not specified in prompt.
 5. Remove optional fields that are not mentioned in the prompt.
 6. For entity references use {{"id": "$step_N.id"}} or {{"id": <known_id>}}.
+7. If files are attached (PDFs, images), extract ALL relevant data from them: names, amounts, dates, line items, account numbers. The file content IS the data source — use it.
+8. Account numbers (e.g. 1920, 3000) are NOT account IDs. You must GET /ledger/account?number=X to find the real ID before using it in postings.
 
 ## Output Schema
 ```json
@@ -1135,7 +1147,17 @@ def _parse_json(text: str) -> dict:
         if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
-    return json.loads(text)
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON parse failed: {e}. Trying to extract JSON from response...")
+        # Try to find JSON object in the response
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            return json.loads(text[start:end])
+        raise
 
 
 def _quick_classify(prompt: str) -> str | None:
@@ -1158,7 +1180,7 @@ async def classify_task(prompt: str) -> str:
 
     # Slow path: LLM classification
     model = _get_model(CLASSIFIER_PROMPT)
-    response = model.generate_content(
+    response = await model.generate_content_async(
         prompt,
         generation_config={"temperature": 0.0, "max_output_tokens": 100},
     )
@@ -1190,12 +1212,19 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     ))
 
     logger.info(f"Planning {task_type}: {prompt[:80]}...")
-    response = model.generate_content(
+    response = await model.generate_content_async(
         parts,
         generation_config={"temperature": 0.0, "max_output_tokens": 4096},
     )
 
-    plan = _parse_json(response.text)
+    try:
+        plan = _parse_json(response.text)
+    except (json.JSONDecodeError, Exception) as e:
+        logger.error(f"Failed to parse plan JSON: {e}. Raw: {response.text[:200]}")
+        # Return a minimal plan that at least tries the template steps
+        template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+        plan = {"task_type": task_type, "reasoning": "Fallback — LLM JSON parse failed", "steps": template["steps"]}
+
     plan["task_type"] = plan.get("task_type", task_type)
     logger.info(f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps")
     return plan
@@ -1215,7 +1244,7 @@ async def self_repair(
     model = _get_model("You are an expert Tripletex API debugger. Fix the failed plan.")
 
     logger.info("Self-repair: sending errors to LLM...")
-    response = model.generate_content(
+    response = await model.generate_content_async(
         repair_prompt,
         generation_config={"temperature": 0.0, "max_output_tokens": 4096},
     )
@@ -1245,6 +1274,7 @@ Wires together: classify → plan → execute → self-repair → execute again.
 
 ```python
 # tripletex/main.py
+import time
 import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -1261,6 +1291,16 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tripletex AI Agent")
 
+# Time budget: 5 min total, reserve 60s for self-repair
+MAX_PLAN_EXECUTE_SECONDS = 240
+REPAIR_DEADLINE_SECONDS = 290  # leave 10s buffer before 300s timeout
+
+# Simple task types where recovery cost > benefit (only 1 step, low tier)
+SKIP_RECOVERY_TYPES = {
+    "create_customer", "create_product", "create_department",
+    "create_supplier", "delete_travel_expense", "delete_entity",
+}
+
 
 @app.get("/health")
 async def health():
@@ -1269,6 +1309,7 @@ async def health():
 
 @app.post("/solve")
 async def solve(request: Request):
+    start = time.monotonic()
     body = await request.json()
     prompt = body["prompt"]
     files = body.get("files", [])
@@ -1284,27 +1325,41 @@ async def solve(request: Request):
     try:
         # Phase 1: Plan (two-stage: classify + fill template)
         plan = await create_plan(prompt, files)
-        logger.info(f"Plan: {plan.get('task_type')} ({len(plan.get('steps', []))} steps)")
+        task_type = plan.get("task_type", "unknown")
+        logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
 
         # Phase 2: Execute
         result = await execute_plan(plan, client)
 
-        # Phase 3: Self-repair (if any step failed)
-        if not result["success"]:
-            logger.warning(f"{len(result['failed'])} steps failed, self-repairing...")
+        # Phase 3: Self-repair (conditional)
+        elapsed = time.monotonic() - start
+        should_repair = (
+            not result["success"]
+            and task_type not in SKIP_RECOVERY_TYPES
+            and elapsed < MAX_PLAN_EXECUTE_SECONDS
+        )
+
+        if should_repair:
+            logger.warning(f"{len(result['failed'])} steps failed, self-repairing... ({elapsed:.0f}s elapsed)")
             try:
                 repaired_plan = await self_repair(
                     prompt, plan, result["results"], result["failed"]
                 )
-                repair_result = await execute_plan(repaired_plan, client)
-                if repair_result["success"]:
-                    logger.info("Self-repair succeeded")
+                # Check time budget before executing repair
+                if time.monotonic() - start < REPAIR_DEADLINE_SECONDS:
+                    repair_result = await execute_plan(repaired_plan, client)
+                    if repair_result["success"]:
+                        logger.info("Self-repair succeeded")
+                    else:
+                        logger.error(f"Self-repair failed: {len(repair_result['failed'])} steps")
                 else:
-                    logger.error(f"Self-repair failed: {len(repair_result['failed'])} steps still failing")
+                    logger.warning("Skipping repair execution — time budget exceeded")
             except Exception as e:
                 logger.error(f"Self-repair exception: {e}")
+        elif not result["success"]:
+            logger.warning(f"Skipping recovery for {task_type} (simple task or time exceeded)")
         else:
-            logger.info("All steps succeeded")
+            logger.info(f"All steps succeeded in {elapsed:.1f}s")
 
     except Exception as e:
         logger.error(f"Agent error: {e}", exc_info=True)
