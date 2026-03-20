@@ -1,10 +1,15 @@
 """
-Predictor for Astar Island — lookup + shift prediction.
+Predictor for Astar Island — lookup + shift prediction + Monte Carlo.
 Optimized with numpy precomputation for speed.
 """
 import math
+import logging
+from concurrent.futures import ProcessPoolExecutor
+from typing import Optional, Dict, List, Any
+
 import numpy as np
-from typing import Optional
+
+log = logging.getLogger("predictor")
 
 NC = 6
 TTC = {10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
@@ -179,6 +184,83 @@ class Predictor:
                 shift[ic].append(max(0.5, min(3.0, raw)))
         return shift
 
+    def predict_mc(
+        self,
+        grid: List[List[int]],
+        settlements: List[Dict[str, Any]],
+        params: Optional[Dict[str, float]] = None,
+        n_runs: int = 100,
+        n_workers: int = 4,
+    ) -> List[List[List[float]]]:
+        """
+        Run Monte Carlo simulation and return (H, W, 6) probability predictions.
+
+        Uses multiprocessing to parallelize across CPU cores.
+        Mountain/ocean cells get hard floors: [0.0005, ...] with dominant class ~1.0.
+        """
+        from simulator import NorseSimulator, TERRAIN_TO_CLASS, OCEAN, MOUNTAIN
+
+        grid_np = np.asarray(grid, dtype=np.int32)
+        H, W = grid_np.shape
+
+        # Split runs across workers
+        chunk_size = max(1, n_runs // n_workers)
+        chunks = []
+        for i in range(n_workers):
+            start = i * chunk_size
+            end = min(start + chunk_size, n_runs) if i < n_workers - 1 else n_runs
+            if start < end:
+                chunks.append((grid, settlements, params, list(range(start, end))))
+
+        log.info(f"MC: Starting {n_runs} runs across {len(chunks)} workers")
+
+        # Run in parallel using ProcessPoolExecutor
+        counts = np.zeros((H, W, NC), dtype=np.int32)
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                futures = [
+                    executor.submit(_mc_worker, g, s, p, seeds)
+                    for g, s, p, seeds in chunks
+                ]
+                for fut in futures:
+                    counts += fut.result()
+        except Exception as e:
+            log.error(f"MC parallel failed, falling back to serial: {e}")
+            sim = NorseSimulator(grid_np, settlements, params)
+            for seed in range(n_runs):
+                class_grid = sim.run_to_classes(seed)
+                np.add.at(
+                    counts,
+                    (np.arange(H)[:, None], np.arange(W)[None, :], class_grid),
+                    1,
+                )
+
+        # Convert to probabilities with Jeffreys smoothing
+        alpha = 0.5
+        probs = (counts.astype(np.float64) + alpha) / (n_runs + NC * alpha)
+        probs = np.maximum(probs, 1e-6)
+        probs /= probs.sum(axis=2, keepdims=True)
+
+        # Apply hard floors for immutable terrain (mountain/ocean)
+        FLOOR = 0.0005
+        for y in range(H):
+            for x in range(W):
+                raw = grid_np[y, x]
+                if raw == OCEAN:
+                    # Ocean never changes
+                    probs[y, x] = FLOOR
+                    probs[y, x, 0] = 1.0 - 5 * FLOOR
+                elif raw == MOUNTAIN:
+                    # Mountain never changes
+                    probs[y, x] = FLOOR
+                    probs[y, x, 5] = 1.0 - 5 * FLOOR
+
+        # Renormalize
+        probs /= probs.sum(axis=2, keepdims=True)
+
+        # Convert to nested list
+        return probs.tolist()
+
     def score_kl(self, pred, gt, H, W):
         """Score using competition formula: 100 * exp(-3 * weighted_kl)."""
         total_wkl = 0.0
@@ -196,3 +278,22 @@ class Predictor:
         if total_ent == 0:
             return 100.0
         return 100.0 * math.exp(-3.0 * total_wkl / total_ent)
+
+
+def _mc_worker(grid, settlements, params, seeds):
+    """Top-level function for multiprocessing (must be picklable)."""
+    from simulator import NorseSimulator, NUM_CLASSES
+
+    grid_np = np.asarray(grid, dtype=np.int32)
+    H, W = grid_np.shape
+    counts = np.zeros((H, W, NUM_CLASSES), dtype=np.int32)
+
+    sim = NorseSimulator(grid_np, settlements, params)
+    for seed in seeds:
+        class_grid = sim.run_to_classes(seed)
+        np.add.at(
+            counts,
+            (np.arange(H)[:, None], np.arange(W)[None, :], class_grid),
+            1,
+        )
+    return counts

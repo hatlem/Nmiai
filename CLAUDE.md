@@ -181,14 +181,33 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | 5 | 2026-03-20 | 11:52 | submission_20260320_115200.zip | YOLO26-x ONNX + DINOv2 + multi-class YOLO hybrid, score=det_score only | — | Ikke submittet (failed exit code 1) |
 | 6 | 2026-03-20 | 14:16 | submission_20260320_141629.zip | YOLO26-x FP16 ONNX + DINOv2 only, score=det_score, CLAHE on crops only, conf=0.01, no SAHI, no multi-class | KLAR | 257MB, 2/3 weights. Fixes: no timeout, pure det ranking |
 | 7 | 2026-03-21 | 15:30 | submission_20260321_153000.zip | YOLO26-x ONNX + DINOv2-Base v2 (FP16, epoch 26, val=91.5%, Focal+Mixup+EMA) | ? | 250MB, 2/3 weights. V2 classifier |
-| 8 | 2026-03-20 | 18:41 | submission_20260320_182916.zip | 3-modell WBF ensemble (pseudo 0.789 + fold0 0.726 + fold2 0.749) + TTA, 297MB | **0.9139** | 38.2s, +35.6%! Ensemble er game-changer |
+| 8 | 2026-03-20 | 18:41 | submission_20260320_182916.zip | 3-modell WBF ensemble (pseudo 0.789 + fold0 0.726 + fold2 0.749) + TTA, conf=0.01 | **0.9139** | 38.2s. Ensemble er game-changer |
+| 9 | 2026-03-20 | 20:55 | submission_20260320_203746.zip | pseudo + fold4 + fold2, conf=0.05, TTA | 0.9119 | 38.5s. conf=0.05 VERRE enn 0.01 |
+| 10 | 2026-03-20 | 22:49 | submission_20260320_224900.zip | pseudo + **1600px**(0.771) + fold2, conf=**0.001**, TTA | **0.9158** | 42.6s. NY BEST! 1600px + lavere conf hjelper |
 
-### Nåværende status (oppdatert 20. mars 18:45)
-- **Beste score: 0.9139** (submission #8, 3-modell ensemble)
+### Nåværende status (oppdatert 20. mars 22:55)
+- **Beste score: 0.9158** (submission #10)
 - **Topp 3 leaderboard:** Havvind (0.9200), prompt injection 1678 (0.9199), sf (0.9193)
-- **Oss:** ~4. plass, **gap til topp: 0.006 (0.6 poeng!)**
-- **Daglig kvote:** 2 brukt i dag
-- **Strategi:** K-fold ensemble + WBF + TTA er veien videre
+- **Oss:** ~4. plass, **gap til topp: 0.004 (4 tusendeler!)**
+- **Submissions igjen:** 1 i dag (resetter 01:00 CET), 6 i morgen, 6 søndag
+
+### Hva vi har lært
+| Endring | Effekt | Lærdom |
+|---|---|---|
+| Ensemble 3 modeller + TTA | +0.24 (0.674→0.914) | Ensemble er ALT |
+| conf 0.01 → 0.05 | -0.002 (0.914→0.912) | Lavere conf = bedre (mer recall) |
+| conf 0.01 → 0.001 | +0.002 (0.914→0.916) | Enda lavere conf hjelper |
+| fold0 → fold4 (sterkere, same arch) | -0.0003 | Same arkitektur = null forbedring |
+| fold0 → 1600px (annen oppløsning) | +0.002 | **Diversitet slår styrke** |
+| Two-stage (YOLO+DINOv2) | 0.674 | Dårlig — multi-class direkte er bedre |
+| Ren multi-class YOLO | 0.476 | For svak alene |
+
+### Blindgater (IKKE prøv igjen)
+- **RT-DETR-x:** mAP50=0 etter 45 epochs. Lærer ingenting på dette datasettet. Trolig trenger annen LR/config.
+- **YOLO11-s/m/x på T4/L4:** Krasjet uten results. Ultralytics-versjonskonflikt med YOLO11?
+- **DINOv2 classifier:** Topper på 91% val_acc. Ikke verdt mer investering.
+- **conf=0.05:** Verre enn 0.01. Ikke øk confidence threshold.
+- **Fold-swapping (same arch):** Null effekt. Diversitet krever annen arkitektur/oppløsning/data.
 
 ### Regler for submission-logging
 - **ALLTID** oppdater tabellen over når en ny submission lages

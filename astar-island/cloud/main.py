@@ -18,9 +18,11 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+import numpy as np
 from fastapi import FastAPI
 
 logging.basicConfig(
@@ -235,6 +237,25 @@ async def process_round(round_info: Dict[str, Any]):
             log.error(f"R{rnum} Phase 1 seed {si}: {e}")
         await asyncio.sleep(0.1)  # Respect rate limits
 
+    # ── Start MC simulation in background ────────────────────────
+    # Runs in parallel with query phases. Results collected before final submit.
+    mc_futures: Dict[int, asyncio.Task] = {}
+    loop = asyncio.get_event_loop()
+    for si in range(seeds_count):
+        grid = initial_states[si].get("grid", [])
+        # Extract settlement positions from the initial grid
+        grid_settlements = _extract_settlements_from_grid(grid, H, W)
+        mc_futures[si] = loop.run_in_executor(
+            None,  # default ThreadPoolExecutor — MC internally uses ProcessPoolExecutor
+            _run_mc_for_seed,
+            predictor,
+            grid,
+            grid_settlements,
+            None,  # params — defaults; will be refined in later rounds
+            100,   # n_runs
+        )
+    log.info(f"R{rnum} MC: Background simulation started for {seeds_count} seeds")
+
     # ── Check budget ──────────────────────────────────────────────
     budget = client.get_budget()
     if not budget:
@@ -354,18 +375,105 @@ async def process_round(round_info: Dict[str, Any]):
                 log.error(f"R{rnum} Phase 4 resubmit at {i+1}: {e}")
             await asyncio.sleep(0.2)
 
-    # ── Final resubmit ────────────────────────────────────────────
+    # ── Final resubmit: blend lookup+shift with MC ─────────────────
     try:
         shift = predictor.compute_shift(all_obs_transitions)
+
+        # Collect MC results (should be done by now after all queries)
+        mc_preds: Dict[int, Optional[List]] = {}
+        for si in range(seeds_count):
+            if si in mc_futures:
+                try:
+                    mc_preds[si] = await mc_futures[si]
+                    log.info(f"R{rnum} MC: Seed {si} completed")
+                except Exception as e:
+                    log.error(f"R{rnum} MC seed {si} failed: {e}")
+                    mc_preds[si] = None
+            else:
+                mc_preds[si] = None
+
         for si in range(seeds_count):
             grid = initial_states[si].get("grid", [])
-            pred = predictor.predict(grid, H, W, shift=shift)
-            client.submit(rid, si, pred)
+            lookup_pred = predictor.predict(grid, H, W, shift=shift)
+
+            mc_pred = mc_preds.get(si)
+            if mc_pred is not None:
+                # Blend: 60% lookup+shift, 40% MC
+                blended = _blend_predictions(lookup_pred, mc_pred, H, W, alpha=0.6)
+                client.submit(rid, si, blended)
+                log.info(f"R{rnum} Final: Seed {si} submitted (blended 60/40)")
+            else:
+                client.submit(rid, si, lookup_pred)
+                log.info(f"R{rnum} Final: Seed {si} submitted (lookup only, MC failed)")
+
         log.info(f"R{rnum} Final: Submitted with {sum(len(v) if isinstance(v, list) else v for v in all_obs_transitions.values())} total transition observations")
     except Exception as e:
         log.error(f"R{rnum} Final submit: {e}")
 
     log.info(f"=== Round {rnum} COMPLETE ===")
+
+
+def _extract_settlements_from_grid(grid: List[List[int]], H: int, W: int) -> List[Dict[str, Any]]:
+    """Extract settlement/port positions from initial grid for MC simulator."""
+    settlements = []
+    owner_id = 0
+    for y in range(H):
+        for x in range(W):
+            cell = grid[y][x] if y < len(grid) and x < len(grid[y]) else 0
+            if cell == 1:  # SETTLEMENT
+                settlements.append({
+                    "x": x, "y": y, "alive": True, "has_port": False,
+                    "owner_id": owner_id, "population": 1.0, "food": 1.0,
+                })
+                owner_id += 1
+            elif cell == 2:  # PORT
+                settlements.append({
+                    "x": x, "y": y, "alive": True, "has_port": True,
+                    "owner_id": owner_id, "population": 1.0, "food": 1.0,
+                })
+                owner_id += 1
+    return settlements
+
+
+def _run_mc_for_seed(pred, grid, settlements, params, n_runs):
+    """Run MC simulation for a single seed's initial grid. Called in executor."""
+    try:
+        return pred.predict_mc(grid, settlements, params, n_runs=n_runs, n_workers=4)
+    except Exception as e:
+        log.error(f"MC worker error: {e}")
+        return None
+
+
+def _blend_predictions(
+    lookup_pred: List[List[List[float]]],
+    mc_pred: List[List[List[float]]],
+    H: int,
+    W: int,
+    alpha: float = 0.6,
+) -> List[List[List[float]]]:
+    """Blend lookup+shift predictions with MC predictions.
+
+    alpha: weight for lookup_pred (1-alpha for mc_pred).
+    Returns normalized (H, W, 6) nested list.
+    """
+    FLOOR = 0.001
+    blended = []
+    for y in range(H):
+        row = []
+        for x in range(W):
+            p = []
+            total = 0.0
+            for c in range(NUM_CLASSES):
+                v = alpha * lookup_pred[y][x][c] + (1 - alpha) * mc_pred[y][x][c]
+                v = max(v, FLOOR)
+                p.append(v)
+                total += v
+            # Normalize
+            for c in range(NUM_CLASSES):
+                p[c] /= total
+            row.append(p)
+        blended.append(row)
+    return blended
 
 
 def _accumulate_transitions(
