@@ -459,15 +459,24 @@ TEMPLATES: dict[str, dict] = {
     },
 
     "create_project_existing_customer": {
-        "description": "Create a project linked to an existing customer (search by name first). Must set projectManager.",
+        "description": "Create a project linked to an existing customer (search by name first). Must set projectManager with proper entitlements.",
         "relevant_schemas": ["Project", "Customer"],
         "extract_fields": ["project_name", "customer_name", "startDate", "endDate", "project_description", "projectManager"],
-        "optimal_calls": 3,
+        "optimal_calls": 4,
         "steps": [
             {
                 "method": "GET",
                 "path": "/employee",
                 "params": {"fields": "id", "count": 1},
+            },
+            {
+                "method": "PUT",
+                "path": "/employee/entitlement/:grantEntitlementsByTemplate",
+                "params": {
+                    "employeeId": "$step_0.values[0].id",
+                    "template": "ALL_PRIVILEGES",
+                },
+                "note": "Grant project manager access to employee",
             },
             {
                 "method": "GET",
@@ -480,7 +489,7 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{project_name}}",
                     "description": "{{project_description}}",
-                    "customer": {"id": "$step_1.values[0].id"},
+                    "customer": {"id": "$step_2.values[0].id"},
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
                     "isInternal": False,
