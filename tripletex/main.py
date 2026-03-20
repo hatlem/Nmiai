@@ -201,7 +201,7 @@ async def solve(request: Request):
 
     client = TripletexClient(base_url, session_token)
     task_type = "unknown"
-    retried = False
+    retry_count = 0
 
     try:
         # 1. Classify + extract values + build plan from template
@@ -216,11 +216,13 @@ async def solve(request: Request):
         # 3. Execute
         result = await execute_plan(plan, client, start)
 
-        # 4. If failed and time permits, re-extract and retry ONCE
-        if not result["success"] and time.monotonic() - start < 150:
-            retried = True
+        # 4. If failed and time permits, re-extract and retry (up to 2 retries)
+        max_retries = 2
+        while not result["success"] and retry_count < max_retries and time.monotonic() - start < 220:
+            retry_count += 1
             raw_errors = result.get("failed", [])
             errors = [{"step": idx, "status_code": res.get("status_code", 0), "error": res.get("data", {})} for idx, res in raw_errors]
+            logger.info(f"Retry {retry_count}/{max_retries} for {task_type} | errors: {errors}")
             new_values = await re_extract_values(prompt, task_type, errors, files, original_values=plan.get("extracted_values", {}))
             new_plan = build_concrete_plan(task_type, new_values)
             result = await execute_plan(new_plan, client, start)
@@ -242,12 +244,12 @@ async def solve(request: Request):
 
         logger.info(
             f"Done in {elapsed:.1f}s | type={task_type} | tier={tier} | "
-            f"success={success} | retried={retried} | "
+            f"success={success} | retries={retry_count} | "
             f"api_calls={client.call_count} | errors={client.error_count} | "
             f"extracted={extracted_keys}"
         )
         _record(task_type, success, elapsed, client.call_count,
-                client.error_count, int(retried), prompt,
+                client.error_count, retry_count, prompt,
                 tier=tier, confidence=confidence,
                 extracted_keys=extracted_keys, error_detail=error_detail)
 
@@ -255,9 +257,9 @@ async def solve(request: Request):
         update_test(
             test_id,
             status="passed" if success else "failed",
-            details=f"type={task_type} elapsed={elapsed:.1f}s calls={client.call_count} retried={retried}",
+            details=f"type={task_type} elapsed={elapsed:.1f}s calls={client.call_count} retries={retry_count}",
             metadata={"task_type": task_type, "api_calls": client.call_count,
-                       "errors": client.error_count, "retried": retried},
+                       "errors": client.error_count, "retries": retry_count},
         )
 
         # Report task-level result to dashboard
@@ -273,7 +275,7 @@ async def solve(request: Request):
         logger.error(f"Agent error: {e}", exc_info=True)
         elapsed = time.monotonic() - start
         _record(task_type, False, elapsed, client.call_count,
-                client.error_count, int(retried), prompt, False,
+                client.error_count, retry_count, prompt, False,
                 error_detail=str(e)[:300])
         update_test(test_id, status="failed", details=f"Error: {e}")
         _report_task_result(
