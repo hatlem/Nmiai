@@ -267,12 +267,12 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
                   "isForeignTravel", "sendToCustomer"):
             if isinstance(v, str):
                 v = v.lower() in ("true", "1", "yes", "ja")
-        # Clean nested dicts recursively
+        # Clean nested dicts — but use "/" as path to avoid adding top-level defaults
         if isinstance(v, dict):
-            v = _pre_validate_body(method, path, v, None) or v
+            v = _pre_validate_body(method, "/", v, None) or v
         # Clean lists of dicts
         if isinstance(v, list):
-            v = [_pre_validate_body(method, path, item, None) if isinstance(item, dict) else item for item in v]
+            v = [_pre_validate_body(method, "/", item, None) if isinstance(item, dict) else item for item in v]
         cleaned[k] = v
 
     # Fix voucher postings: row must start from 1 (row 0 is reserved/system-generated)
