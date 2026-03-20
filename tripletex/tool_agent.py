@@ -341,9 +341,20 @@ POST /contact {"firstName":"X", "lastName":"Y", "email":"x@y.no", "customer":{"i
     "payment": """\
 ## Payment (innbetaling)
 For invoice payment:
-1. GET /invoice/paymentType?fields=id,description
+1. GET /invoice/paymentType?fields=id,description — get payment type ID
 2. PUT /invoice/INV_ID/:payment?paymentDate=YYYY-MM-DD&paymentTypeId=X&paidAmount=AMOUNT
    - All params go as query params, NOT body
+
+To FIND an invoice:
+- GET /invoice?invoiceDateFrom=2026-01-01&invoiceDateTo=2026-12-31&fields=id,invoiceNumber,amount,amountOutstanding,customer
+- MUST include invoiceDateFrom AND invoiceDateTo (both required!)
+- Valid fields: id, version, invoiceNumber, invoiceDate, invoiceDueDate, amount, amountOutstanding, amountCurrency, customer, kid, comment
+- INVALID fields (cause 400): voucherNumber, amountExVat, totalAmount, status
+
+To reverse/undo a payment:
+1. Create the full invoice flow first (customer → order → invoice → payment)
+2. GET /ledger/voucher?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&fields=id,date,description — find the payment voucher
+3. PUT /ledger/voucher/VOUCHER_ID/:reverse?date=YYYY-MM-DD — reverse it (date is QUERY param!)
 """,
 
     "credit_note": """\
