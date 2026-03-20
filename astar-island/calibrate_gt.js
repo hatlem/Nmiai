@@ -3,12 +3,20 @@
  * GT Calibration Pipeline for Astar Island
  *
  * Fetches ground truth from ALL completed rounds, builds a comprehensive
- * context-based lookup table, and validates predictions against held-out data.
+ * context-based lookup table with fine-grained binning, runs leave-one-round-out
+ * cross-validation, and exports per-round transition matrices.
  *
  * Usage:
- *   node calibrate_gt.js --token YOUR_TOKEN
- *   node calibrate_gt.js                  # uses cached data only
- *   node calibrate_gt.js --validate       # leave-one-round-out validation
+ *   node calibrate_gt.js --token YOUR_TOKEN   # fetch + analyze
+ *   node calibrate_gt.js                      # uses cached data only
+ *   node calibrate_gt.js --fetch --token T    # force re-fetch
+ *
+ * Context key format:
+ *   {init_class}_{food_bin}_{coastal}_{dist_bin}_{neighbor_sett_bin}
+ *   food_bin: min(foodPotential, 4) -- 0 to 4
+ *   coastal: 0 or 1
+ *   dist_bin: "near" (0-3), "mid" (4-7), "far" (8-12), "remote" (13+)
+ *   neighbor_sett_bin: min(neighborSettlements, 3) -- 0 to 3
  */
 
 const fs = require("fs");
@@ -19,13 +27,13 @@ const API = "https://api.ainm.no/astar-island";
 const CACHE_DIR = path.join(__dirname, "cache");
 const NUM_CLASSES = 6;
 const TERRAIN_TO_CLASS = { 10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5 };
+const MIN_N_FOR_EXPORT = 3;
 
 function parseArgs() {
-  const args = { token: null, validate: false, fetch: false };
+  const args = { token: null, fetch: false };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--token" && argv[i + 1]) args.token = argv[++i];
-    else if (argv[i] === "--validate") args.validate = true;
     else if (argv[i] === "--fetch") args.fetch = true;
   }
   return args;
@@ -61,7 +69,7 @@ function ensureCache() {
   if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 }
 
-// ── Spatial helpers ──────────────────────────────────────────────────────────
+// -- Spatial helpers ----------------------------------------------------------
 
 function classifyCode(code) { return TERRAIN_TO_CLASS[code] ?? 0; }
 
@@ -111,19 +119,33 @@ function neighborSettlements(grid, H, W, y, x) {
 }
 
 function contextKey(ic, food, coastal, sd, nSett) {
-  const foodBin = Math.min(food, 3);
+  const foodBin = Math.min(food, 4);
   const coastBin = coastal ? 1 : 0;
   const distBin = sd <= 3 ? "near" : sd <= 7 ? "mid" : sd <= 12 ? "far" : "remote";
   const settBin = Math.min(nSett, 3);
   return `${ic}_${foodBin}_${coastBin}_${distBin}_${settBin}`;
 }
 
-// ── Fetch GT data ────────────────────────────────────────────────────────────
+// Fallback keys with decreasing specificity
+function fallbackKeys(ic, food, coastal, sd, nSett) {
+  const foodBin = Math.min(food, 4);
+  const coastBin = coastal ? 1 : 0;
+  const distBin = sd <= 3 ? "near" : sd <= 7 ? "mid" : sd <= 12 ? "far" : "remote";
+  const settBin = Math.min(nSett, 3);
+  return [
+    `${ic}_${foodBin}_${coastBin}_${distBin}_${settBin}`,  // full key
+    `${ic}_${foodBin}_${coastBin}_${distBin}_0`,            // drop neighbor count
+    `${ic}_${Math.min(foodBin, 2)}_${coastBin}_${distBin}_0`, // coarser food
+    `${ic}_0_${coastBin}_${distBin}_0`,                     // drop food
+    `${ic}_0_0_${distBin}_0`,                               // init class + dist only
+  ];
+}
+
+// -- Fetch GT data ------------------------------------------------------------
 
 async function fetchAllGT(token) {
   ensureCache();
 
-  // Get all rounds
   const rounds = await httpGet(`${API}/my-rounds`, token);
   const completed = rounds.filter(r => r.status === "completed" && r.round_score);
   console.log(`Found ${completed.length} completed rounds with scores`);
@@ -133,7 +155,6 @@ async function fetchAllGT(token) {
   for (const round of completed) {
     console.log(`\nRound ${round.round_number} (score: ${round.round_score}, rank: ${round.rank})`);
 
-    // Get initial states
     const cacheInitPath = path.join(CACHE_DIR, `r${round.round_number}_init.json`);
     let detail;
     if (fs.existsSync(cacheInitPath)) {
@@ -145,7 +166,6 @@ async function fetchAllGT(token) {
       console.log("  Initial states: fetched");
     }
 
-    // Get GT for each seed
     const seedsCount = detail.seeds_count || 5;
     for (let si = 0; si < seedsCount; si++) {
       const cacheGTPath = path.join(CACHE_DIR, `r${round.round_number}_gt_s${si}.json`);
@@ -154,7 +174,7 @@ async function fetchAllGT(token) {
         analysis = JSON.parse(fs.readFileSync(cacheGTPath, "utf8"));
         console.log(`  Seed ${si}: cached`);
       } else {
-        await new Promise(r => setTimeout(r, 200)); // Rate limit
+        await new Promise(r => setTimeout(r, 200));
         analysis = await httpGet(`${API}/analysis/${round.id}/${si}`, token);
         fs.writeFileSync(cacheGTPath, JSON.stringify(analysis));
         console.log(`  Seed ${si}: fetched (score: ${analysis.score})`);
@@ -177,13 +197,13 @@ async function fetchAllGT(token) {
   return allData;
 }
 
-// ── Build calibrated lookup table ────────────────────────────────────────────
+// -- Build calibrated lookup table --------------------------------------------
 
 function buildLookupTable(allData, excludeRound = null) {
   const ctxStats = {};
 
   for (const data of allData) {
-    if (excludeRound && data.round === excludeRound) continue;
+    if (excludeRound !== null && data.round === excludeRound) continue;
 
     const { H, W, gt, initial_grid: ig } = data;
 
@@ -204,12 +224,12 @@ function buildLookupTable(allData, excludeRound = null) {
     }
   }
 
-  // Convert to distributions with Jeffreys smoothing
+  // Convert to distributions with light Jeffreys smoothing
   const lookup = {};
   for (const [key, stats] of Object.entries(ctxStats)) {
     const dist = new Array(NUM_CLASSES);
     const total = stats.counts.reduce((a, b) => a + b, 0);
-    const alpha = 0.01; // Very light smoothing
+    const alpha = 0.01;
     const denom = total + NUM_CLASSES * alpha;
     for (let c = 0; c < NUM_CLASSES; c++) {
       dist[c] = (stats.counts[c] + alpha) / denom;
@@ -220,12 +240,50 @@ function buildLookupTable(allData, excludeRound = null) {
   return lookup;
 }
 
-// ── Score predictions against GT ─────────────────────────────────────────────
+// -- Build per-round transition matrices --------------------------------------
+
+function buildTransitionMatrices(allData) {
+  const roundNums = [...new Set(allData.map(d => d.round))].sort((a, b) => a - b);
+  const matrices = {};
+
+  for (const r of roundNums) {
+    const seeds = allData.filter(d => d.round === r);
+    // For each initial class, accumulate the GT distribution
+    const classSums = {};
+    for (let ic = 0; ic < NUM_CLASSES; ic++) {
+      classSums[ic] = { counts: new Float64Array(NUM_CLASSES), n: 0 };
+    }
+
+    for (const data of seeds) {
+      const { H, W, gt, initial_grid: ig } = data;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const ic = classifyCode(ig[y][x]);
+          for (let c = 0; c < NUM_CLASSES; c++) classSums[ic].counts[c] += gt[y][x][c];
+          classSums[ic].n++;
+        }
+      }
+    }
+
+    const mat = {};
+    for (let ic = 0; ic < NUM_CLASSES; ic++) {
+      const total = classSums[ic].counts.reduce((a, b) => a + b, 0);
+      if (total === 0) continue;
+      const dist = new Array(NUM_CLASSES);
+      for (let c = 0; c < NUM_CLASSES; c++) dist[c] = +(classSums[ic].counts[c] / total).toFixed(6);
+      mat[ic] = dist;
+    }
+
+    matrices[r] = { n_seeds: seeds.length, matrix: mat };
+  }
+
+  return { rounds: matrices };
+}
+
+// -- Score predictions against GT ---------------------------------------------
 
 function scoreAgainstGT(pred, gt, H, W) {
   let totalWKL = 0, totalEntropy = 0;
-  const klByClass = new Float64Array(NUM_CLASSES);
-  const countByClass = new Int32Array(NUM_CLASSES);
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -236,23 +294,17 @@ function scoreAgainstGT(pred, gt, H, W) {
           kl += gt[y][x][c] * Math.log(gt[y][x][c] / Math.max(pred[y][x][c], 1e-12));
         }
       }
-      const wkl = entropy * kl;
-      totalWKL += wkl;
+      totalWKL += entropy * kl;
       totalEntropy += entropy;
-
-      // Find dominant initial class for this cell
-      const initVal = gt[y][x].indexOf(Math.max(...gt[y][x]));
-      klByClass[initVal] += wkl;
-      countByClass[initVal]++;
     }
   }
 
-  const weightedKL = totalWKL / totalEntropy;
+  const weightedKL = totalEntropy > 0 ? totalWKL / totalEntropy : 0;
   const score = 100 * Math.exp(-3 * weightedKL);
-  return { score, weightedKL, totalWKL, totalEntropy, klByClass, countByClass };
+  return { score, weightedKL };
 }
 
-// ── Generate predictions from lookup table ───────────────────────────────────
+// -- Generate predictions from lookup table -----------------------------------
 
 function predictFromLookup(lookup, ig, H, W) {
   const pred = Array.from({ length: H }, () =>
@@ -261,6 +313,7 @@ function predictFromLookup(lookup, ig, H, W) {
 
   const MOUNTAIN_PRIOR = [0.002, 0.002, 0.002, 0.002, 0.002, 0.990];
   const OCEAN_PRIOR = [0.990, 0.002, 0.002, 0.002, 0.002, 0.002];
+  const DEFAULT_PRIOR = [0.5, 0.1, 0.05, 0.05, 0.25, 0.05];
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -274,21 +327,19 @@ function predictFromLookup(lookup, ig, H, W) {
       const coastal = isCoastal(ig, H, W, y, x);
       const sd = settDist(ig, H, W, y, x);
       const nSett = neighborSettlements(ig, H, W, y, x);
-      const key = contextKey(ic, food, coastal, sd, nSett);
 
-      const entry = lookup[key];
-      if (entry && entry.n >= 3) {
-        pred[y][x] = [...entry.dist];
-      } else {
-        // Fallback: try broader context (drop nSett)
-        const broadKey = contextKey(ic, food, coastal, sd, 0);
-        const broadEntry = lookup[broadKey];
-        if (broadEntry && broadEntry.n >= 3) {
-          pred[y][x] = [...broadEntry.dist];
-        } else {
-          // Very broad fallback
-          pred[y][x] = [0.5, 0.1, 0.05, 0.05, 0.25, 0.05];
+      const keys = fallbackKeys(ic, food, coastal, sd, nSett);
+      let found = false;
+      for (const key of keys) {
+        const entry = lookup[key];
+        if (entry && entry.n >= MIN_N_FOR_EXPORT) {
+          pred[y][x] = [...entry.dist];
+          found = true;
+          break;
         }
+      }
+      if (!found) {
+        pred[y][x] = [...DEFAULT_PRIOR];
       }
 
       // Floor and normalize
@@ -311,56 +362,88 @@ function predictFromLookup(lookup, ig, H, W) {
   return pred;
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// -- Load cached data ---------------------------------------------------------
+
+function loadCachedData() {
+  if (!fs.existsSync(CACHE_DIR)) return null;
+
+  const files = fs.readdirSync(CACHE_DIR);
+  const gtFiles = files.filter(f => f.match(/^r\d+_gt_s\d+\.json$/));
+  if (gtFiles.length === 0) return null;
+
+  console.log("Loading from cache...");
+  const allData = [];
+
+  // Discover all round numbers from cache files
+  const roundNums = [...new Set(
+    files
+      .filter(f => f.match(/^r\d+_init\.json$/))
+      .map(f => parseInt(f.match(/^r(\d+)_init\.json$/)[1]))
+  )].sort((a, b) => a - b);
+
+  for (const r of roundNums) {
+    const initPath = path.join(CACHE_DIR, `r${r}_init.json`);
+    if (!fs.existsSync(initPath)) continue;
+    const detail = JSON.parse(fs.readFileSync(initPath, "utf8"));
+    const seedsCount = detail.seeds_count || 5;
+    for (let si = 0; si < seedsCount; si++) {
+      const gtPath = path.join(CACHE_DIR, `r${r}_gt_s${si}.json`);
+      if (!fs.existsSync(gtPath)) continue;
+      const analysis = JSON.parse(fs.readFileSync(gtPath, "utf8"));
+      allData.push({
+        round: r, seed: si,
+        H: analysis.height, W: analysis.width,
+        gt: analysis.ground_truth,
+        initial_grid: analysis.initial_grid,
+        score: analysis.score,
+        prediction: analysis.prediction,
+      });
+    }
+  }
+
+  return allData.length > 0 ? allData : null;
+}
+
+// -- Main ---------------------------------------------------------------------
 
 async function main() {
   const args = parseArgs();
-
   let allData;
-  const allDataPath = path.join(CACHE_DIR, "all_gt_data.json");
 
   if (args.token || args.fetch) {
     if (!args.token) { console.error("Need --token for fetching"); process.exit(1); }
     allData = await fetchAllGT(args.token);
-    ensureCache();
-    // Don't cache full GT data (too large), cache individual files instead
     console.log(`\nTotal: ${allData.length} seed-level GT datasets`);
-  } else if (fs.existsSync(path.join(CACHE_DIR, "r1_gt_s0.json"))) {
-    // Load from individual cache files
-    console.log("Loading from cache...");
-    allData = [];
-    for (let r = 1; r <= 10; r++) {
-      const initPath = path.join(CACHE_DIR, `r${r}_init.json`);
-      if (!fs.existsSync(initPath)) continue;
-      const detail = JSON.parse(fs.readFileSync(initPath, "utf8"));
-      const seedsCount = detail.seeds_count || 5;
-      for (let si = 0; si < seedsCount; si++) {
-        const gtPath = path.join(CACHE_DIR, `r${r}_gt_s${si}.json`);
-        if (!fs.existsSync(gtPath)) continue;
-        const analysis = JSON.parse(fs.readFileSync(gtPath, "utf8"));
-        allData.push({
-          round: r, seed: si,
-          H: analysis.height, W: analysis.width,
-          gt: analysis.ground_truth,
-          initial_grid: analysis.initial_grid,
-          score: analysis.score,
-          prediction: analysis.prediction,
-        });
-      }
+  } else {
+    allData = loadCachedData();
+    if (!allData) {
+      console.log("No cached data found in cache/ directory.");
+      console.log("");
+      console.log("To fetch ground truth data, run:");
+      console.log("  node calibrate_gt.js --token YOUR_TOKEN");
+      console.log("");
+      console.log("Get your token from https://app.ainm.no (Astar Island task page).");
+      process.exit(0);
     }
     console.log(`Loaded ${allData.length} seed-level datasets from cache`);
-  } else {
-    console.error("No cached data. Run with --token YOUR_TOKEN first.");
-    process.exit(1);
   }
 
   if (allData.length === 0) { console.error("No data!"); process.exit(1); }
 
   // Build full lookup table
-  console.log("\n=== Building GT-Calibrated Lookup Table ===");
+  console.log("\n=== Building GT-Calibrated Lookup Table (fine-grained) ===");
   const lookup = buildLookupTable(allData);
-  console.log(`Context bins: ${Object.keys(lookup).length}`);
+  const keys = Object.keys(lookup);
+  console.log(`Context bins: ${keys.length}`);
   console.log(`Total cells: ${Object.values(lookup).reduce((s, v) => s + v.n, 0)}`);
+
+  // Stats on bin sizes
+  const nValues = Object.values(lookup).map(v => v.n);
+  nValues.sort((a, b) => a - b);
+  const exportable = nValues.filter(n => n >= MIN_N_FOR_EXPORT).length;
+  console.log(`Bins with n >= ${MIN_N_FOR_EXPORT}: ${exportable} / ${keys.length}`);
+  console.log(`Median bin size: ${nValues[Math.floor(nValues.length / 2)]}`);
+  console.log(`Min: ${nValues[0]}, Max: ${nValues[nValues.length - 1]}`);
 
   // Show top context bins by count
   const sorted = Object.entries(lookup).sort((a, b) => b[1].n - a[1].n);
@@ -370,10 +453,34 @@ async function main() {
     console.log(`  ${key} (n=${val.n}): [${d}]`);
   }
 
-  // Score lookup-only predictions against GT
-  console.log("\n=== Scoring Lookup-Only Predictions ===");
-  const rounds = [...new Set(allData.map(d => d.round))];
+  // Leave-one-round-out cross-validation (always run)
+  const rounds = [...new Set(allData.map(d => d.round))].sort((a, b) => a - b);
 
+  console.log("\n=== Leave-One-Round-Out Cross-Validation ===");
+  console.log("(FLOOR score using lookup only, no observations)\n");
+  let sumCVScore = 0;
+  const cvResults = [];
+
+  for (const holdout of rounds) {
+    const valLookup = buildLookupTable(allData, holdout);
+    const seeds = allData.filter(d => d.round === holdout);
+    let totalScore = 0;
+    for (const seed of seeds) {
+      const pred = predictFromLookup(valLookup, seed.initial_grid, seed.H, seed.W);
+      const result = scoreAgainstGT(pred, seed.gt, seed.H, seed.W);
+      totalScore += result.score;
+    }
+    const avgScore = totalScore / seeds.length;
+    sumCVScore += avgScore;
+    cvResults.push({ round: holdout, score: avgScore });
+    console.log(`  Holdout R${holdout}: ${avgScore.toFixed(2)}`);
+  }
+
+  const meanCV = sumCVScore / rounds.length;
+  console.log(`\n  Mean CV score: ${meanCV.toFixed(2)} (this is the floor without observations)`);
+
+  // Score using full lookup (not held out - shows upper bound with all data)
+  console.log("\n=== Full Lookup Predictions (all data, no holdout) ===");
   for (const r of rounds) {
     const seeds = allData.filter(d => d.round === r);
     let totalScore = 0;
@@ -383,35 +490,44 @@ async function main() {
       totalScore += result.score;
     }
     const avgScore = totalScore / seeds.length;
-    const actualScore = seeds[0].score ? seeds.reduce((s, d) => s + d.score, 0) / seeds.length : "N/A";
-    console.log(`  Round ${r}: lookup=${avgScore.toFixed(1)} (actual submitted=${actualScore})`);
+    console.log(`  Round ${r}: ${avgScore.toFixed(2)}`);
   }
 
-  if (args.validate) {
-    console.log("\n=== Leave-One-Round-Out Validation ===");
-    for (const holdout of rounds) {
-      const valLookup = buildLookupTable(allData, holdout);
-      const seeds = allData.filter(d => d.round === holdout);
-      let totalScore = 0;
-      for (const seed of seeds) {
-        const pred = predictFromLookup(valLookup, seed.initial_grid, seed.H, seed.W);
-        const result = scoreAgainstGT(pred, seed.gt, seed.H, seed.W);
-        totalScore += result.score;
-      }
-      const avgScore = totalScore / seeds.length;
-      console.log(`  Holdout R${holdout}: ${avgScore.toFixed(1)} (using lookup from other rounds)`);
+  // Build and save per-round transition matrices
+  console.log("\n=== Per-Round Transition Matrices ===");
+  const transData = buildTransitionMatrices(allData);
+  ensureCache();
+
+  for (const [r, info] of Object.entries(transData.rounds)) {
+    const outPath = path.join(CACHE_DIR, `transitions_r${r}.json`);
+    fs.writeFileSync(outPath, JSON.stringify(info.matrix, null, 2));
+    console.log(`  Round ${r} (${info.n_seeds} seeds): saved to transitions_r${r}.json`);
+    // Print the matrix compactly
+    for (const [ic, dist] of Object.entries(info.matrix)) {
+      const classNames = ["ocean", "settlement", "port", "road", "farm", "mountain"];
+      console.log(`    ${classNames[ic]}: [${dist.map(v => (v * 100).toFixed(1) + "%").join(", ")}]`);
     }
   }
 
-  // Export lookup for browser agent
+  // Export gt_lookup.json with n >= MIN_N_FOR_EXPORT
   const exportPath = path.join(__dirname, "gt_lookup.json");
   const exportData = {};
   for (const [key, val] of Object.entries(lookup)) {
-    if (val.n >= 2) exportData[key] = val.dist.map(v => +v.toFixed(6));
+    if (val.n >= MIN_N_FOR_EXPORT) {
+      exportData[key] = val.dist.map(v => +v.toFixed(6));
+    }
   }
   fs.writeFileSync(exportPath, JSON.stringify(exportData));
-  console.log(`\nExported ${Object.keys(exportData).length} context bins to gt_lookup.json`);
+  console.log(`\nExported ${Object.keys(exportData).length} context bins to gt_lookup.json (n >= ${MIN_N_FOR_EXPORT})`);
   console.log(`File size: ${(fs.statSync(exportPath).size / 1024).toFixed(1)} KB`);
+
+  // Summary
+  console.log("\n=== Summary ===");
+  console.log(`Rounds analyzed: ${rounds.length}`);
+  console.log(`Seeds total: ${allData.length}`);
+  console.log(`Context bins (fine): ${keys.length}`);
+  console.log(`Exported bins (n>=${MIN_N_FOR_EXPORT}): ${Object.keys(exportData).length}`);
+  console.log(`CV floor score: ${meanCV.toFixed(2)}`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

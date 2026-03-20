@@ -237,9 +237,11 @@ class ONNXDetector:
         # Try to infer default imgsz from model input shape
         input_shape = self.session.get_inputs()[0].shape
         if isinstance(input_shape[-1], int) and input_shape[-1] > 0:
-            self._default_imgsz = input_shape[-1]
+            self._default_imgsz = input_shape[-1]  # Fixed input size
+            self._dynamic = False
         else:
-            self._default_imgsz = 640
+            self._default_imgsz = 1280  # Dynamic — default to 1280 for full images
+            self._dynamic = True
 
         print(f"[ONNX] Loaded {model_path}")
         print(f"[ONNX] Providers: {self.session.get_providers()}")
@@ -255,7 +257,9 @@ class ONNXDetector:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Run single inference pass and return (boxes_xyxy, scores, class_ids)."""
         orig_h, orig_w = img_bgr.shape[:2]
-        tensor, ratio, pad = _preprocess(img_bgr, imgsz)
+        # For fixed-shape models, always use native size; for dynamic, use requested size
+        actual_imgsz = imgsz if self._dynamic else self._default_imgsz
+        tensor, ratio, pad = _preprocess(img_bgr, actual_imgsz)
 
         outputs = self.session.run(None, {self.input_name: tensor})
         raw = outputs[0]

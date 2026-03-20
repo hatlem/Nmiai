@@ -93,7 +93,7 @@ class ProductClassifier:
             if "classifier" in data:
                 cls_data = data["classifier"]
                 model = timm.create_model(
-                    "vit_base_patch14_dinov2.lvd142m", pretrained=False, num_classes=0, img_size=224,
+                    "vit_base_patch14_dinov2", pretrained=False, num_classes=0, img_size=224,
                 )
                 head = nn.Linear(cls_data.get("embed_dim", 768), NUM_CLASSES)
 
@@ -118,7 +118,7 @@ class ProductClassifier:
             # Load embedding model
             if "embedding_backbone" in data and "product_embeddings" in data:
                 emb_model = timm.create_model(
-                    "vit_base_patch14_dinov2.lvd142m", pretrained=False, num_classes=0, img_size=224,
+                    "vit_base_patch14_dinov2", pretrained=False, num_classes=0, img_size=224,
                 )
                 emb_model.load_state_dict(data["embedding_backbone"], strict=False)
                 emb_model = emb_model.to(self.device).eval()
@@ -177,7 +177,19 @@ class ProductClassifier:
                 backbone_sd = _to_float32(state_dict["backbone"])
                 head_sd = _to_float32(state_dict[head_key])
                 embed_dim = state_dict.get("embed_dim", 768)
-                head = nn.Linear(embed_dim, NUM_CLASSES)
+
+                # Detect head architecture from state dict keys
+                head_keys = list(head_sd.keys())
+                if any(k.startswith("0.") for k in head_keys):
+                    # Multi-layer head: Sequential(LayerNorm, GELU, Linear)
+                    head = nn.Sequential(
+                        nn.LayerNorm(embed_dim),
+                        nn.GELU(),
+                        nn.Linear(embed_dim, NUM_CLASSES),
+                    )
+                else:
+                    head = nn.Linear(embed_dim, NUM_CLASSES)
+
                 model.load_state_dict(backbone_sd, strict=False)
                 head.load_state_dict(head_sd)
             elif any(k.startswith("head.") for k in state_dict):
@@ -207,6 +219,11 @@ class ProductClassifier:
                 ),
             ])
             print(f"[CLASSIFIER] Loaded DINOv2 supervised head from {weights_path.name}")
+
+            # Note: product_embeddings are available but were generated with ArcFace backbone,
+            # not the supervised backbone. Using them would cause a mismatch and reduce accuracy.
+            # Supervised-only mode (91.3% val_acc) is better than dual with mismatched embeddings.
+
         except Exception as e:
             print(f"[CLASSIFIER] Failed to load DINOv2 supervised: {e}")
 

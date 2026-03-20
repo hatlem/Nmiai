@@ -232,6 +232,12 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
                 logger.info("Quick-fix: added amountGrossCurrency to voucher postings")
                 continue
 
+        # 422 with "vatType" or "mva-kode" on voucher postings - can't quick-fix without API call
+        # Fall through to LLM repair which will add GET /ledger/vatType step
+        if status == 422 and ("vattype" in error_msg or "mva-kode" in error_msg or "avgiftspliktig" in error_msg):
+            logger.info("Quick-fix: vatType error on voucher — delegating to LLM repair (needs GET /ledger/vatType)")
+            return None
+
         # 422 with "bankkontonummer" - company needs bank account number
         # PUT /company returns 405 in dev sandbox. Competition sandboxes have this pre-configured.
         if status == 422 and "bankkontonummer" in error_msg:
