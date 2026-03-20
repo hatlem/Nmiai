@@ -19,10 +19,10 @@ const fs = require('fs'), path = require('path'), https = require('https');
 
 const NC = 6;
 const TTC = {10:0, 11:0, 0:0, 1:1, 2:2, 3:3, 4:4, 5:5};
-const FL = 0.001;
-const DAMP = 0.7;
-const COAST_DAMP = 0.5;
-const CLIP = [0.5, 3.0];
+const FL = 0.0005;
+const DAMP = 0.8;
+const COAST_DAMP = 0.3;
+const CLIP = [0.3, 5.0];
 const SIM_DELAY = 280;
 const SUB_DELAY = 600;
 const POLL = 30000;
