@@ -12,6 +12,8 @@ if [ "$1" = "--twostage" ]; then
     MODE="twostage"
 elif [ "$1" = "--best" ]; then
     MODE="best"
+elif [ "$1" = "--ensemble" ]; then
+    MODE="ensemble"
 fi
 
 echo "=== Packaging ${MODE} submission ==="
@@ -78,6 +80,19 @@ if [ "$MODE" = "best" ]; then
         if [ -f "$f" ]; then
             cp "$f" submission_pkg/
             echo "  Included: $f (ensemble)"
+        fi
+    done
+
+elif [ "$MODE" = "ensemble" ]; then
+    # 3-model WBF ensemble (all multi-class ONNX)
+    cp run_ensemble.py submission_pkg/run.py
+    cp src/onnx_detector.py submission_pkg/src/
+    echo "  Included: src/onnx_detector.py"
+
+    for f in "pseudo_best.onnx" "fold0_best.onnx" "fold2_best.onnx"; do
+        if [ -f "$f" ]; then
+            cp "$f" submission_pkg/
+            echo "  Included: $f"
         fi
     done
 

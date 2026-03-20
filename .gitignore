@@ -8,3 +8,4 @@ dashboard/
 .playwright-mcp/
 ainm-login.png
 .env.ainm
+tripletex/results.jsonl

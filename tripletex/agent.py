@@ -90,6 +90,20 @@ def _get_model(model_id: str, system_instruction: str) -> GenerativeModel:
     return GenerativeModel(model_id, system_instruction=system_instruction)
 
 
+async def _generate_with_retry(model: GenerativeModel, contents, max_retries: int = 2) -> any:
+    """Call generate_content_async with 429 retry."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await model.generate_content_async(contents)
+        except Exception as e:
+            if ("429" in str(e) or "Resource exhausted" in str(e)) and attempt < max_retries:
+                wait = 2 * (attempt + 1)
+                logger.warning(f"429 rate limit, retry {attempt+1} in {wait}s")
+                await asyncio.sleep(wait)
+            else:
+                raise
+
+
 def get_tier(task_type: str) -> int:
     return TIER_MAP.get(task_type, 3)
 
@@ -638,7 +652,7 @@ async def classify_task(prompt: str) -> tuple[str, float]:
     model = _get_model(MODEL_FLASH_LITE, CLASSIFIER_PROMPT)
     try:
         response = await asyncio.wait_for(
-            model.generate_content_async(
+            _generate_with_retry(model,
                 hint_prefix + prompt,
                 generation_config={"temperature": 0.0, "max_output_tokens": 200},
             ),
@@ -661,7 +675,7 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         pro_model = _get_model(MODEL_PRO, CLASSIFIER_PROMPT_PRO)
         try:
             response = await asyncio.wait_for(
-                pro_model.generate_content_async(
+            _generate_with_retry(pro_model,
                     prompt,
                     generation_config={"temperature": 0.0, "max_output_tokens": 300},
                 ),
@@ -780,7 +794,7 @@ async def extract_values(prompt: str, task_type: str, files: list[dict] | None =
 
     try:
         response = await asyncio.wait_for(
-            model.generate_content_async(
+            _generate_with_retry(model,
                 parts,
                 generation_config={"temperature": 0.0, "max_output_tokens": 4096},
             ),
@@ -823,7 +837,7 @@ async def re_extract_values(
 
     try:
         response = await asyncio.wait_for(
-            model.generate_content_async(
+            _generate_with_retry(model,
                 parts,
                 generation_config={"temperature": 0.0, "max_output_tokens": 4096},
             ),
@@ -869,7 +883,7 @@ async def _create_plan_full_llm(
     logger.info(f"Full LLM planning {task_type} (tier={tier}, timeout={timeout}s): {prompt[:80]}...")
     try:
         response = await asyncio.wait_for(
-            model.generate_content_async(
+            _generate_with_retry(model,
                 parts,
                 generation_config={"temperature": 0.0, "max_output_tokens": 8192},
             ),
@@ -897,7 +911,7 @@ async def _create_plan_full_llm(
         logger.error(f"Failed to parse plan JSON: {e}. Raw: {raw_text[:300]}")
         try:
             retry_model = _get_model(MODEL_PRO, "Return ONLY valid JSON. No markdown fences. Keep reasoning under 20 words.")
-            retry_response = await retry_model.generate_content_async(
+            retry_response = await _generate_with_retry(retry_model, 
                 f"Fix this truncated JSON and complete it:\n{raw_text[:800]}\n\nReturn the complete valid JSON object.",
                 generation_config={"temperature": 0.0, "max_output_tokens": 8192},
             )

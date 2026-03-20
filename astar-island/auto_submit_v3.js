@@ -24,7 +24,7 @@ const SUBMIT_DELAY = 520; // 2 req/s for submit
 const NC = 6;
 const TTC = {10:0, 11:0, 0:0, 1:1, 2:2, 3:3, 4:4, 5:5};
 const CACHE_DIR = path.join(__dirname, 'cache');
-const PROB_FLOOR = 0.002;
+let PROB_FLOOR = 0.002; // Updated from best_config.json at round start
 
 if (!TOKEN) { console.error('Set TOKEN env var'); process.exit(1); }
 
@@ -766,6 +766,16 @@ async function processRound(round) {
   console.log(`${'='.repeat(70)}`);
 
   reloadLookup();
+  // Load optimized config
+  let SHIFT_CLIP_MIN = 0.5, SHIFT_CLIP_MAX = 3.0, COASTAL_DAMP = 0.5;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'best_config.json'), 'utf8'));
+    PROB_FLOOR = cfg.floor || 0.002;
+    SHIFT_CLIP_MIN = cfg.shiftClipMin || 0.5;
+    SHIFT_CLIP_MAX = cfg.shiftClipMax || 3.0;
+    COASTAL_DAMP = cfg.coastalDamp || 0.5;
+    log(`Config: floor=${PROB_FLOOR} clip=[${SHIFT_CLIP_MIN},${SHIFT_CLIP_MAX}] coastDamp=${COASTAL_DAMP}`);
+  } catch {}
   const detail = await apiCall('GET', `/rounds/${round.id}`);
   const H = detail.map_height, W = detail.map_width;
   const seedsCount = detail.seeds_count;
