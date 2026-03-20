@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", message=".*REST async clients.*")
 warnings.filterwarnings("ignore", message=".*deprecated.*")
 
 from tripletex_client import TripletexClient
-from learning import get_lessons, get_proven_pattern, record_error, record_success
+from learning import record_error, compile_template
 
 logger = logging.getLogger(__name__)
 
@@ -607,19 +607,6 @@ async def tool_agent_solve(
                 pass
     parts.append(Part.from_text(f"Execute this accounting task:\n\n{prompt}"))
 
-    # Inject learned knowledge
-    lessons = get_lessons(prompt)
-    proven = get_proven_pattern(prompt)
-
-    extra_context = ""
-    if lessons:
-        extra_context += f"\n\n{lessons}\n"
-    if proven:
-        extra_context += f"\n\n{proven}\n"
-
-    if extra_context:
-        parts.append(Part.from_text(extra_context))
-
     chat = model.start_chat()
     had_errors = False
     user_parts = list(parts)  # Save original user message for fallback
@@ -788,7 +775,7 @@ async def tool_agent_solve(
         parts = function_responses
 
     if not had_errors:
-        record_success(prompt, getattr(client, 'call_log', []))
+        compile_template(prompt, getattr(client, 'call_log', []))
 
     return not had_errors
 

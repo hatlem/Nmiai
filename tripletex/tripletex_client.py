@@ -26,15 +26,24 @@ class TripletexClient:
         self._cache: dict[str, dict] = {}
         self.call_log: list[dict] = []  # Per-call details for failure tracking
 
-    def _log_call(self, method: str, path: str, status: int, ok: bool, error_snippet: str = ""):
-        """Record API call for failure tracking."""
-        self.call_log.append({
+    def _log_call(self, method: str, path: str, status: int, ok: bool,
+                  error_snippet: str = "", body: dict | None = None,
+                  response_data: dict | None = None, params: dict | None = None):
+        """Record API call for failure tracking and template compilation."""
+        entry = {
             "method": method,
             "path": path,
             "status": status,
             "ok": ok,
             "error": error_snippet[:200] if error_snippet else "",
-        })
+        }
+        if body is not None:
+            entry["body"] = body
+        if response_data is not None:
+            entry["response"] = response_data
+        if params is not None:
+            entry["params"] = params
+        self.call_log.append(entry)
 
     @staticmethod
     def _fix_body(body: dict | None, path: str) -> dict | None:
@@ -160,7 +169,10 @@ class TripletexClient:
             if not result["ok"]:
                 import json as _json
                 err_snip = _json.dumps(result.get("data", {}), ensure_ascii=False, default=str)[:200]
-            self._log_call(method, path, response.status_code, result["ok"], err_snip)
+            self._log_call(
+                method, path, response.status_code, result["ok"], err_snip,
+                body=body, response_data=result.get("data"), params=params,
+            )
             return result
 
         # Should not reach here, but safety net
