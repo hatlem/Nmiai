@@ -52,7 +52,7 @@ if [ "$MODE" = "best" ]; then
     fi
 
     # Copy run script as run.py (sandbox expects run.py)
-    cp run_best.py submission_pkg/run.py
+    cp run_fast.py submission_pkg/run.py
 
     # Classifier files — placed in models/ subdirectory
     mkdir -p submission_pkg/models
@@ -61,6 +61,12 @@ if [ "$MODE" = "best" ]; then
     if [ -f "models/dinov2_classifier_weights.pt" ]; then
         cp models/dinov2_classifier_weights.pt submission_pkg/models/
         echo "  Included: models/dinov2_classifier_weights.pt (DINOv2 supervised)"
+    fi
+
+    # Multi-class YOLO for hybrid classification
+    if [ -f "multi_best.onnx" ]; then
+        cp multi_best.onnx submission_pkg/
+        echo "  Included: multi_best.onnx (hybrid classifier)"
     fi
 
     # Optional: secondary models for ensemble
@@ -139,10 +145,16 @@ if grep -rn "^import os$\|^from os import" submission_pkg/ --include="*.py" 2>/d
 fi
 echo "Sandbox compliance: OK (no import os)"
 
-# Create zip
+# Create timestamped zip
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+ZIPNAME="submission_${TIMESTAMP}.zip"
+
 cd submission_pkg
-zip -r ../submission.zip . -x ".*" "__MACOSX/*"
+zip -r "../${ZIPNAME}" . -x ".*" "__MACOSX/*"
 cd ..
+
+# Also create submission.zip symlink for easy upload
+ln -sf "${ZIPNAME}" submission.zip
 
 # Verify
 echo ""

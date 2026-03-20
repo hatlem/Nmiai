@@ -634,10 +634,18 @@ class SwarmCoordinator:
                 mode_counts = obs_counts.max(axis=1)
                 # Cells where all observations agree
                 all_agree = mode_counts == obs_n
+                # More observations + agreement → trust KT heavily
+                # n>=3 agree: use n/(n+0.5) → n=3: 86%, n=5: 91%
+                # n<3  agree: use n/(n+1.0) → n=1: 50%, n=2: 67%
+                high_n_agree = all_agree & (obs_n >= 3)
                 kt_w = np.where(
-                    all_agree,
-                    obs_n / (obs_n + 1.0),   # n=1: 50%, n=2: 67%
-                    obs_n / (obs_n + 2.0),   # n=1: 33%, n=3: 60%
+                    high_n_agree,
+                    obs_n / (obs_n + 0.3),   # n=3: 91%, n=5: 94%
+                    np.where(
+                        all_agree,
+                        obs_n / (obs_n + 1.0),   # n=1: 50%, n=2: 67%
+                        obs_n / (obs_n + 2.0),   # n=1: 33%, n=3: 60%
+                    ),
                 )[:, np.newaxis]
                 combined[observed] = (
                     kt_w * kt_pred[observed] +
@@ -669,10 +677,10 @@ class SwarmCoordinator:
                     cls_mask = unobserved & (init_cls == cls_id)
                     if cls_mask.any():
                         prior = get_domain_prior(cls_id)
-                        # 50% domain prior + 30% contextual pooling + 20% full ensemble
+                        # 40% domain prior + 40% contextual pooling + 20% full ensemble
                         combined[cls_mask] = (
-                            0.50 * prior +
-                            0.30 * ctx_pred[cls_mask] +
+                            0.40 * prior +
+                            0.40 * ctx_pred[cls_mask] +
                             0.20 * combined[cls_mask]
                         )
 
@@ -739,32 +747,54 @@ class SwarmCoordinator:
         init_grid: np.ndarray,
     ) -> np.ndarray:
         """
-        Apply cell-adaptive temperature scaling to minimize expected KL divergence.
+        Apply entropy-adaptive temperature scaling to minimize expected KL divergence.
 
         KL(p||q) is asymmetric: underestimating p_i (q_i << p_i) is catastrophic.
         Temperature T > 1 softens distributions (safer), T < 1 sharpens (riskier).
 
-        Strategy:
-        - Static terrain (mountain/ocean): T=1.0 (already near-certain, don't touch)
-        - Well-observed cells (n >= 4): T=0.95 (slightly sharpen — we have good data)
-        - Moderately observed (n = 2-3): T=1.0 (neutral)
-        - Barely observed (n = 1): T=1.05 (slightly soften — uncertain)
-        - Unobserved dynamic cells: T=1.15 (soften — domain priors are imperfect)
+        Strategy: combine observation count with prediction entropy.
+        - Well-observed AND confident (low entropy): sharpen aggressively (T=0.90)
+        - Well-observed but uncertain (high entropy): neutral (T=1.0)
+        - Moderately observed AND confident: slight sharpen (T=0.97)
+        - Moderately observed but uncertain: slight soften (T=1.05)
+        - Unobserved dynamic cells: soften (T=1.15)
+        - Static terrain (mountain/ocean): T=1.0 (don't touch)
         """
         result = pred.copy()
-
         static_mask = (init_grid == 5) | (init_grid == 10)
 
         # Build per-cell temperature map
         T = np.ones_like(n_obs, dtype=np.float64)
-        T[n_obs >= 4] = 0.95
-        T[(n_obs >= 2) & (n_obs < 4)] = 1.0
-        T[(n_obs == 1)] = 1.05
-        T[n_obs == 0] = 1.15
-        T[static_mask] = 1.0  # Don't touch static terrain
 
-        # Apply temperature: q_scaled = softmax(log(q) / T)
-        # = q^(1/T) / sum(q^(1/T))
+        # Compute prediction entropy for observed cells
+        # High confidence (low entropy) -> sharpen more
+        # Low confidence (high entropy) -> soften more
+        eps = 1e-10
+        pred_entropy = -np.sum(pred * np.log(pred + eps), axis=-1)
+        max_entropy = np.log(NUM_CLASSES)  # ~1.79 for 6 classes
+        normalized_entropy = pred_entropy / max_entropy  # 0 = certain, 1 = uniform
+
+        # Well-observed AND confident: sharpen
+        confident_observed = (n_obs >= 3) & (normalized_entropy < 0.3)
+        T[confident_observed] = 0.90
+
+        # Well-observed but uncertain: neutral
+        uncertain_observed = (n_obs >= 3) & (normalized_entropy >= 0.3)
+        T[uncertain_observed] = 1.0
+
+        # Moderately observed (n=1-2) and confident
+        T[(n_obs >= 1) & (n_obs < 3) & (normalized_entropy < 0.4)] = 0.97
+
+        # Moderately observed but uncertain
+        T[(n_obs >= 1) & (n_obs < 3) & (normalized_entropy >= 0.4)] = 1.05
+
+        # Unobserved dynamic cells: soften
+        T[n_obs == 0] = 1.15
+
+        # Static terrain: don't touch
+        T[static_mask] = 1.0
+
+        # Apply temperature
         dynamic_mask = ~static_mask
         if dynamic_mask.any():
             log_pred = np.log(result[dynamic_mask] + 1e-12)
@@ -856,13 +886,20 @@ def _get_cell_floors_swarm(init_grid: np.ndarray, sett_dist: np.ndarray) -> np.n
 
     init_cls = _classify_grid(init_grid)
 
-    remote_empty = (init_cls == 0) & (sett_dist > 8) & ~ocean_mask
+    # Empty cells far from settlements: settlement/port/ruin nearly impossible
+    far_empty = (init_cls == 0) & (sett_dist > 10) & ~ocean_mask
+    if far_empty.any():
+        floors[far_empty, 1] = STATIC_FLOOR  # settlement
+        floors[far_empty, 2] = STATIC_FLOOR  # port
+        floors[far_empty, 3] = STATIC_FLOOR  # ruin
+
+    remote_empty = (init_cls == 0) & (sett_dist > 6) & (sett_dist <= 10) & ~ocean_mask
     if remote_empty.any():
         floors[remote_empty, 1] = REMOTE_FLOOR
         floors[remote_empty, 2] = REMOTE_FLOOR
         floors[remote_empty, 3] = REMOTE_FLOOR
 
-    remote_forest = (init_cls == 4) & (sett_dist > 8)
+    remote_forest = (init_cls == 4) & (sett_dist > 6)
     if remote_forest.any():
         floors[remote_forest, 1] = REMOTE_FLOOR
         floors[remote_forest, 2] = REMOTE_FLOOR
@@ -929,16 +966,16 @@ def _get_prior_strength(init_cls: int, sett_dist: float, n_obs: float) -> float:
     if init_cls == 5:
         base = 4.0
     elif init_cls == 0 and sett_dist > 6:
-        base = 3.0
-    elif init_cls in (1, 2):
-        base = 1.5
-    elif sett_dist <= 3:
-        base = 2.0
-    else:
         base = 2.5
+    elif init_cls in (1, 2):
+        base = 1.2
+    elif sett_dist <= 3:
+        base = 1.5
+    else:
+        base = 2.0
 
     if n_obs > 0:
-        base = base / (1.0 + n_obs / base)
+        base = base / (1.0 + n_obs * 0.8)
 
     return base
 

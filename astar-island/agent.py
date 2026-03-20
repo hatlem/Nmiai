@@ -348,10 +348,10 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
     for seed_idx in range(seeds_count):
         pred = predictions[seed_idx]
 
-        # Final safety: ensure no zeros (KL=inf). Use STATIC_FLOOR (0.002)
+        # Final safety: ensure no zeros (KL=inf). Use STATIC_FLOOR (0.001)
         # as absolute minimum — matches the tightest floor used by the swarm
         # for near-impossible transitions (mountain→settlement, etc.).
-        pred = np.maximum(pred, 0.002)
+        pred = np.maximum(pred, 0.001)
         pred /= pred.sum(axis=-1, keepdims=True)
 
         np.save(f"predictions_seed_{seed_idx}.npy", pred)

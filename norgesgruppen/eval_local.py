@@ -198,7 +198,7 @@ def main():
     if args.run_pipeline:
         print("Running pipeline...")
         pred_path = "/tmp/eval_predictions.json"
-        cmd = [sys.executable, "run_twostage.py" if Path("run_twostage.py").exists() else "run.py",
+        cmd = [sys.executable, "run.py",
                "--input", args.input, "--output", pred_path]
         print(f"  Command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)

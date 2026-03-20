@@ -394,9 +394,34 @@ class ParameterInference:
         ruin_to_forest_r, _ = self._safe_rate(3, 4)
         conf_ruin = float(np.clip(n_ruin / 100, 0, 1))
 
-        if n_ruin > 5:
+        if n_ruin > 2:
             reclaim = ruin_to_sett + ruin_to_empty + ruin_to_forest_r
-            results["ruin_reclaim_rate"] = (float(np.clip(reclaim * 2.0, 0, 1)), conf_ruin)
+            results["ruin_reclaim_rate"] = (float(np.clip(reclaim * 1.5, 0, 1)), conf_ruin)
+
+        # Fallback: check initial ruins that became non-ruin in observations
+        if n_ruin <= 2:
+            initial_ruin_changed = 0
+            initial_ruin_total = 0
+            for seed_idx, state in enumerate(self.initial_states):
+                if seed_idx not in self.counts:
+                    continue
+                init_grid = np.asarray(state["grid"], dtype=np.int64)
+                seed_counts = self.counts[seed_idx]
+                ruin_mask = (init_grid == 3)  # terrain code 3 = ruin
+                if ruin_mask.any():
+                    ruin_obs = seed_counts[ruin_mask][:, :NUM_CLASSES]
+                    obs_totals = ruin_obs.sum(axis=1)
+                    has_obs = obs_totals > 0
+                    if has_obs.any():
+                        # Check if observed final state is NOT ruin (class 3)
+                        final_cls = np.argmax(ruin_obs[has_obs], axis=1)
+                        initial_ruin_total += int(has_obs.sum())
+                        initial_ruin_changed += int((final_cls != 3).sum())
+
+            if initial_ruin_total > 0:
+                reclaim_rate = initial_ruin_changed / initial_ruin_total
+                conf = float(np.clip(initial_ruin_total / 20, 0, 0.5))
+                results["ruin_reclaim_rate"] = (float(np.clip(reclaim_rate, 0, 1)), conf)
 
         # food_per_forest: infer from settlement survival near forests
         # Settlements with high food adjacency that survive -> high food_per_forest
@@ -491,9 +516,9 @@ class ParameterInference:
         if stats["ruin_settlement_distances"]:
             avg_dist = np.mean(stats["ruin_settlement_distances"])
             # High distance between ruins and settlements = long raid range
-            raid_signal = np.clip(avg_dist / 10.0, 0, 1)
+            raid_signal = np.clip(avg_dist / 8.0, 0, 1)
             conf = min(len(stats["ruin_settlement_distances"]) / 20, 1.0)
-            results["raid_range"] = (float(raid_signal), float(conf) * 0.5)
+            results["raid_range"] = (float(raid_signal), float(conf) * 0.7)
 
         # Forest border growth rate
         if stats["forest_border_growth"]:

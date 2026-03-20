@@ -4,11 +4,28 @@
 Vi deltar i NM i AI 2026 (hackathon-format). **1 000 000 NOK i premiepott.**
 - **Start:** 19. mars kl. 18:00 CET
 - **Frist:** søndag 22. mars kl. 15:00 CET
-- **Totalt:** 69 timer, hvorav ~2 timer er brukt (startet 19. mars ~18:30)
+- **Totalt:** 69 timer (startet 19. mars ~18:30)
+- **GitHub-repo:** Settes offentlig med MIT-lisens FØR fristen (ikke før — konkurrenter skal ikke se koden)
 - Samlet score = **gjennomsnitt av normaliserte scores på tvers av alle 3 oppgaver (33% hver)**
 - Koden må være **åpen kildekode (MIT-lisens)** på offentlig GitHub-repo før fristen
 - Alle lagmedlemmer må Vipps-verifiseres for premie
 - Max 4 medlemmer per lag
+
+## Arbeidsprinsipp
+**Ingen quick fixes.** Hver løsning skal være best-in-class. Vi konkurrerer om 1 MNOK — bruk tid på å forstå problemet ordentlig, velg state-of-the-art metoder, og optimaliser grundig. Halvveis løsninger kaster bort submissions og tid.
+
+## Submission-sporing (VIKTIG)
+Alle submission-zips MÅ ha tidsstempel i filnavnet: `submission_YYYYMMDD_HHMMSS.zip`.
+`package_submission.sh` gjør dette automatisk og lager en `submission.zip` symlink.
+Hold oversikt over submissions og scores slik at vi kan spore fremgang og rulle tilbake om nødvendig.
+
+## Astar Island API Token
+Token lagret i `.env.ainm` (gitignored). Les med:
+```bash
+source .env.ainm && echo $AINM_TOKEN
+```
+Bruk som Bearer token: `Authorization: Bearer $AINM_TOKEN`
+Eller i Node.js scripts: `node calibrate_gt.js --token $(cat .env.ainm | cut -d= -f2)`
 
 ## Google Cloud (ubegrenset)
 Vi har en dedikert GCP-konto uten kreditgrenser — bruk det vi trenger.
@@ -150,6 +167,24 @@ Full regelverk: `docs/competition-rules.md`
 - **Tripletex:** 3 concurrent, 5 per task per dag
 - **Astar Island:** 50 queries per runde, 5 req/s simulate, 2 req/s submit
 - **NorgesGruppen:** 3 per dag, max 2 in-flight
+
+## Submission Tracking — NorgesGruppen
+
+Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
+
+| # | Dato | Tid | Zip-fil | Innhold | Score | Notater |
+|---|------|-----|---------|---------|-------|---------|
+| 1 | 2026-03-19 | ~21:00 | submission.zip | YOLOv8x multi-class, no classifier | 0.4759 | det~0.68, cls~0 |
+| 2 | 2026-03-19 | ~22:00 | submission_v2.zip | YOLOv8x + WBF multi-scale | ? | Ukjent resultat |
+| 3 | 2026-03-20 | 10:33 | submission_v3.zip | YOLOv8x single-class + EfficientNet-B3 classifier, score=det_conf only | — | Ikke submittet |
+| 4 | 2026-03-20 | 10:38 | submission_20260320_103349.zip | YOLO26-x ONNX + DINOv2, score=det*cls^0.15 | **0.6740** | 287.9s, +41.6% vs forrige |
+| 5 | 2026-03-20 | 11:52 | submission_20260320_115200.zip | YOLO26-x ONNX + DINOv2 + multi-class YOLO hybrid, score=det_score only | ? | 380MB, 3/3 weights. Key fix: dont reduce det_score with cls_conf |
+
+### Regler for submission-logging
+- **ALLTID** oppdater tabellen over når en ny submission lages
+- Inkluder dato (YYYY-MM-DD), tidspunkt (HH:MM), zip-filnavn, kort beskrivelse av innhold
+- Oppdater Score-kolonnen når resultatet er kjent
+- NorgesGruppen har **max 3 submissions per dag**
 
 ## MCP Docs Server
 ```

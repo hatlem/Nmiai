@@ -7,3 +7,4 @@ dashboard.html
 dashboard/
 .playwright-mcp/
 ainm-login.png
+.env.ainm

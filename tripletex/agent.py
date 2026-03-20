@@ -814,7 +814,7 @@ async def self_repair(
                 parts,
                 generation_config={"temperature": 0.0, "max_output_tokens": 8192},
             ),
-            timeout=60.0,
+            timeout=90.0,
         )
     except asyncio.TimeoutError:
         logger.error("Self-repair LLM timed out (60s)")

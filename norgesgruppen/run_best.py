@@ -74,9 +74,9 @@ except ImportError:
 TOTAL_TIMEOUT = 280          # seconds — leave 20s margin from 300s limit
 SAHI_TIME_BUDGET_RATIO = 0.7 # if avg time > budget, skip SAHI for rest
 
-# Detection
-CONF_THRESHOLD = 0.001
-NMS_IOU = 0.65
+# Detection — conf=0.15 filters noise early, 10x fewer crops to classify
+CONF_THRESHOLD = 0.15
+NMS_IOU = 0.45
 IMGSZ_FULL = 1280
 IMGSZ_SAHI_TILE = 640
 SAHI_OVERLAP = 0.3
@@ -86,12 +86,12 @@ SCALES = [640, 1280]
 WBF_IOU_THR = 0.6
 WBF_SKIP_BOX_THR = 0.001
 
-# Soft-NMS
+# Soft-NMS — higher threshold since conf is already 0.15
 SOFT_NMS_SIGMA = 0.5
-SOFT_NMS_SCORE_THR = 0.01
+SOFT_NMS_SCORE_THR = 0.05
 
-# Classification
-CLASSIFIER_BATCH_SIZE = 64
+# Classification — larger batch = better GPU utilization
+CLASSIFIER_BATCH_SIZE = 128
 CROP_PAD_RATIO = 0.05
 MIN_BOX_SIZE = 5
 
@@ -129,8 +129,9 @@ class TimeBudget:
             return False
 
         if len(self.image_times) < 2:
-            # Not enough data yet — try SAHI for first images
-            return True
+            # Skip SAHI for first images too — ONNX SAHI is too slow (~15s vs 2s)
+            # and costs us ~25 images worth of budget
+            return False
 
         avg_time = np.mean(self.image_times)
         time_per_image_budget = remaining_time / max(1, images_remaining)
@@ -258,6 +259,7 @@ def process_image(
     device: str,
     use_sahi: bool,
     classifier: ProductClassifier,
+    multi_class_model=None,
 ) -> list[dict]:
     """Full pipeline for a single image.
 
@@ -371,10 +373,60 @@ def process_image(
         # Batch classification via unified ProductClassifier
         all_classifications = classifier.classify(crops, batch_size=CLASSIFIER_BATCH_SIZE)
 
-        # Step 5: Use detection score for ranking, classifier only for category_id
-        # CRITICAL: Do NOT multiply det_score * cls_conf — it destroys mAP ranking
-        # by pushing correct detections down when classifier is uncertain
-        for idx, (cat_id, cls_conf) in zip(valid_indices, all_classifications):
+        # Step 4b: Multi-class YOLO cross-reference (hybrid classification)
+        # If multi-class YOLO also predicts the same category, boost confidence
+        if multi_class_model is not None:
+            try:
+                mc_results = multi_class_model(img, conf=0.1, iou=0.5, imgsz=1280)
+                mc_boxes = mc_results[0].boxes
+                if len(mc_boxes) > 0:
+                    mc_xyxy = mc_boxes.xyxy.numpy()
+                    mc_cls = mc_boxes.cls.numpy().astype(int)
+                    mc_conf = mc_boxes.conf.numpy()
+
+                    # For each detection, find matching multi-class prediction
+                    updated = []
+                    for i, (cat_id, cls_conf) in enumerate(all_classifications):
+                        idx = valid_indices[i]
+                        det_box = boxes[idx]
+
+                        # Find best IoU match in multi-class detections
+                        best_iou = 0
+                        best_mc_cat = -1
+                        best_mc_conf = 0
+                        for j in range(len(mc_xyxy)):
+                            # Quick IoU
+                            x1 = max(det_box[0], mc_xyxy[j][0])
+                            y1 = max(det_box[1], mc_xyxy[j][1])
+                            x2 = min(det_box[2], mc_xyxy[j][2])
+                            y2 = min(det_box[3], mc_xyxy[j][3])
+                            inter = max(0, x2-x1) * max(0, y2-y1)
+                            area1 = (det_box[2]-det_box[0]) * (det_box[3]-det_box[1])
+                            area2 = (mc_xyxy[j][2]-mc_xyxy[j][0]) * (mc_xyxy[j][3]-mc_xyxy[j][1])
+                            union = area1 + area2 - inter
+                            iou = inter / max(union, 1e-6)
+                            if iou > best_iou:
+                                best_iou = iou
+                                best_mc_cat = mc_cls[j]
+                                best_mc_conf = mc_conf[j]
+
+                        if best_iou > 0.5 and best_mc_cat == cat_id:
+                            # Both agree! Boost confidence
+                            updated.append((cat_id, min(1.0, cls_conf * 1.5)))
+                        elif best_iou > 0.5 and best_mc_conf > 0.5 and cls_conf < 0.1:
+                            # DINOv2 is uncertain, YOLO is confident — trust YOLO
+                            updated.append((best_mc_cat, best_mc_conf * 0.5))
+                        else:
+                            updated.append((cat_id, cls_conf))
+                    all_classifications = updated
+            except Exception as e:
+                print(f"[WARN] Multi-class hybrid failed: {e}")
+
+        # Step 5: Output — score = det_score ONLY
+        # Detection mAP (70% of total) ranks purely by score.
+        # Any modification (det*cls^0.15) changes ranking = hurts det mAP.
+        # Classifier only provides category_id for cls mAP (30%).
+        for idx, (cat_id, _cls_conf) in zip(valid_indices, all_classifications):
             x1, y1, x2, y2 = boxes[idx]
             det_score = float(scores[idx])
 
@@ -498,6 +550,10 @@ def main():
     classifier = ProductClassifier(model_dir / "models", device)
     print(f"[INIT] Classification: {classifier.mode}")
 
+    # Multi-class YOLO DISABLED — costs ~0.8s/image for marginal classification gain
+    # This was causing timeout (only 117/248 images processed)
+    multi_class_model = None
+
     # ── Discover images ────────────────────────────────────────────────
     input_dir = Path(args.input)
     image_files = sorted(
@@ -549,19 +605,20 @@ def main():
 
         detections = process_image(
             models, img_bgr, device, use_sahi, classifier,
+            multi_class_model=multi_class_model,
         )
 
         for det in detections:
             predictions.append({
-                "image_id": image_id,
-                "category_id": det["category_id"],
+                "image_id": int(image_id),
+                "category_id": int(det["category_id"]),
                 "bbox": [
-                    round(det["x1"], 1),
-                    round(det["y1"], 1),
-                    round(det["w"], 1),
-                    round(det["h"], 1),
+                    round(float(det["x1"]), 1),
+                    round(float(det["y1"]), 1),
+                    round(float(det["w"]), 1),
+                    round(float(det["h"]), 1),
                 ],
-                "score": round(det["score"], 4),
+                "score": round(float(det["score"]), 4),
             })
 
         img_time = time.perf_counter() - img_start

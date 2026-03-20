@@ -261,24 +261,34 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
                 logger.info("Quick-fix: added amountGrossCurrency to voucher postings")
                 continue
 
-        # 422 with "vatType" or "mva-kode" — posting missing vatType, add default {id: 0}
+        # 422 with "vatType" or "mva-kode" — fix vatType on postings
         if status == 422 and ("vattype" in error_msg or "mva-kode" in error_msg or "avgiftspliktig" in error_msg):
+            import re as _re
             fixed_step = dict(original_step)
             fixed_body = dict(fixed_step.get("body", {}))
             postings = fixed_body.get("postings", [])
             if isinstance(postings, list) and postings:
+                # Try to extract correct vatType from error message
+                # e.g. "låst til mva-kode 0" or "låst til mva-kode 3"
+                locked_match = _re.search(r'mva-kode\s*(\d+)', error_msg)
+                locked_code = int(locked_match.group(1)) if locked_match else 0
+
                 fixed_postings = []
                 for p in postings:
                     fp = dict(p) if isinstance(p, dict) else p
-                    if isinstance(fp, dict) and "vatType" not in fp:
-                        fp["vatType"] = {"id": 0}
+                    if isinstance(fp, dict):
+                        if "vatType" not in fp:
+                            fp["vatType"] = {"id": locked_code}
+                        elif isinstance(fp.get("vatType"), dict):
+                            # Fix mismatched vatType — set all to the locked code
+                            # (crude but prevents repeated 422s)
+                            fp["vatType"] = {"id": locked_code}
                     fixed_postings.append(fp)
                 fixed_body["postings"] = fixed_postings
                 fixed_step["body"] = fixed_body
                 new_steps.append(fixed_step)
-                logger.info("Quick-fix: added vatType {id: 0} to postings missing it")
+                logger.info(f"Quick-fix: set vatType to {locked_code} on postings")
                 continue
-            # No postings to fix — fall through
             return None
 
         # 422 "Feltet eksisterer ikke" — unknown field, strip it and retry

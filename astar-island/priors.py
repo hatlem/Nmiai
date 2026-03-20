@@ -5,7 +5,7 @@ Shared domain priors for Astar Island prediction.
 Single source of truth for calibrated terrain transition priors,
 loaded from calibration.json (Round 1 ground truth analysis).
 
-All zero values are floored to MIN_FLOOR (0.005) to prevent
+All zero values are floored to MIN_FLOOR (0.003) to prevent
 log(0) in KL divergence calculations while preserving probability mass.
 """
 
@@ -18,10 +18,10 @@ from pathlib import Path
 import numpy as np
 
 NUM_CLASSES = 6
-PROB_FLOOR = 0.01  # Default floor for dynamic terrain
-STATIC_FLOOR = 0.002  # Tighter floor for near-impossible transitions (mountain/ocean)
-REMOTE_FLOOR = 0.003  # Floor for unlikely transitions on remote cells
-MIN_FLOOR = 0.005  # Floor for zeros in calibration data (lower than PROB_FLOOR to save mass)
+PROB_FLOOR = 0.005  # Default floor for dynamic terrain
+STATIC_FLOOR = 0.001  # Tighter floor for near-impossible transitions (mountain/ocean)
+REMOTE_FLOOR = 0.002  # Floor for unlikely transitions on remote cells
+MIN_FLOOR = 0.003  # Floor for zeros in calibration data
 
 # ── Load calibration data ─────────────────────────────────────────────────────
 

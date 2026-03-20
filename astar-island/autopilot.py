@@ -25,7 +25,7 @@ import requests
 
 from query_optimizer import QueryOptimizer, TERRAIN_TO_CLASS, NUM_CLASSES
 from inference import ParameterInference
-from priors import PROB_FLOOR
+from priors import STATIC_FLOOR
 from swarm import SwarmCoordinator
 
 API_BASE = "https://api.ainm.no/astar-island"
@@ -211,7 +211,7 @@ def process_round(round_info: dict):
     print("\nSubmitting predictions...")
     for seed_idx in range(seeds_count):
         pred = predictions[seed_idx]
-        pred = np.maximum(pred, PROB_FLOOR)
+        pred = np.maximum(pred, STATIC_FLOOR)
         pred /= pred.sum(axis=-1, keepdims=True)
 
         # Save backup

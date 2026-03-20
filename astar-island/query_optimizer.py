@@ -485,7 +485,7 @@ class QueryOptimizer:
             # Round-robin settlement viewports: each gets multiple observations
             # Target: 4-5 observations per settlement viewport
             target_per_vp = max(3, seed_budget // max(len(sett_vps), 1))
-            target_per_vp = min(target_per_vp, 6)  # Cap to avoid over-concentration
+            target_per_vp = min(target_per_vp, 8)  # Cap to avoid over-concentration
 
             for repeat in range(target_per_vp):
                 for vp in sett_vps:
@@ -495,14 +495,7 @@ class QueryOptimizer:
                     record_query(seed_idx, *vp)
                     seed_used += 1
 
-            # Expansion viewports: 1-2x each with remaining budget
-            for vp in exp_vps:
-                if seed_used >= seed_budget:
-                    break
-                plan.append((seed_idx, *vp))
-                record_query(seed_idx, *vp)
-                seed_used += 1
-
+            # Skip expansion viewports for focus seeds — all budget on settlements
             # If still have budget, re-query highest-entropy settlement viewports
             if seed_used < seed_budget and sett_vps:
                 ranked = self._rank_viewports_by_value(seed_idx, sett_vps)

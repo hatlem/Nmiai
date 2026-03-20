@@ -31,6 +31,7 @@ class ProductClassifier:
 
     def __init__(self, model_dir: Path, device: str):
         self.device = device
+        self._use_fp16 = (device == "cuda" and torch.cuda.is_available())
         self._mode = "none"
 
         # Try loading models in priority order
@@ -209,6 +210,12 @@ class ProductClassifier:
 
             head = head.to(self.device).eval()
 
+            # FP16 for ~30% faster inference on GPU
+            if self._use_fp16:
+                model = model.half()
+                head = head.half()
+                print("[CLASSIFIER] Using FP16 for DINOv2 supervised")
+
             self._supervised_model = model
             self._supervised_head = head
             self._supervised_transform = transforms.Compose([
@@ -219,10 +226,6 @@ class ProductClassifier:
                 ),
             ])
             print(f"[CLASSIFIER] Loaded DINOv2 supervised head from {weights_path.name}")
-
-            # Note: product_embeddings are available but were generated with ArcFace backbone,
-            # not the supervised backbone. Using them would cause a mismatch and reduce accuracy.
-            # Supervised-only mode (91.3% val_acc) is better than dual with mismatched embeddings.
 
         except Exception as e:
             print(f"[CLASSIFIER] Failed to load DINOv2 supervised: {e}")
@@ -361,11 +364,13 @@ class ProductClassifier:
     def _classify_supervised(self, crops: list) -> list[tuple[int, float]]:
         """Direct classification via DINOv2 + linear head."""
         batch = torch.stack([self._supervised_transform(c) for c in crops]).to(self.device)
+        if self._use_fp16:
+            batch = batch.half()
 
-        with torch.no_grad():
+        with torch.no_grad(), torch.amp.autocast("cuda", enabled=self._use_fp16):
             features = self._supervised_model(batch)
             logits = self._supervised_head(features)
-            probs = F.softmax(logits, dim=1)
+            probs = F.softmax(logits.float(), dim=1)
 
         results = []
         for i in range(len(crops)):
