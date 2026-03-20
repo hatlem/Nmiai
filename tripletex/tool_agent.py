@@ -242,12 +242,36 @@ Actions:
 
     "project": """\
 ## Project (prosjekt)
-1. GET /employee?count=1&fields=id — for project manager
-2. projectManager MUST have ALL_PRIVILEGES entitlement before being assigned:
-   PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
-3. POST /project {"name":"X", "startDate":"YYYY-MM-DD", "projectManager":{"id":EMPLOYEE_ID}, "isInternal":false, "customer":{"id":CUST_ID}}
+1. GET /department?fields=id,name&count=1
+2. POST /employee (project manager) with department.id
+3. PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
+4. POST /customer (if external project)
+5. POST /project {"name":"X", "startDate":"YYYY-MM-DD", "projectManager":{"id":EMP_ID}, "isInternal":false, "customer":{"id":CUST_ID}}
    - Internal project: set isInternal:true, omit customer
    - isFixedPrice: set to true for fixed-price projects, with fixedprice:AMOUNT
+
+## Project Hourly Rates
+GET /project/hourlyRates?projectId=PROJECT_ID&fields=id,hourlyRate,hourlyRateCost,startDate
+PUT /project/hourlyRates/ID {"id":X, "version":V, "hourlyRate":1600, "startDate":"YYYY-MM-DD"}
+- field is "hourlyRate" (number) — NOT rate, price, amount, activity, employee
+
+## Project Invoicing (fakturering basert på timer)
+To invoice logged hours:
+1. Register timesheet entries first (see get_api_guide("timesheet"))
+2. POST /order {"customer":{"id":X}, "project":{"id":PROJ_ID}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"X", "count":HOURS, "unitPriceExcludingVatCurrency":HOURLY_RATE}]}
+3. PUT /order/ORDER_ID/:invoice?invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD&sendToCustomer=false
+
+For fixed-price partial invoicing (e.g. "75% av fastpris"):
+1. Create project with isFixedPrice:true, fixedprice:TOTAL
+2. POST /order with orderLines amount = fixedprice * percentage / 100
+3. PUT /order/ORDER_ID/:invoice
+
+## Reversed/cancelled payment (stornering)
+To reverse a payment on an invoice:
+1. GET /invoice?invoiceNumber=X or search by customer to find the invoice
+2. Check amountOutstanding — if 0, payment was already registered
+3. To reverse: POST /ledger/voucher with reversed postings (debit bank, credit customer receivable)
+   OR use PUT /invoice/ID/:createCreditNote?date=YYYY-MM-DD if full reversal needed
 """,
 
     "supplier": """\
