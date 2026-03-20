@@ -280,9 +280,12 @@ Actions:
    - isFixedPrice: set to true for fixed-price projects, with fixedprice:AMOUNT
 
 ## Project Hourly Rates
-GET /project/hourlyRates?projectId=PROJECT_ID&fields=id,hourlyRate,hourlyRateCost,startDate
-PUT /project/hourlyRates/ID {"id":X, "version":V, "hourlyRate":1600, "startDate":"YYYY-MM-DD"}
-- field is "hourlyRate" (number) — NOT rate, price, amount, activity, employee
+GET /project/hourlyRates?projectId=PROJECT_ID&fields=id,fixedRate,hourlyRateModel,startDate,version
+PUT /project/hourlyRates/ID {"id":X, "version":V, "fixedRate":1600, "hourlyRateModel":"TYPE_FIXED_HOURLY_RATE", "startDate":"YYYY-MM-DD"}
+- Rate field is "fixedRate" (number) — NOT hourlyRate, rate, price, amount
+- hourlyRateModel must be string: "TYPE_FIXED_HOURLY_RATE" (NOT an object, NOT a number)
+- Valid fields: id, version, project, startDate, showInProjectOrder, hourlyRateModel, projectSpecificRates, fixedRate
+- INVALID fields (cause 422): hourlyRate, hourlyRateCost, rate, price, amount, activity, employee
 
 ## Project Invoicing (fakturering basert på timer)
 To invoice logged hours:
@@ -295,12 +298,16 @@ For fixed-price partial invoicing (e.g. "75% av fastpris"):
 2. POST /order with orderLines amount = fixedprice * percentage / 100
 3. PUT /order/ORDER_ID/:invoice
 
-## Reversed/cancelled payment (stornering)
+## Reversed/cancelled payment (stornering/tilbakeføring)
 To reverse a payment on an invoice:
-1. GET /invoice?invoiceNumber=X or search by customer to find the invoice
-2. Check amountOutstanding — if 0, payment was already registered
-3. To reverse: POST /ledger/voucher with reversed postings (debit bank, credit customer receivable)
-   OR use PUT /invoice/ID/:createCreditNote?date=YYYY-MM-DD if full reversal needed
+1. Create customer, order, invoice, register payment (full invoice flow)
+2. Find the voucher for the payment: GET /ledger/voucher?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&fields=id,date,description
+   - MUST include dateFrom AND dateTo params (both required!)
+3. PUT /ledger/voucher/VOUCHER_ID/:reverse?date=YYYY-MM-DD
+   - MUST include date as query param (not body!)
+4. This makes amountOutstanding on the invoice equal to the original amount again
+
+Alternative: PUT /invoice/ID/:createCreditNote?date=YYYY-MM-DD for full reversal
 """,
 
     "supplier": """\
