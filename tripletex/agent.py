@@ -164,6 +164,18 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         if not re.search(r'\b(faktura|invoice|factura|rechnung|facture|ordre|order)\b', prompt_lower):
             return "create_timesheet_entry", 0.90
 
+    # Delete verbs → delete_entity (unless travel expense which has its own type)
+    if re.match(r'(slett|delete|eliminar|supprimer|löschen)\b', prompt_lower):
+        if 'reiseregning' in prompt_lower or 'reiserekning' in prompt_lower or 'travel' in prompt_lower or 'note de frais' in prompt_lower or 'gasto de viaje' in prompt_lower:
+            return "delete_travel_expense", 0.95
+        return "delete_entity", 0.90
+
+    # Combined: customer + invoice = invoice task (customer created as part of it)
+    if re.search(r'\b(faktura|invoice|factura|rechnung|facture)\b', prompt_lower) and re.search(r'\b(kunde|customer|client|cliente)\b', prompt_lower):
+        if 'eksisterende' in prompt_lower or 'existing' in prompt_lower or 'existente' in prompt_lower or 'bestehenden' in prompt_lower:
+            return "create_invoice_existing_customer", 0.88
+        return "create_invoice", 0.88
+
     high_conf_keywords = {
         "faktura for eksisterende": ("create_invoice_existing_customer", 0.95),
         "invoice for existing": ("create_invoice_existing_customer", 0.95),
@@ -322,7 +334,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "timesheet entry": ("create_timesheet_entry", 0.90),
         "registrer timer": ("create_timesheet_entry", 0.90),
         "inngående faktura": ("create_supplier_invoice", 0.90),
-        "innkjøpsordre": ("create_purchase_order", 0.90),
         "bestilling fra leverandor": ("create_purchase_order", 0.88),
         "bestilling fra leverandør": ("create_purchase_order", 0.88),
         "opprett leverandorfaktura": ("create_supplier_invoice", 0.95),
@@ -406,6 +417,20 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "aktiver modul": ("enable_modules", 0.90),
         "enable module": ("enable_modules", 0.90),
         "aktivere modul": ("enable_modules", 0.90),
+        "innkjøpsordre": ("create_purchase_order", 0.92),
+        "opprett innkjøpsordre": ("create_purchase_order", 0.95),
+        "ny vare": ("create_product", 0.88),
+        "legg inn vare": ("create_product", 0.90),
+        "legg inn produkt": ("create_product", 0.90),
+        "åpningsbalansen": ("create_opening_balance", 0.95),
+        "føre opp": ("create_opening_balance", 0.85),
+        "ajouter un employe": ("create_employee", 0.90),
+        "ajouter un employé": ("create_employee", 0.90),
+        "ajouter un client": ("create_customer", 0.90),
+        "ajouter un fournisseur": ("create_supplier", 0.90),
+        "ajouter un produit": ("create_product", 0.90),
+        "ajouter une facture": ("create_invoice", 0.90),
+        "ajouter un projet": ("create_project", 0.90),
     }
     # Sort by phrase length descending so longer (more specific) matches win
     for phrase, (task_type, conf) in sorted(high_conf_keywords.items(), key=lambda x: len(x[0]), reverse=True):
