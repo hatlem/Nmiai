@@ -264,55 +264,68 @@ class HeuristicAgent(SwarmAgent):
                 sd = sett_dist[y, x]
                 is_coast = coastal[y, x]
 
-                # Settlement/Port dynamics
+                # Settlement/Port dynamics — calibrated from ground truth:
+                # Settlement: [0.435, 0.324, 0.004, 0.027, 0.209, 0.000]
+                # Port:       [0.449, 0.092, 0.203, 0.027, 0.230, 0.000]
                 if ic in (1, 2):
-                    death_rate = 0.15 * aggression + 0.12 * winter
-                    survival = max(0.2, 1.0 - death_rate)
-
+                    # Base from calibration, adjusted by inferred params
+                    harshness = 0.3 * aggression + 0.3 * winter
+                    if ic == 1:  # Settlement
+                        dist[0] = 0.44 + 0.08 * harshness  # Empty (dominant end-state)
+                        dist[1] = max(0.15, 0.32 - 0.15 * harshness)  # Survive
+                        dist[2] = 0.005 if is_coast else PROB_FLOOR  # Rare port
+                        dist[3] = 0.03  # Ruin at year 50 (low)
+                        dist[4] = 0.21 + 0.05 * forest_growth  # Forest reclaim
+                    else:  # Port
+                        dist[0] = 0.45 + 0.08 * harshness
+                        dist[1] = 0.09  # Becomes non-port settlement
+                        dist[2] = max(0.10, 0.20 - 0.10 * harshness + 0.08 * trade)
+                        dist[3] = 0.03
+                        dist[4] = 0.23 + 0.05 * forest_growth
                     if food >= 2:
-                        survival += 0.15
-                    elif food < 1:
-                        survival -= 0.10
-
-                    if ic == 2 or is_coast:
-                        port_prob = 0.15 + 0.10 * trade
-                    else:
-                        port_prob = 0.03
-
-                    ruin_prob = max(0.05, 1.0 - survival - port_prob)
-                    dist[1] = survival * (1.0 - port_prob) if ic == 1 else survival * 0.3
-                    dist[2] = port_prob if is_coast else PROB_FLOOR
-                    dist[3] = ruin_prob
-                    dist[0] = 0.03
-                    dist[4] = 0.03
+                        dist[ic] += 0.08  # Forest food helps survival
+                        dist[0] -= 0.05
                     dist[5] = PROB_FLOOR
 
-                # Empty near settlements -> expansion (conservative)
-                elif ic == 0 and sd <= 4:
-                    exp_prob = 0.02 + 0.01 * (4 - sd)
+                # Empty near settlements -> expansion
+                # Calibrated: Empty→Settlement = 11% average
+                elif ic == 0 and sd <= 5:
+                    exp_prob = 0.08 + 0.04 * (5 - sd) / 5
                     dist[1] = exp_prob
-                    dist[3] = exp_prob * 0.15
-                    dist[4] = max(dist[4], 0.06 + 0.02 * forest_growth)
-                    dist[0] = max(0.70, 1.0 - dist[1] - dist[3] - dist[4] - 0.02)
+                    dist[3] = 0.01
+                    dist[4] = max(dist[4], 0.03)
+                    # CRITICAL: coastal cells near settlements become ports
+                    # GT shows 28-34% port probability for coastal cells
+                    if is_coast:
+                        dist[2] = 0.20 + 0.10 * (5 - sd) / 5
+                        dist[0] = max(0.40, 1.0 - dist[1] - dist[2] - dist[3] - dist[4])
+                    else:
+                        dist[0] = max(0.75, 1.0 - dist[1] - dist[3] - dist[4] - 0.01)
 
-                # Forest near settlements -> mostly stays forest
-                elif ic == 4 and sd <= 3:
-                    dist[1] = 0.02
-                    dist[0] = 0.04
-                    dist[4] = 0.89
+                # Forest near settlements -> can be cleared
+                # Calibrated: Forest→Settlement = 14%
+                elif ic == 4 and sd <= 4:
+                    dist[1] = 0.10 + 0.04 * (4 - sd) / 4
+                    dist[0] = 0.07
+                    # Coastal forest also becomes ports
+                    if is_coast:
+                        dist[2] = 0.15 + 0.10 * (4 - sd) / 4
+                        dist[4] = max(0.50, 1.0 - dist[1] - dist[2] - dist[0] - 0.03)
+                    else:
+                        dist[4] = max(0.70, 1.0 - dist[1] - dist[0] - 0.03)
 
                 # Empty near forest -> forest growth
                 elif ic == 0 and food >= 2:
-                    dist[4] = 0.12 + 0.12 * forest_growth
+                    dist[4] = 0.04 + 0.04 * forest_growth
                     dist[0] = 1.0 - dist[4] - 0.02
 
-                # Ruin dynamics
+                # Ruin dynamics — calibrated: [0.15, 0.12, 0.03, 0.35, 0.30, 0.05]
                 elif ic == 3:
-                    if sd <= 3:
-                        dist[1] = 0.10
-                    dist[4] = 0.12 + 0.10 * forest_growth
-                    dist[3] = max(0.30, 1.0 - dist[1] - dist[4] - 0.1)
-                    dist[0] = 0.08
+                    dist[0] = 0.15
+                    dist[1] = 0.12 if sd <= 4 else 0.05
+                    dist[2] = 0.03 if is_coast else PROB_FLOOR
+                    dist[3] = 0.35
+                    dist[4] = 0.30 + 0.05 * forest_growth
 
                 pred[y, x] = dist
 
@@ -541,37 +554,26 @@ class SwarmCoordinator:
         self.inferred_params = inferred_params
         self.agents: list[SwarmAgent] = []
 
-        # ── Create diverse MC agents from posterior samples ───────────────
-        n_mc = min(n_mc_agents, len(posterior_samples))
-        # Pick diverse samples: spread across posterior
-        if len(posterior_samples) >= n_mc:
-            step = len(posterior_samples) // n_mc
-            selected = [posterior_samples[i * step] for i in range(n_mc)]
-        else:
-            selected = posterior_samples
+        # ── MC agents DISABLED ──────────────────────────────────────────
+        # Calibration against real GT shows our simulator scores only ~43/100
+        # even with perfect parameters. MC agents using a wrong simulator
+        # actively hurt predictions. All signal comes from empirical data.
+        n_mc = 0
 
-        for i, params in enumerate(selected):
-            self.agents.append(MonteCarloAgent(
-                name=f"mc_{i}",
-                params=params,
-                n_runs=mc_runs_per_agent,
-                weight=1.5,
-            ))
-
-        # ── Add non-MC agents ────────────────────────────────────────────
-        # Weights reflect reliability. Statistical + contextual pooling are most
-        # reliable as they're based on calibrated empirical data.
-        self.agents.append(StatisticalAgent(weight=3.0))
-        self.agents.append(SettlementTrajectoryAgent(weight=2.5))
-        self.agents.append(TransitionAgent(weight=0.8))
-        self.agents.append(HeuristicAgent(weight=0.8))
-        self.agents.append(SpatialAgent(weight=0.3))
+        # ── Empirical agents only ─────────────────────────────────────────
+        # These are based on actual observations + calibrated priors from
+        # 5 completed rounds of real GT data (25 seeds).
+        self.agents.append(StatisticalAgent(weight=4.0))       # KT estimator: strongest
+        self.agents.append(SettlementTrajectoryAgent(weight=3.0))  # Settlement metadata
+        self.agents.append(TransitionAgent(weight=1.5))        # Cross-seed transitions
+        self.agents.append(HeuristicAgent(weight=1.0))         # Domain knowledge
+        self.agents.append(SpatialAgent(weight=0.5))           # Belief propagation
 
         # Contextual pooling: cross-seed empirical data is extremely valuable
-        self._contextual_agent_weight = 3.0
+        self._contextual_agent_weight = 4.0
 
         print(f"Swarm initialized: {len(self.agents)} agents "
-              f"({n_mc} MC + 5 statistical/heuristic + contextual pooling pending)")
+              f"(0 MC + 5 empirical + contextual pooling pending)")
 
     def predict_all(
         self,
@@ -947,61 +949,94 @@ def _get_cell_prior(init_cls: int, sett_dist: float, food: float,
                     base_prior_fn: Optional[callable] = None) -> np.ndarray:
     """Return informative Dirichlet prior (6,) for a cell based on context.
 
-    Calibrated from ground truth across 5 completed competition rounds (25 seeds).
-    Distance-based priors are critical: far Empty cells are 98% Empty,
-    near Empty cells are only 79% Empty with 14% Settlement.
+    Uses ADAPTIVE priors when available (base_prior_fn from this round's
+    observations), with distance-based SCALING. The key insight: the global
+    Empty->Settlement rate varies 7-16% between rounds, so we scale the
+    distance-based distributions proportionally rather than using static values.
+
+    Distance scaling ratios (from 25 seeds of GT):
+      Empty near/global = 1.29x for Settlement, 0.94x for Empty
+      Empty mid/global  = 0.69x for Settlement, 1.06x for Empty
+      Empty far/global  = 0.13x for Settlement, 1.17x for Empty
     """
-    # ── Distance-based priors from real GT data (25 seeds) ──
-    # These override the base prior completely for Empty and Forest cells
+    # Get the global prior for this class (adaptive or static)
+    if base_prior_fn is not None:
+        global_prior = base_prior_fn(init_cls).copy()
+    else:
+        global_prior = get_domain_prior(init_cls).copy()
+
+    # ── Distance-based SCALING for Empty and Forest cells ──
+    # Instead of hardcoding distributions, we SCALE the adaptive global prior
+    # using ratios derived from GT data. This way, when adaptive calibration
+    # says "Settlement is 16% in this round" (vs avg 11%), the distance-based
+    # priors scale accordingly.
+
     if init_cls == 0:  # Empty
+        # GT distance scaling ratios (near/mid/far vs global average):
+        # Settlement: near=1.29x, mid=0.69x, far=0.13x
+        # Empty:      near=0.94x, mid=1.06x, far=1.17x
+        # Forest:     near=1.33x, mid=0.58x, far=0.05x
+        # Ruin:       near=1.27x, mid=0.73x, far=0.09x
         if sett_dist > 7:
-            # Far from settlements: almost always stays Empty
-            # GT: [0.980, 0.014, 0.003, 0.001, 0.002, 0.000]
-            base = np.array([0.980, 0.014, 0.003, 0.001, 0.002, 0.001])
+            scales = np.array([1.17, 0.13, 0.33, 0.09, 0.05, 1.0])
         elif sett_dist > 3:
-            # Mid distance: mostly Empty, some Settlement
-            # GT: [0.887, 0.077, 0.009, 0.008, 0.019, 0.000]
-            base = np.array([0.887, 0.077, 0.009, 0.008, 0.019, 0.001])
+            scales = np.array([1.06, 0.69, 1.00, 0.73, 0.58, 1.0])
         else:
-            # Near settlements: significant Settlement probability
-            # GT: [0.789, 0.144, 0.010, 0.014, 0.044, 0.000]
-            base = np.array([0.789, 0.144, 0.010, 0.014, 0.044, 0.001])
-            # More neighbors → more likely to become Settlement
+            scales = np.array([0.94, 1.29, 1.06, 1.27, 1.33, 1.0])
             if neighbor_sett >= 2:
-                base[1] += 0.02
-                base[0] -= 0.02
+                scales[1] *= 1.15  # More neighbors → more Settlement
+                scales[0] *= 0.97
+
+        base = global_prior * scales
+
+        # CRITICAL: Coastal empty cells near settlements become Ports
+        # GT shows 28-34% Port probability for coastal cells near settlements
+        # This is the #1 error source in R5/R6 (Port=2% vs GT=28-34%)
+        if coastal and sett_dist <= 5:
+            base[2] = max(base[2], 0.20 + 0.10 * (5 - sett_dist) / 5)
+            base[0] *= 0.7  # Reduce empty to make room
+        elif coastal and sett_dist <= 8:
+            base[2] = max(base[2], 0.08)
+
+        base = np.maximum(base, 0.001)
+        base /= base.sum()
 
     elif init_cls == 4:  # Forest
+        # Settlement: near=1.26x, mid=0.70x, far=0.15x
+        # Forest:     near=0.93x, mid=1.08x, far=1.23x
         if sett_dist > 7:
-            # Far forest: almost always stays Forest
-            # GT: [0.005, 0.017, 0.002, 0.002, 0.974, 0.000]
-            base = np.array([0.005, 0.017, 0.002, 0.002, 0.974, 0.001])
+            scales = np.array([0.07, 0.15, 0.23, 0.15, 1.23, 1.0])
         elif sett_dist > 3:
-            # Mid forest: mostly Forest
-            # GT: [0.042, 0.081, 0.009, 0.008, 0.861, 0.000]
-            base = np.array([0.042, 0.081, 0.009, 0.008, 0.861, 0.001])
+            scales = np.array([0.59, 0.70, 0.99, 0.69, 1.08, 1.0])
         else:
-            # Near settlements: can become Settlement
-            # GT: [0.095, 0.146, 0.009, 0.014, 0.736, 0.000]
-            base = np.array([0.095, 0.146, 0.009, 0.014, 0.736, 0.001])
+            scales = np.array([1.34, 1.26, 1.05, 1.27, 0.93, 1.0])
+
+        base = global_prior * scales
+
+        # Coastal forest near settlements can become ports too
+        if coastal and sett_dist <= 5:
+            base[2] = max(base[2], 0.15 + 0.10 * (5 - sett_dist) / 5)
+            base[4] *= 0.8  # Reduce forest to make room
+        elif coastal and sett_dist <= 8:
+            base[2] = max(base[2], 0.06)
+
+        base = np.maximum(base, 0.001)
+        base /= base.sum()
 
     elif init_cls == 1:  # Settlement
-        # GT: [0.470, 0.282, 0.004, 0.024, 0.220, 0.000]
-        base = np.array([0.470, 0.282, 0.004, 0.024, 0.220, 0.001])
+        base = global_prior
         if coastal:
-            base[2] += 0.04  # Port more likely on coast
+            base[2] += 0.04
             base[0] -= 0.02
         if food >= 2:
-            base[1] += 0.05  # More food → better survival
+            base[1] += 0.05
             base[0] -= 0.03
 
     elif init_cls == 2:  # Port
-        # GT: [0.483, 0.081, 0.184, 0.022, 0.230, 0.000]
-        base = np.array([0.483, 0.081, 0.184, 0.022, 0.230, 0.001])
+        base = global_prior
 
     elif init_cls == 3:  # Ruin
-        # From calibration (limited data)
-        base = np.array([0.15, 0.12, 0.03, 0.35, 0.30, 0.05])
+        base = global_prior
 
     elif init_cls == 5:  # Mountain
         base = np.array([0.001, 0.001, 0.001, 0.001, 0.001, 0.995])

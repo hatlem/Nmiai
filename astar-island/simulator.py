@@ -57,15 +57,19 @@ class Settlement:
 # ── Default parameters ───────────────────────────────────────────────────────
 
 DEFAULT_PARAMS: Dict[str, float] = {
-    "winter_severity": 0.4,
-    "faction_aggression": 0.3,
+    # Calibrated against ground truth from rounds 2, 4, 5.
+    # Settlement annual survival ~97.8% → 32.4% over 50 years.
+    # Empty→Settlement: 11% over 50 years → ~0.23% annual per cell.
+    # Forest survival: 75% over 50 years → ~0.57% annual loss.
+    "winter_severity": 0.28,       # Lower → fewer starvation deaths (was 0.4)
+    "faction_aggression": 0.18,    # Lower → fewer raid deaths (was 0.3)
     "trade_activity": 0.5,
-    "forest_growth_rate": 0.05,
-    "expansion_rate": 0.2,
+    "forest_growth_rate": 0.12,    # Higher → more ruin→forest reclamation (was 0.05)
+    "expansion_rate": 0.40,        # Higher → more settlement expansion (was 0.2)
     "raid_range": 5.0,
-    "food_per_forest": 0.3,
+    "food_per_forest": 0.45,       # Higher → settlements near forests survive longer (was 0.3)
     "port_development_threshold": 0.5,
-    "ruin_reclaim_rate": 0.15,
+    "ruin_reclaim_rate": 0.20,     # Moderate → enables Ruin→Settlement=10% over 50 years
 }
 
 
@@ -214,20 +218,42 @@ class NorseSimulator:
             if not s.alive:
                 continue
 
-            # Food production from adjacent forests
+            # Food production: base is minimal, forests provide most food.
             forest_food = self._count_forest_food(grid, s.y, s.x)
-            base_food = 0.3 + forest_food
-            s.food += base_food * (0.8 + 0.4 * rng.random())
+            base_food = 0.10 + forest_food
+            s.food += base_food * (0.5 + 0.8 * rng.random())
 
-            # Population growth based on food
-            if s.food > 1.0:
-                growth = min(s.food * 0.15, 0.5) * (0.7 + 0.6 * rng.random())
+            # Food consumption scales with population (bigger = hungrier)
+            consumption = s.population * 0.16
+            s.food -= consumption
+
+            # Food spoilage: cap food storage (can't stockpile indefinitely)
+            s.food = min(s.food, 1.8 + s.population * 0.4)
+
+            # Population growth: slower, only when food surplus
+            if s.food > 1.5:
+                growth = min(s.food * 0.06, 0.2) * (0.5 + rng.random())
                 s.population += growth
-                s.food -= growth * 0.5
+                s.food -= growth * 0.8
+
+            # Population cap: limited by local resources
+            max_pop = 2.0 + forest_food * 2.0
+            if s.population > max_pop:
+                s.population = max_pop
 
             # Defense and tech slowly grow
-            s.defense = min(s.defense + 0.02 * rng.random(), 2.0)
-            s.tech_level = min(s.tech_level + 0.01 * rng.random(), 3.0)
+            s.defense = min(s.defense + 0.015 * rng.random(), 1.5)
+            s.tech_level = min(s.tech_level + 0.008 * rng.random(), 2.5)
+
+            # Wealth decay — maintenance costs, corruption, etc.
+            s.wealth *= 0.90
+
+            # Port degradation: ports can lose port status over time
+            # GT: Port→Settlement = 9.2% over 50 years
+            # At 1%/yr: 39% degrade, ~25% survive = ~10% Port→Settlement
+            if s.has_port and rng.random() < 0.01:
+                s.has_port = False
+                grid[s.y, s.x] = SETTLEMENT
 
             # Port development: coastal + enough wealth
             if not s.has_port and coastal[s.y, s.x]:
@@ -242,8 +268,9 @@ class NorseSimulator:
                     s.has_longship = True
 
         # Expansion phase: build occupancy grid once, then check candidates O(1)
-        expand_rate = p["expansion_rate"] * 0.3
-        expandable = [s for s in settlements if s.alive and s.population > 2.0 and s.food > 1.5]
+        # Calibrated: Empty→Settlement = 11% over 50 years needs aggressive expansion
+        expand_rate = p["expansion_rate"] * 0.5
+        expandable = [s for s in settlements if s.alive and s.population > 1.5 and s.food > 1.0]
         if expandable:
             occ = self._build_occupancy(settlements)
             for s in expandable:
@@ -264,20 +291,22 @@ class NorseSimulator:
 
                 if candidates:
                     ny, nx = candidates[rng.integers(len(candidates))]
+                    # Give new settlement more resources so it can survive
+                    # Parent invests heavily in the new outpost
                     new_sett = Settlement(
                         x=nx, y=ny,
-                        population=s.population * 0.3,
-                        food=s.food * 0.3,
-                        wealth=s.wealth * 0.2,
-                        defense=0.3,
+                        population=s.population * 0.4,
+                        food=s.food * 0.5,
+                        wealth=s.wealth * 0.3,
+                        defense=0.4,
                         has_port=False,
                         alive=True,
                         owner_id=s.owner_id,
-                        tech_level=s.tech_level * 0.5,
+                        tech_level=s.tech_level * 0.6,
                     )
-                    s.population *= 0.7
-                    s.food *= 0.7
-                    s.wealth *= 0.8
+                    s.population *= 0.6
+                    s.food *= 0.5
+                    s.wealth *= 0.7
                     settlements.append(new_sett)
                     # Update occupancy for the new settlement
                     for ddy in range(-1, 2):
@@ -333,23 +362,23 @@ class NorseSimulator:
             def_str = target.strength() * (0.6 + 0.8 * rng.random())
 
             if atk_str > def_str:
-                # Attacker wins: loot resources, damage defender
-                loot_food = target.food * 0.3
-                loot_wealth = target.wealth * 0.3
+                # Attacker wins: loot resources, damage defender heavily
+                loot_food = target.food * 0.4
+                loot_wealth = target.wealth * 0.4
                 attacker.food += loot_food
                 attacker.wealth += loot_wealth
                 target.food -= loot_food
                 target.wealth -= loot_wealth
-                target.population *= 0.8
-                target.defense *= 0.7
+                target.population *= 0.65  # Heavy casualties
+                target.defense *= 0.6
 
                 # Chance to conquer (change allegiance)
-                if rng.random() < 0.2 * aggression:
+                if rng.random() < 0.25 * aggression:
                     target.owner_id = attacker.owner_id
             else:
                 # Defender wins: attacker takes losses
-                attacker.population *= 0.9
-                attacker.defense *= 0.85
+                attacker.population *= 0.85
+                attacker.defense *= 0.8
 
     # ── Phase: Trade ─────────────────────────────────────────────────────────
 
@@ -362,34 +391,44 @@ class NorseSimulator:
             return
 
         ports = [s for s in settlements if s.alive and s.has_port]
+
+        # Ports get a fishing/maritime bonus — critical for coastal survival
+        # Tuning: 0.20 gives Port→Port ~13%, 0.22 gives ~34%, need ~18%
+        for port in ports:
+            fish_bonus = 0.21 * (0.5 + rng.random())
+            port.food += fish_bonus
+            port.wealth += 0.035 * (0.5 + rng.random())
+
         if len(ports) < 2:
             return
 
-        trade_range = 12.0  # Ports can trade within this manhattan distance
+        trade_range = 15.0  # Ports can trade within this manhattan distance
 
         for i, port_a in enumerate(ports):
             for port_b in ports[i + 1 :]:
-                if port_a.owner_id == port_b.owner_id:
-                    continue  # Same faction — no explicit trade needed
-                # Check if at war (different factions always have some tension)
                 dist = _manhattan_dist(port_a.y, port_a.x, port_b.y, port_b.x)
                 if dist > trade_range:
                     continue
-                if rng.random() > trade_act * 0.6:
+                # Trade probability: same faction trades more easily
+                trade_prob = trade_act * 0.5
+                if port_a.owner_id == port_b.owner_id:
+                    trade_prob *= 1.5  # Easier within faction
+                if rng.random() > trade_prob:
                     continue
 
                 # Trade: both benefit
-                trade_value = 0.1 * trade_act * (0.5 + rng.random())
+                trade_value = 0.15 * trade_act * (0.5 + rng.random())
                 port_a.wealth += trade_value
                 port_b.wealth += trade_value
                 port_a.food += trade_value * 0.5
                 port_b.food += trade_value * 0.5
 
                 # Tech diffusion
+                tech_diff = abs(port_a.tech_level - port_b.tech_level)
                 if port_a.tech_level > port_b.tech_level:
-                    port_b.tech_level += (port_a.tech_level - port_b.tech_level) * 0.05
+                    port_b.tech_level += tech_diff * 0.08
                 else:
-                    port_a.tech_level += (port_b.tech_level - port_a.tech_level) * 0.05
+                    port_a.tech_level += tech_diff * 0.08
 
     # ── Phase: Winter ────────────────────────────────────────────────────────
 
@@ -403,20 +442,33 @@ class NorseSimulator:
             if not s.alive:
                 continue
 
-            # Food loss from winter
-            food_loss = severity * (0.5 + 0.8 * rng.random())
+            # Food loss from winter — scales with population (more mouths to feed)
+            food_loss = severity * (0.4 + 0.6 * rng.random()) * (1.0 + s.population * 0.15)
             s.food -= food_loss
 
             # Population attrition in harsh winters
             if s.food < 0:
-                pop_loss = min(abs(s.food) * 0.3, s.population * 0.4)
+                pop_loss = min(abs(s.food) * 0.4, s.population * 0.5)
                 s.population -= pop_loss
                 s.food = 0.0
 
-            # Settlement collapse check
-            if s.population < 0.2 or (s.food < 0.1 and rng.random() < 0.3 * severity):
+            # Natural population decay (disease, old age, emigration)
+            s.population *= (0.96 + 0.03 * rng.random())
+
+            # Settlement collapse check — more aggressive
+            if s.population < 0.3 or (s.food < 0.2 and rng.random() < 0.4 * severity):
                 s.alive = False
-                grid[s.y, s.x] = RUIN
+                # Small/young settlements can fade directly without leaving ruins
+                # This matches GT where Settlement→Empty=47% but Settlement→Ruin=2.4%
+                if s.population < 0.15 or rng.random() < 0.5:
+                    # Gradual abandonment — becomes plains or forest
+                    adj_forest = self._count_forest_food(grid, s.y, s.x) / max(self.params["food_per_forest"], 0.1)
+                    if adj_forest >= 2 and rng.random() < 0.4:
+                        grid[s.y, s.x] = FOREST
+                    else:
+                        grid[s.y, s.x] = PLAINS
+                else:
+                    grid[s.y, s.x] = RUIN
 
                 # Disperse population to nearby friendly settlements
                 nearby_friendly = [
@@ -453,13 +505,30 @@ class NorseSimulator:
         # Precompute forest adjacency once for this phase (avoid repeated calls)
         forest_adj_count = _count_adjacent(grid, FOREST)
 
+        # Track ruin age for age-dependent decay
+        if not hasattr(self, '_ruin_age'):
+            self._ruin_age = {}
+        # Register new ruins
+        for ry, rx in zip(ruin_ys, ruin_xs):
+            key = (int(ry), int(rx))
+            if key not in self._ruin_age:
+                self._ruin_age[key] = 0
+            self._ruin_age[key] += 1
+        # Clean up non-ruins
+        for key in list(self._ruin_age.keys()):
+            if grid[key[0], key[1]] != RUIN:
+                del self._ruin_age[key]
+
         for ry, rx in zip(ruin_ys, ruin_xs):
             # Check if any nearby thriving settlement can reclaim
             reclaimed = False
             for s in alive_settlements:
                 dist = abs(int(ry) - s.y) + abs(int(rx) - s.x)
-                if dist <= 3 and s.population > 1.5 and s.food > 1.0:
-                    if rng.random() < reclaim_rate * (0.5 + 0.5 * rng.random()):
+                if dist <= 5 and s.alive:
+                    # Probability scales with settlement strength
+                    # Target: ~3% annual reclaim per ruin (across all nearby settlements)
+                    strength_factor = min(s.population, 2.0) * 0.5
+                    if rng.random() < reclaim_rate * strength_factor:
                         # Reclaim as new settlement
                         new_sett = Settlement(
                             x=int(rx), y=int(ry),
@@ -480,29 +549,51 @@ class NorseSimulator:
                         break
 
             if not reclaimed:
-                # Forest reclaims ruin — rare, mainly when adjacent to existing forest
-                # Base rate ~1% per year, boosted to ~5-8% if adjacent to forest
+                # Ruin exit: young ruins (from recent settlement death) exit fast
+                # Old ruins (initial or persistent) exit slowly
                 adj_forest = forest_adj_count[ry, rx]
+                ruin_age = self._ruin_age.get((int(ry), int(rx)), 10)
+
+                # Age factor: young ruins (age 1-5) exit ~25%/yr
+                # Old ruins (age 10+) exit ~5%/yr
+                age_factor = max(0.3, 2.0 / (1.0 + ruin_age * 0.3))
+
+                # Forest reclamation — dominant ruin exit path (GT: 30% ruin→forest)
                 if adj_forest > 0:
-                    prob = forest_rate * 0.15 * min(adj_forest, 3)
+                    forest_prob = age_factor * forest_rate * 0.15 * min(adj_forest, 3)
                 else:
-                    prob = forest_rate * 0.02  # Very rare spontaneous forest on ruin
-                if rng.random() < prob:
+                    forest_prob = age_factor * forest_rate * 0.08
+
+                # Plains fade — secondary path (GT: 15% ruin→empty)
+                empty_prob = age_factor * 0.015
+
+                if rng.random() < forest_prob:
                     grid[ry, rx] = FOREST
-                elif rng.random() < 0.03:
-                    # Fade to plains
+                elif rng.random() < empty_prob:
                     grid[ry, rx] = PLAINS
 
-        # Forest grows on empty/plains ONLY adjacent to existing forest, very slowly
-        # "Forests are mostly static" — spreading is rare
+        # Forest grows on empty/plains adjacent to existing forest
+        # Calibrated: Empty→Forest = 3.2% over 50 years
         empty_mask = (grid == PLAINS) | (grid == EMPTY)
         grow_candidates = np.where(empty_mask & (forest_adj_count > 0))
 
         for y, x in zip(grow_candidates[0], grow_candidates[1]):
-            # ~1-2% per year when adjacent to forest, scaled by forest_growth_rate
-            prob = forest_rate * 0.02 * min(forest_adj_count[y, x], 3)
+            # With forest_rate=0.12: adj*0.0012/yr → 1 adj: ~5.8% over 50yr
+            prob = forest_rate * 0.01 * min(forest_adj_count[y, x], 3)
             if rng.random() < prob:
                 grid[y, x] = FOREST
+
+        # Forest natural decay/clearing — calibrated: Forest→Empty = 7.5% over 50 years
+        # Annual rate: ~0.15% per year. Most clearing is from settlement expansion
+        # (handled in Growth phase), not natural decay.
+        forest_ys, forest_xs = np.where(grid == FOREST)
+        sett_near = _count_adjacent(grid, SETTLEMENT) + _count_adjacent(grid, PORT)
+        for fy, fx in zip(forest_ys, forest_xs):
+            base_prob = 0.001  # Very slow natural decay
+            if sett_near[fy, fx] > 0:
+                base_prob += 0.002 * sett_near[fy, fx]
+            if rng.random() < base_prob:
+                grid[fy, fx] = PLAINS
 
     # ── Main simulation loop ─────────────────────────────────────────────────
 
@@ -516,6 +607,7 @@ class NorseSimulator:
         rng = np.random.default_rng(seed)
         grid = self.initial_grid.copy()
         settlements = self._init_settlements()
+        self._ruin_age = {}  # Reset ruin age tracking
 
         # Place initial settlements on grid
         self._rebuild_grid(grid, settlements)

@@ -500,17 +500,19 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         logger.warning(f"Very low confidence ({confidence:.2f}) -> unknown")
         task_type = "unknown"
 
-    # Remap for fresh sandbox (no pre-existing entities)
-    FRESH_SANDBOX_REMAP = {
+    # Fresh sandbox handling: each submission starts with an empty account.
+    # Tasks referencing "existing" entities need to CREATE them instead.
+    # register_payment needs an invoice to exist — remap to create+pay flow.
+    _FRESH_SANDBOX_REMAP = {
         "register_payment": "create_invoice_with_payment",
         "register_payment_by_search": "create_invoice_with_payment",
         "create_invoice_existing_customer": "create_invoice",
         "create_project_existing_customer": "create_project",
     }
-    if task_type in FRESH_SANDBOX_REMAP:
+    if task_type in _FRESH_SANDBOX_REMAP:
         original = task_type
-        task_type = FRESH_SANDBOX_REMAP[task_type]
-        logger.info(f"Remap: {original} -> {task_type} (fresh sandbox)")
+        task_type = _FRESH_SANDBOX_REMAP[original]
+        logger.info(f"Fresh sandbox remap: {original} -> {task_type} (sandbox starts empty)")
 
     return task_type, confidence
 

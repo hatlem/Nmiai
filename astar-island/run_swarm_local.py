@@ -12,11 +12,10 @@ import numpy as np
 from pathlib import Path
 
 from inference import ParameterInference
+from priors import NUM_CLASSES, PROB_FLOOR, STATIC_FLOOR
 from swarm import SwarmCoordinator
 
 ROUND_DATA_FILE = "round_data.json"
-NUM_CLASSES = 6
-PROB_FLOOR = 0.01
 
 
 def main():
@@ -40,28 +39,21 @@ def main():
     counts = {s: np.zeros((H, W, NUM_CLASSES), dtype=np.int32) for s in seeds}
     settlements_data = {s: [] for s in seeds}
 
-    print("\nInferring parameters from initial states...")
+    print("\nInferring parameters (lightweight, for heuristic agent)...")
     inferrer = ParameterInference(initial_states, observations, counts,
                                    settlements_data=settlements_data)
     inferred_params = inferrer.infer()
-    print(f"  MAP estimates: {inferred_params}")
+    print(f"  Estimates: { {k: f'{v:.2f}' for k, v in inferred_params.items()} }")
 
-    try:
-        posterior_samples = inferrer.infer_posterior(n_samples=20)
-        print(f"  Posterior samples: {len(posterior_samples)}")
-    except Exception as e:
-        print(f"  Posterior sampling failed ({e}), using MAP only")
-        posterior_samples = [inferred_params]
-
-    print("\nRunning swarm predictions...")
+    print("\nRunning empirical predictions (no MC)...")
     swarm = SwarmCoordinator(
         initial_states=initial_states,
         W=W, H=H,
         seeds_count=seeds_count,
         inferred_params=inferred_params,
-        posterior_samples=posterior_samples,
-        mc_runs_per_agent=40,
-        n_mc_agents=10,
+        posterior_samples=[inferred_params],
+        mc_runs_per_agent=0,
+        n_mc_agents=0,
     )
 
     predictions = swarm.predict_all(
@@ -73,7 +65,7 @@ def main():
     print("\nSaving predictions...")
     for seed_idx in range(seeds_count):
         pred = predictions[seed_idx]
-        pred = np.maximum(pred, PROB_FLOOR)
+        pred = np.maximum(pred, STATIC_FLOOR)
         pred /= pred.sum(axis=-1, keepdims=True)
 
         np.save(f"predictions_seed_{seed_idx}.npy", pred)

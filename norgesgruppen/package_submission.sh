@@ -16,6 +16,10 @@ fi
 
 echo "=== Packaging ${MODE} submission ==="
 
+# Dashboard reporting helper
+REPORT="$(cd "$(dirname "$0")/.." && pwd)/report.sh"
+NG_TEST_ID=$("$REPORT" test norgesgruppen "Package ${MODE} submission" running 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+
 # Clean up
 rm -rf submission_pkg
 mkdir submission_pkg
@@ -169,7 +173,7 @@ echo "Ready to upload: submission.zip"
 # ── Report to dashboard ──
 echo ""
 echo "=== Reporting to dashboard ==="
-curl -s -X POST http://localhost:8090/api/score \
-  -H 'Content-Type: application/json' \
-  -d "{\"task\":\"norgesgruppen\",\"raw\":0,\"note\":\"ZIP packaged (${MODE}, ${ZIPSIZE}MB)\"}" \
-  2>/dev/null || echo "Dashboard not running, skipping report"
+if [[ -n "${NG_TEST_ID:-}" ]]; then
+    "$REPORT" update "$NG_TEST_ID" submitted "" "ZIP created: ${ZIPNAME} (${MODE}, ${ZIPSIZE}MB, ${WEIGHT_COUNT} weights)" 2>/dev/null || true
+fi
+"$REPORT" score norgesgruppen 0 "" "" "ZIP packaged (${MODE}, ${ZIPSIZE}MB)" 2>/dev/null || echo "Dashboard not running, skipping report"

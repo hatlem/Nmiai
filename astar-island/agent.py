@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-Astar Island — Viking Civilisation Prediction Agent v6 (Swarm)
+Astar Island — Viking Civilisation Prediction Agent v7 (Empirical)
 
 Architecture:
 - QueryOptimizer: Settlement-focused repeated-query strategy (3-5x per viewport)
-- ParameterInference: Bayesian inference of hidden simulator parameters
-- SwarmCoordinator: Multiple independent prediction agents ensembled via
-  geometric mean (KL-optimal). Agents include:
-  - N MonteCarloAgents with diverse posterior parameter samples
+- SwarmCoordinator: Empirical prediction agents ensembled via geometric mean.
+  NO Monte Carlo simulator (our sim scores only 43/100 against real GT).
+  Agents:
   - StatisticalAgent (KT estimator + contextual transitions)
-  - TransitionAgent (global transition matrix)
-  - SpatialAgent (belief propagation)
-  - HeuristicAgent (domain knowledge + inferred params)
   - SettlementTrajectoryAgent (settlement metadata trajectories)
+  - TransitionAgent (cross-seed transition matrix)
+  - HeuristicAgent (domain knowledge)
+  - SpatialAgent (belief propagation)
+  - ContextualPoolingAgent (cross-seed empirical data)
+- GT-calibrated priors from 5 completed rounds (25 seeds)
+- Distance-based priors (near/mid/far from settlements)
 
 Usage:
     python agent.py --token <JWT_TOKEN>
     python agent.py --resume          # Resume from observations.json
     python agent.py --submit-only     # Submit saved predictions
     python agent.py --no-query        # Prior-only predictions
-    python agent.py --mc-agents 8     # MC swarm agents (default 8)
-    python agent.py --mc-runs 30      # MC runs per agent (default 30)
 """
 
 from __future__ import annotations
@@ -35,13 +35,12 @@ from typing import Any
 import numpy as np
 import requests
 
-from inference import ParameterInference
 from query_optimizer import QueryOptimizer
-from swarm import SwarmCoordinator
+from predictor import predict_all
+
+from priors import NUM_CLASSES, PROB_FLOOR, STATIC_FLOOR
 
 BASE_URL = "https://api.ainm.no"
-NUM_CLASSES = 6
-PROB_FLOOR = 0.01
 TERRAIN_TO_CLASS = {10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
 
 
@@ -150,7 +149,7 @@ def store_observation(result, seed_idx, x, y, H, W,
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def run(token: str, dry_run=False, submit_only=False, no_query=False,
-        resume=False, mc_runs=30, no_mc=False, mc_agents=8):
+        resume=False):
     session = create_session(token)
 
     # Load round
@@ -310,34 +309,15 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
                            observations, counts, settlements_data, query_log)
                 time.sleep(0.22)
 
-    # ── Phase 2: Infer hidden parameters ─────────────────────────────────
-    print("\nInferring hidden parameters...")
-    inferrer = ParameterInference(initial_states, observations, counts,
-                                   settlements_data=settlements_data)
-
-    inferred_params = inferrer.infer()
-    print(f"  MAP estimates: {inferred_params}")
-
-    # Sample from posterior for ensemble predictions
-    try:
-        posterior_samples = inferrer.infer_posterior(n_samples=5)
-        print(f"  Posterior samples: {len(posterior_samples)}")
-    except Exception as e:
-        print(f"  Posterior sampling failed ({e}), using MAP only")
-        posterior_samples = [inferred_params]
-
-    # ── Phase 3+4: Swarm prediction ─────────────────────────────────────
-    print("\nBuilding swarm predictions...")
-    swarm = SwarmCoordinator(
+    # ── Phase 2: Predict ────────────────────────────────────────────────
+    # Three-layer predictor:
+    #   1. KT estimator for observed cells (direct empirical data)
+    #   2. GT lookup (197 context bins from 5+ completed rounds)
+    #   3. Adaptive distance priors (scaled by this round's transition rates)
+    # No MC simulator (scores only 30-54/100 against real GT).
+    print("\nGenerating predictions...")
+    predictions = predict_all(
         initial_states=initial_states,
-        W=W, H=H,
-        seeds_count=seeds_count,
-        inferred_params=inferred_params,
-        posterior_samples=posterior_samples,
-        mc_runs_per_agent=mc_runs,
-        n_mc_agents=mc_agents if not no_mc else 0,
-    )
-    predictions = swarm.predict_all(
         counts=counts,
         observations=observations,
         settlements_data=settlements_data,
@@ -348,10 +328,8 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
     for seed_idx in range(seeds_count):
         pred = predictions[seed_idx]
 
-        # Final safety: ensure no zeros (KL=inf). Use STATIC_FLOOR (0.001)
-        # as absolute minimum — matches the tightest floor used by the swarm
-        # for near-impossible transitions (mountain→settlement, etc.).
-        pred = np.maximum(pred, 0.001)
+        # Final safety: ensure no zeros (KL=inf).
+        pred = np.maximum(pred, STATIC_FLOOR)
         pred /= pred.sum(axis=-1, keepdims=True)
 
         np.save(f"predictions_seed_{seed_idx}.npy", pred)
@@ -383,23 +361,17 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Astar Island Agent v6 — Swarm Prediction"
+        description="Astar Island Agent v7 — Empirical Prediction"
     )
     parser.add_argument("--token", default=os.getenv("ASTAR_ISLAND_TOKEN"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--submit-only", action="store_true")
     parser.add_argument("--no-query", action="store_true")
-    parser.add_argument("--no-mc", action="store_true",
-                        help="Skip Monte Carlo agents in swarm")
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--mc-runs", type=int, default=120,
-                        help="Monte Carlo runs per swarm agent")
-    parser.add_argument("--mc-agents", type=int, default=12,
-                        help="Number of MC agents in swarm")
     args = parser.parse_args()
 
     if not args.token:
         parser.error("Token required: --token or ASTAR_ISLAND_TOKEN env var")
 
     run(args.token, args.dry_run, args.submit_only, args.no_query,
-        args.resume, args.mc_runs, args.no_mc, args.mc_agents)
+        args.resume)

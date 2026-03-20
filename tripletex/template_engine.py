@@ -225,20 +225,25 @@ def _apply_defaults(steps: list[dict], values: dict, task_type: str) -> list[dic
 
         # Employee defaults
         if "/employee" in path and "/employment" not in path and method == "POST":
-            body.setdefault("userType", "STANDARD")
+            if not body.get("userType"):
+                body["userType"] = "STANDARD"
 
         # Customer defaults
         if path.rstrip("/") == "/customer" and method == "POST":
-            body.setdefault("isCustomer", True)
+            if body.get("isCustomer") is None:
+                body["isCustomer"] = True
 
         # Project defaults — startDate is REQUIRED (422 without it)
         if "/project" in path and method == "POST":
-            body.setdefault("startDate", values.get("startDate", today))
+            if not body.get("startDate"):
+                body["startDate"] = values.get("startDate") or today
 
         # Order date defaults
         if "/order" in path and "/orderline" not in path.lower() and method == "POST":
-            body.setdefault("orderDate", values.get("orderDate", today))
-            body.setdefault("deliveryDate", body.get("orderDate", today))
+            if not body.get("orderDate"):
+                body["orderDate"] = values.get("orderDate") or today
+            if not body.get("deliveryDate"):
+                body["deliveryDate"] = body.get("orderDate") or today
 
         # Voucher defaults — description is REQUIRED (422 without it)
         if "/ledger/voucher" in path:

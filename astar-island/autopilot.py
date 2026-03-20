@@ -24,9 +24,8 @@ import numpy as np
 import requests
 
 from query_optimizer import QueryOptimizer, TERRAIN_TO_CLASS, NUM_CLASSES
-from inference import ParameterInference
+from predictor import predict_all
 from priors import STATIC_FLOOR
-from swarm import SwarmCoordinator
 
 API_BASE = "https://api.ainm.no/astar-island"
 TOKEN = os.environ.get("AINM_TOKEN", "")
@@ -129,46 +128,63 @@ def process_round(round_info: dict):
 
         print(f"\nExecuting {len(plan)} queries...")
         for qi, (seed_idx, x, y, w, h) in enumerate(plan):
-            try:
-                result = simulate(round_id, seed_idx, x, y, w, h)
+            for attempt in range(3):
+                try:
+                    result = simulate(round_id, seed_idx, x, y, w, h)
 
-                # Process observation
-                grid_data = result.get("grid", [])
-                sett_list = result.get("settlements", [])
+                    # Process observation
+                    grid_data = result.get("grid", [])
+                    sett_list = result.get("settlements", [])
 
-                # Store observation grid
-                for row_idx, row in enumerate(grid_data):
-                    gy = y + row_idx
-                    if gy >= H:
-                        break
-                    for col_idx, cell in enumerate(row):
-                        gx = x + col_idx
-                        if gx >= W:
+                    for row_idx, row in enumerate(grid_data):
+                        gy = y + row_idx
+                        if gy >= H:
                             break
-                        observations[seed_idx][gy][gx] = cell
-                        cls = TERRAIN_TO_CLASS.get(cell, 0)
-                        counts[seed_idx][gy, gx, cls] += 1
+                        for col_idx, cell in enumerate(row):
+                            gx = x + col_idx
+                            if gx >= W:
+                                break
+                            observations[seed_idx][gy][gx] = cell
+                            cls = TERRAIN_TO_CLASS.get(cell, 0)
+                            counts[seed_idx][gy, gx, cls] += 1
 
-                # Store settlement data
-                if sett_list:
-                    settlements_data[seed_idx].append({"settlements": sett_list})
+                    if sett_list:
+                        settlements_data[seed_idx].append({"settlements": sett_list})
 
-                if (qi + 1) % 10 == 0 or qi == len(plan) - 1:
-                    print(f"  Query {qi+1}/{len(plan)} done "
-                          f"(seed={seed_idx}, viewport=({x},{y},{w},{h}))")
+                    if (qi + 1) % 10 == 0 or qi == len(plan) - 1:
+                        print(f"  Query {qi+1}/{len(plan)} done "
+                              f"(seed={seed_idx}, viewport=({x},{y},{w},{h}))")
 
-                # Rate limit: 5 req/s for simulate
-                time.sleep(0.22)
+                    time.sleep(0.3)  # Safe rate: ~3.3 req/s (limit is 5)
+                    break  # Success
 
-            except requests.exceptions.HTTPError as e:
-                if "budget" in str(e).lower() or "exhausted" in str(e).lower():
-                    print(f"  Budget exhausted at query {qi+1}")
+                except requests.exceptions.HTTPError as e:
+                    if "budget" in str(e).lower() or "exhausted" in str(e).lower():
+                        print(f"  Budget exhausted at query {qi+1}")
+                        break
+                    if e.response and e.response.status_code == 429:
+                        wait = 2.0 * (attempt + 1)
+                        print(f"  Query {qi+1} rate limited, waiting {wait}s...")
+                        time.sleep(wait)
+                        continue
+                    print(f"  Query {qi+1} failed: {e}")
+                    time.sleep(1)
                     break
-                print(f"  Query {qi+1} failed: {e}")
-                time.sleep(1)
-            except Exception as e:
-                print(f"  Query {qi+1} error: {e}")
-                time.sleep(1)
+                except Exception as e:
+                    print(f"  Query {qi+1} error: {e}")
+                    time.sleep(1)
+                    break
+
+        # Save observations for crash recovery / re-submission
+        obs_file = Path(f"observations_r{round_num}.json")
+        obs_file.write_text(json.dumps({
+            "round_id": round_id,
+            "round_number": round_num,
+            "observations": {str(s): observations[s] for s in range(seeds_count)},
+            "counts": {str(s): counts[s].tolist() for s in range(seeds_count)},
+            "settlements_data": {str(s): settlements_data[s] for s in range(seeds_count)},
+        }, separators=(',', ':')), encoding="utf-8")
+        print(f"\n  Observations saved to {obs_file}")
 
         # Print observation coverage
         for s in range(seeds_count):
@@ -176,32 +192,28 @@ def process_round(round_info: dict):
             n_cells = int((counts[s].sum(axis=2) > 0).sum())
             print(f"  Seed {s}: {n_obs} observations, {n_cells}/{W*H} cells covered")
     else:
-        print("No queries remaining — using initial states only")
+        # Try to load saved observations from a previous run
+        obs_file = Path(f"observations_r{round_num}.json")
+        if obs_file.exists():
+            print(f"Loading saved observations from {obs_file}...")
+            saved = json.loads(obs_file.read_text())
+            observations = {int(k): v for k, v in saved["observations"].items()}
+            counts = {int(k): np.array(v, dtype=np.int32)
+                      for k, v in saved["counts"].items()}
+            settlements_data = {int(k): v for k, v in saved["settlements_data"].items()}
+            for s in range(seeds_count):
+                n_obs = int(counts[s].sum())
+                n_cells = int((counts[s].sum(axis=2) > 0).sum())
+                print(f"  Seed {s}: {n_obs} observations, {n_cells}/{W*H} cells covered")
+        else:
+            print("No queries remaining and no saved observations — skipping round")
+            return
 
-    # Parameter inference
-    print("\nInferring parameters...")
-    inferrer = ParameterInference(initial_states, observations, counts,
-                                   settlements_data=settlements_data)
-    inferred_params = inferrer.infer()
-    print(f"  MAP: {inferred_params}")
-
-    try:
-        posterior_samples = inferrer.infer_posterior(n_samples=20)
-        print(f"  Posterior samples: {len(posterior_samples)}")
-    except Exception as e:
-        print(f"  Posterior sampling failed ({e}), using MAP only")
-        posterior_samples = [inferred_params]
-
-    # Run swarm predictions
-    print("\nRunning swarm predictions...")
-    swarm = SwarmCoordinator(
+    # Generate predictions using unified predictor
+    # Three layers: KT (observed) → GT lookup (197 bins) → adaptive distance priors
+    print("\nGenerating predictions...")
+    predictions = predict_all(
         initial_states=initial_states,
-        W=W, H=H,
-        seeds_count=seeds_count,
-        inferred_params=inferred_params,
-        posterior_samples=posterior_samples,
-    )
-    predictions = swarm.predict_all(
         counts=counts,
         observations=observations,
         settlements_data=settlements_data,
@@ -238,7 +250,12 @@ def main():
 
     print("Astar Island Auto-Pilot started")
 
-    completed_rounds: set = set()
+    # Persist completed rounds to disk so restarts don't re-process
+    completed_file = Path("completed_rounds.json")
+    if completed_file.exists():
+        completed_rounds = set(json.loads(completed_file.read_text()))
+    else:
+        completed_rounds = set()
 
     while True:
         try:
@@ -250,6 +267,7 @@ def main():
                 for round_info in active:
                     process_round(round_info)
                     completed_rounds.add(round_info["id"])
+                    completed_file.write_text(json.dumps(list(completed_rounds)))
             else:
                 now = time.strftime("%H:%M:%S UTC", time.gmtime())
                 print(f"[{now}] No new active rounds. Waiting {POLL_INTERVAL}s...",

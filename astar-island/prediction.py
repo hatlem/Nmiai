@@ -194,19 +194,19 @@ class PredictionEngine:
             base[0] -= 0.05  # Less likely to vanish
             base[3] -= 0.03  # Less likely to become ruin
 
-        # Far from settlements: empty cells stay empty
+        # Far from settlements: empty cells stay empty but forest grows slightly more
         if sett_dist > 6 and init_cls == 0:
-            base[0] = 0.92
+            base[0] = 0.90
             base[1] = 0.01
             base[2] = 0.01
             base[3] = 0.01
-            base[4] = 0.04
+            base[4] = 0.06
             base[5] = 0.01
 
         # Far from settlements: forest stays forest
         if sett_dist > 6 and init_cls == 4:
-            base[4] = 0.90
-            base[0] = 0.04
+            base[4] = 0.91
+            base[0] = 0.03
             base[1] = 0.01
             base[2] = 0.01
             base[3] = 0.01
@@ -371,9 +371,9 @@ class PredictionEngine:
                 for ic_val in range(NUM_CLASSES):
                     ic_mask = (init_cls == ic_val)
                     domain_prior_grid[ic_mask] = DOMAIN_PRIORS.get(ic_val, DOMAIN_PRIORS[0])
-                # Class-aware simulator weights: lower for forest
+                # Class-aware simulator weights: slightly lower for forest
                 sim_weights = np.full(NUM_CLASSES, 0.30)
-                sim_weights[4] = 0.15  # Forest: halved sim weight due to systematic overestimate
+                sim_weights[4] = 0.22  # Forest: reduced sim weight (was over-dampened)
                 for c in range(NUM_CLASSES):
                     pred[unobs, c] = (
                         sim_weights[c] * simulator_pred[unobs, c] +
@@ -489,48 +489,48 @@ class PredictionEngine:
         is_coast = coastal[y, x]
         sd = sett_dist[y, x]
 
-        # Settlement/Port dynamics — moderate adjustments
+        # Settlement/Port dynamics — reduced to avoid over-predicting settlement
         if init_cls in (1, 2):
             if food >= 2:
-                dist[1] += 0.10
-                dist[3] += 0.04
-            elif food >= 1:
                 dist[1] += 0.06
-                dist[3] += 0.08
+                dist[3] += 0.03
+            elif food >= 1:
+                dist[1] += 0.03
+                dist[3] += 0.06
             else:
-                dist[1] += 0.02
-                dist[3] += 0.12
+                dist[1] += 0.01
+                dist[3] += 0.08
 
             if init_cls == 2 or is_coast:
-                dist[2] += 0.05
+                dist[2] += 0.04
 
             # Hidden param adjustments (reduced magnitude)
-            dist[3] += 0.08 * aggression + 0.06 * winter
-            dist[1] -= 0.04 * (aggression + winter)
+            dist[3] += 0.05 * aggression + 0.04 * winter
+            dist[1] -= 0.03 * (aggression + winter)
             if is_coast:
-                dist[2] += 0.06 * trade
+                dist[2] += 0.04 * trade
 
-        # Near-settlement boost for non-settlement cells (reduced)
+        # Near-settlement boost for non-settlement cells (reduced — was overestimating)
         if init_cls == 0 and sd <= 3:
-            dist[1] += 0.03
-            dist[3] += 0.02
+            dist[1] += 0.02
+            dist[3] += 0.01
 
-        # Forest dynamics — forest is very stable, barely grows into other cells
+        # Forest dynamics — forest is stable but grows more than we predicted
         if init_cls == 4:
             forest_pref = DOMAIN_PRIORS[4].copy()
-            dist = 0.4 * dist + 0.6 * forest_pref
-            dist[4] += 0.03 * forest_growth
+            dist = 0.45 * dist + 0.55 * forest_pref
+            dist[4] += 0.04 * forest_growth
 
-        # Empty near forest -> very mild forest growth (was massively overestimated)
+        # Empty near forest -> mild forest growth (ground truth shows ~4.4% vs our 3.2%)
         if init_cls == 0 and food >= 2:
-            dist[4] += 0.02 + 0.03 * forest_growth
+            dist[4] += 0.03 + 0.04 * forest_growth
 
-        # Ruin reclamation — forest growth into ruins is also overestimated
+        # Ruin reclamation — forest grows into ruins moderately
         if init_cls == 3:
             if sd <= 4:
-                dist[1] += 0.06
-            dist[4] += 0.03 + 0.04 * forest_growth
-            dist[0] += 0.08
+                dist[1] += 0.04
+            dist[4] += 0.05 + 0.04 * forest_growth
+            dist[0] += 0.06
 
         # Suppress impossible transitions
         if raw_code != 5:

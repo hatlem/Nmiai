@@ -3,7 +3,7 @@
 Shared domain priors for Astar Island prediction.
 
 Single source of truth for calibrated terrain transition priors,
-loaded from calibration.json (Round 1 ground truth analysis).
+loaded from calibration.json (average GT from all 5 completed rounds, 25 seeds).
 
 All zero values are floored to MIN_FLOOR (0.003) to prevent
 log(0) in KL divergence calculations while preserving probability mass.

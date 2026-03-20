@@ -266,9 +266,9 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
         if v == "" and k not in ("name", "firstName", "lastName"):
             continue
         # Ensure amounts are numbers, not strings
-        if k in ("amount", "amountGross", "paidAmount", "priceExcludingVatCurrency",
-                  "priceIncludingVatCurrency", "amountCurrencyIncVat",
-                  "acquisitionCost", "hours",
+        if k in ("amount", "amountGross", "amountGrossCurrency", "paidAmount",
+                  "priceExcludingVatCurrency", "priceIncludingVatCurrency",
+                  "amountCurrencyIncVat", "acquisitionCost", "hours",
                   "percentageOfFullTimeEquivalent"):
             if isinstance(v, str):
                 try:
@@ -334,6 +334,20 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
                     logger.warning(f"Pre-validate: stripping '{bad_field}' from /employee/employment")
                     cleaned.pop(bad_field, None)
 
+    # Fix common LLM field name mistakes (synonyms the API doesn't accept)
+    _FIELD_RENAMES = {"quantity": "count", "amount": "unitPriceExcludingVatCurrency"}
+    for wrong, right in _FIELD_RENAMES.items():
+        if wrong in cleaned and right not in cleaned:
+            cleaned[right] = cleaned.pop(wrong)
+            logger.info(f"Pre-validate: renamed '{wrong}' -> '{right}'")
+    # Also fix in nested orderLines
+    if "orderLines" in cleaned and isinstance(cleaned["orderLines"], list):
+        for ol in cleaned["orderLines"]:
+            if isinstance(ol, dict):
+                for wrong, right in _FIELD_RENAMES.items():
+                    if wrong in ol and right not in ol:
+                        ol[right] = ol.pop(wrong)
+
     # Smart date defaults for invoice-related fields
     if "orderDate" in cleaned and "deliveryDate" not in cleaned:
         cleaned["deliveryDate"] = cleaned["orderDate"]
@@ -349,6 +363,19 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
     return cleaned
 
 
+_ENTITLEMENT_NORMALIZE = {
+    "administrator": "ALL_PRIVILEGES", "admin": "ALL_PRIVILEGES",
+    "kontoadministrator": "ALL_PRIVILEGES", "all_privileges": "ALL_PRIVILEGES",
+    "regnskapsforer": "ACCOUNTANT", "regnskapsfører": "ACCOUNTANT",
+    "rekneskapsforar": "ACCOUNTANT", "accountant": "ACCOUNTANT",
+    "revisor": "AUDITOR", "auditor": "AUDITOR",
+    "lonnansvarlig": "PERSONELL_MANAGER", "lønnansvarlig": "PERSONELL_MANAGER",
+    "personell_manager": "PERSONELL_MANAGER",
+    "fakturaansvarlig": "INVOICING_MANAGER", "invoicing_manager": "INVOICING_MANAGER",
+    "avdelingsleder": "DEPARTMENT_LEADER", "department_leader": "DEPARTMENT_LEADER",
+}
+
+
 def _pre_validate_params(params: dict | None) -> dict | None:
     """Clean query params - ensure proper types."""
     if params is None:
@@ -357,6 +384,12 @@ def _pre_validate_params(params: dict | None) -> dict | None:
     for k, v in params.items():
         if v is None or v == "":
             continue
+        # Normalize entitlement template names
+        if k == "template" and isinstance(v, str):
+            normalized = _ENTITLEMENT_NORMALIZE.get(v.lower().strip())
+            if normalized:
+                logger.info(f"Pre-validate params: normalized template '{v}' -> '{normalized}'")
+                v = normalized
         # Amount params should be numbers
         if k in ("paidAmount", "amount"):
             if isinstance(v, str):
@@ -372,7 +405,19 @@ def _pre_validate_params(params: dict | None) -> dict | None:
         if k in ("paymentTypeId", "employeeId", "id"):
             if isinstance(v, str) and v.isdigit():
                 v = int(v)
+        # Normalize dispatchType for reminders
+        if k == "dispatchType" and isinstance(v, str):
+            v = v.upper()
+            if v not in ("EMAIL", "SMS", "OWN_PRINTER", "NETS_PRINT", "SFTP", "API", "LETTER"):
+                v = "EMAIL"
         cleaned[k] = v
+    # Fix wrong param names for reminders
+    for wrong in ("sendType", "sendTypes", "sendMethod", "selectedReminderSendTypes"):
+        if wrong in cleaned and "dispatchType" not in cleaned:
+            cleaned["dispatchType"] = cleaned.pop(wrong)
+            logger.info(f"Pre-validate params: renamed '{wrong}' -> 'dispatchType'")
+        elif wrong in cleaned:
+            del cleaned[wrong]
     return cleaned
 
 
@@ -449,6 +494,25 @@ async def _execute_step(
         except Exception as e:
             logger.error(f"Step {idx}: fallback GET /invoice/paymentType exception: {e}")
 
+    # Fallback: if /:payment is missing paidAmount, try to get invoice amount
+    if "/:payment" in str(path) and params and "paidAmount" not in params:
+        # Extract invoice ID from path (e.g. /invoice/12345/:payment)
+        import re as _re
+        inv_match = _re.search(r'/invoice/(\d+)', str(path))
+        if inv_match:
+            inv_id = inv_match.group(1)
+            logger.warning(f"Step {idx}: paidAmount missing — fetching invoice {inv_id} amount")
+            try:
+                inv_resp = await client.request("GET", f"/invoice/{inv_id}", params={"fields": "id,amount"})
+                if inv_resp.get("ok"):
+                    inv_data = inv_resp.get("data", {})
+                    inv_val = inv_data.get("value", inv_data)
+                    if isinstance(inv_val, dict) and "amount" in inv_val:
+                        params["paidAmount"] = inv_val["amount"]
+                        logger.info(f"Step {idx}: resolved paidAmount={inv_val['amount']} from invoice")
+            except Exception as e:
+                logger.error(f"Step {idx}: fallback GET invoice amount exception: {e}")
+
     logger.info(f"Step {idx}: {method} {path}")
 
     try:
@@ -456,6 +520,63 @@ async def _execute_step(
     except Exception as e:
         logger.error(f"Step {idx} exception: {e}")
         response = {"status_code": 0, "ok": False, "data": {"error": str(e)}}
+
+    # Handle "already exists" 422 errors by searching for the existing entity
+    if method == "POST" and response.get("status_code") == 422:
+        error_data = response.get("data", {})
+        validation_msgs = error_data.get("validationMessages", [])
+        is_duplicate = any(
+            "allerede" in (m.get("message", "") or "").lower()
+            or "already" in (m.get("message", "") or "").lower()
+            or "i bruk" in (m.get("message", "") or "").lower()
+            or "in use" in (m.get("message", "") or "").lower()
+            for m in validation_msgs
+        )
+        if is_duplicate and body:
+            logger.warning(f"Step {idx}: POST {path} duplicate detected, searching for existing entity")
+            # Build search params from body fields
+            # Use only universally safe fields for each entity type
+            _ENTITY_FIELDS = {
+                "/employee": "id,firstName,lastName,email",
+                "/customer": "id,name,email,organizationNumber",
+                "/supplier": "id,name,email,organizationNumber",
+                "/product": "id,name,number",
+                "/department": "id,name",
+                "/project": "id,name",
+            }
+            entity_fields = "id,name"
+            for ep, fields in _ENTITY_FIELDS.items():
+                if path.rstrip("/") == ep or path.startswith(ep + "/"):
+                    entity_fields = fields
+                    break
+            search_params = {"fields": entity_fields}
+            search_key = None
+            for key in ("name", "email", "organizationNumber", "number", "firstName"):
+                if key in body and body[key]:
+                    search_key = key
+                    search_params[key] = str(body[key])
+                    break
+            if search_key:
+                try:
+                    search_resp = await client.request("GET", path, params=search_params)
+                    if search_resp.get("ok"):
+                        s_data = search_resp.get("data", {})
+                        s_values = s_data.get("values", [])
+                        if not s_values:
+                            inner = s_data.get("value", {})
+                            if isinstance(inner, dict):
+                                s_values = inner.get("values", [])
+                        if s_values:
+                            # Found existing entity — return it as if POST succeeded
+                            existing = s_values[0]
+                            logger.info(f"Step {idx}: found existing entity id={existing.get('id')} via search")
+                            response = {
+                                "status_code": 200, "ok": True,
+                                "data": {"value": existing},
+                                "recovered_duplicate": True,
+                            }
+                except Exception as e2:
+                    logger.warning(f"Step {idx}: duplicate recovery search failed: {e2}")
 
     # Detect empty search results that will break downstream references
     if method == "GET" and response["ok"]:

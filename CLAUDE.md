@@ -178,13 +178,64 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | 2 | 2026-03-19 | ~22:00 | submission_v2.zip | YOLOv8x + WBF multi-scale | ? | Ukjent resultat |
 | 3 | 2026-03-20 | 10:33 | submission_v3.zip | YOLOv8x single-class + EfficientNet-B3 classifier, score=det_conf only | — | Ikke submittet |
 | 4 | 2026-03-20 | 10:38 | submission_20260320_103349.zip | YOLO26-x ONNX + DINOv2, score=det*cls^0.15 | **0.6740** | 287.9s, +41.6% vs forrige |
-| 5 | 2026-03-20 | 11:52 | submission_20260320_115200.zip | YOLO26-x ONNX + DINOv2 + multi-class YOLO hybrid, score=det_score only | ? | 380MB, 3/3 weights. Key fix: dont reduce det_score with cls_conf |
+| 5 | 2026-03-20 | 11:52 | submission_20260320_115200.zip | YOLO26-x ONNX + DINOv2 + multi-class YOLO hybrid, score=det_score only | — | Ikke submittet |
+| 6 | 2026-03-20 | 14:16 | submission_20260320_141629.zip | YOLO26-x FP16 ONNX + DINOv2 only, score=det_score, CLAHE on crops only, conf=0.01, no SAHI, no multi-class | KLAR | 257MB, 2/3 weights. Fixes: no timeout, pure det ranking |
 
 ### Regler for submission-logging
 - **ALLTID** oppdater tabellen over når en ny submission lages
 - Inkluder dato (YYYY-MM-DD), tidspunkt (HH:MM), zip-filnavn, kort beskrivelse av innhold
 - Oppdater Score-kolonnen når resultatet er kjent
 - NorgesGruppen har **max 3 submissions per dag**
+
+### Classifier Training Tracker
+
+| Versjon | Modell | Val Acc | Mean/Cat | Top-5 | Epochs | Status |
+|---|---|---|---|---|---|---|
+| v1 | DINOv2 + CE + label_smoothing | 91.3% | ? | ? | 20 | Brukt i sub #4 (0.6740) |
+| v2 | DINOv2 + FocalLoss + Mixup + EMA | **90.7%** (ep13) | 83.4% | 97.3% | 13/50 | **TRENER PÅ GCP** `classifier-train` — stiger +0.2%/ep, 259/>90% |
+
+**Sjekk trenings-status:**
+```bash
+gcloud compute ssh classifier-train --zone europe-west4-a --project ainm26osl-710 --command "grep '^E' ~/norgesgruppen/train_fast.log"
+```
+
+**Last ned ferdige vekter:**
+```bash
+gcloud compute scp classifier-train:~/norgesgruppen/models/dinov2_classifier_weights.pt norgesgruppen/models/ --zone europe-west4-a --project ainm26osl-710
+```
+
+### GCP Training Fleet (oppdatert 14:17 20. mars)
+
+| VM | GPU | Run | Epochs | Best mAP50 | Status |
+|---|---|---|---|---|---|
+| yolo26-a100 | A100 40GB | train7 (multi, 300ep) | ~5 | ? | Starter |
+| yolo26-train | L4 24GB | train4 (multi fra COCO) | 156 | **0.786** | Platåer |
+| nmiai-train-fast | L4 24GB | train (heavy aug) | 53 | 0.737 | Trener |
+| classifier-train | L4 24GB | DINOv2 v2 (focal+mixup) | ~10 | 90.1% acc | Trener |
+| yolo26-l4-3 | L4 24GB | YOLO26-l | ? | ? | Starter |
+| yolo26-t4-1 | T4 16GB | YOLO26-m | ? | ? | Setup |
+
+### Score Breakdown Estimater
+
+| Scenario | Det mAP | Cls mAP | Score (0.7d + 0.3c) | Bilder | Notater |
+|---|---|---|---|---|---|
+| Sub #1 (baseline) | ~0.68 | ~0.00 | 0.476 | alle | YOLOv8x multi-class only |
+| Sub #4 (0.6740) | ~0.90 | ~0.15 | 0.674 | ~60% | SAHI timeout, svak cls |
+| Sub #6 (klar) | ~0.94 | ~0.50 | **0.81** | alle | No SAHI, DINOv2 cls, score=det |
+| Med bedre modeller (est.) | ~0.95 | ~0.80 | **0.905** | alle | Ensemble + bedre trening |
+| Topp lag | ~0.99 | ~0.98 | **0.991** | alle | Gap: ~8-10 poeng |
+
+### Forbedringsprioritet
+1. ✅ **Prosesser alle bilder** — fjernet SAHI, run_fast.py
+2. ✅ **score=det_score** — ren detection ranking for 70%
+3. ⏳ **Bedre classifier** — focal loss + mixup trener på GCP
+4. ⏳ **Bedre multi-class YOLO** — A100 trener 300ep fra COCO
+5. 🔜 **Ensemble** — WBF av beste modeller
+6. 🔜 **TTA** — multi-scale test-time augmentation
+3. **Klassifiser ALLE deteksjoner** — ikke category_id=0 ✅ (run_best.py)
+4. **Klassifiserings-TTA** — flip + average logits ✅ (classifier.py)
+5. **Deteksjons-TTA** — horisontal flip når tid tillater ✅ (run_best.py)
+6. **Multi-scale WBF** — 640+960+1280 ✅ (run_best.py)
 
 ## MCP Docs Server
 ```

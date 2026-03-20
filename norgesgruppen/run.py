@@ -82,7 +82,7 @@ IMGSZ_SAHI_TILE = 640
 SAHI_OVERLAP = 0.3
 
 # Multi-scale WBF (fallback when SAHI unavailable)
-SCALES = [640, 1280]
+SCALES = [640, 960, 1280]
 WBF_IOU_THR = 0.6
 WBF_SKIP_BOX_THR = 0.001
 
@@ -92,11 +92,8 @@ SOFT_NMS_SCORE_THR = 0.001
 
 # Classification
 CLASSIFIER_BATCH_SIZE = 128
-CROP_PAD_RATIO = 0.05
+CROP_PAD_RATIO = 0.10
 MIN_BOX_SIZE = 5
-# Only classify top-N highest-confidence crops per image.
-# Rest get category_id=0 (still helps detection mAP, neutral for cls mAP).
-MAX_CLASSIFY_PER_IMAGE = 150
 
 
 # ── Time Budget Manager ───────────────────────────────────────────────
@@ -262,71 +259,37 @@ def process_image(
     device: str,
     use_sahi: bool,
     classifier: ProductClassifier,
+    use_det_tta: bool = False,
     multi_class_model=None,
 ) -> list[dict]:
     """Full pipeline for a single image.
 
     1. CLAHE enhance
-    2. Detect (SAHI/ensemble/multi-scale/simple — best available)
+    2. Detect with TTA (SAHI/ensemble/simple + horizontal flip)
     3. Soft-NMS on merged detections
-    4. Classify crops with best available classifier (DINOv2/EfficientNet)
-    5. Combine detection score x classification confidence
+    4. Classify ALL crops (every unclassified box hurts cls mAP)
+    5. Score = det_score only (preserves detection ranking)
 
-    Returns list of (box_xyxy, w, h, category_id, score) dicts ready for output.
+    Returns list of dicts ready for output.
     """
     # Step 1: CLAHE enhancement
     img = enhance_retail_image(img_bgr)
     img_h, img_w = img.shape[:2]
 
-    # Step 2: Detection — pick best available strategy
+    # Step 2: Detection — always use multi-scale WBF for best recall
     primary_model = models[0]
     has_multi_model = len(models) > 1
 
     if use_sahi and SAHI_AVAILABLE:
-        # SAHI provides the best small-object recall
         boxes, scores, labels = detect_sahi(primary_model, img, device)
     elif has_multi_model and ENSEMBLE_AVAILABLE:
         boxes, scores, labels = detect_ensemble(models, img, device)
     else:
-        # Fast mode: single-pass detection at full resolution
-        results = primary_model(
-            img,
-            device=device,
-            verbose=False,
-            conf=CONF_THRESHOLD,
-            iou=NMS_IOU,
-            imgsz=IMGSZ_FULL,
-            augment=False,
-        )
-        all_b, all_s, all_l = [], [], []
-        for r in results:
-            if r.boxes is not None and len(r.boxes) > 0:
-                all_b.append(r.boxes.xyxy.cpu().numpy())
-                all_s.append(r.boxes.conf.cpu().numpy())
-                all_l.append(r.boxes.cls.cpu().numpy().astype(int))
-        if all_b:
-            boxes = np.concatenate(all_b)
-            scores = np.concatenate(all_s)
-            labels = np.concatenate(all_l)
-        else:
-            boxes = np.zeros((0, 4))
-            scores = np.array([])
-            labels = np.array([], dtype=int)
+        # Multi-scale WBF: run at 640+1280 and fuse for better recall
+        boxes, scores, labels = detect_multiscale_wbf(primary_model, img, device)
 
     if len(boxes) == 0:
         return []
-
-    # If we have multiple models and used SAHI on primary, also run simple
-    # detection on secondary models and merge
-    if has_multi_model and not ENSEMBLE_AVAILABLE and len(models) > 1:
-        for extra_model in models[1:]:
-            extra_boxes, extra_scores = detect_simple(extra_model, img, device)
-            if len(extra_boxes) > 0:
-                # labels from simple detection are class 0 (single-class detector)
-                extra_labels = np.zeros(len(extra_boxes), dtype=int)
-                boxes = np.concatenate([boxes, extra_boxes])
-                scores = np.concatenate([scores, extra_scores])
-                labels = np.concatenate([labels, extra_labels])
 
     # Step 3: Soft-NMS — preserve overlapping products on dense shelves
     if SOFT_NMS_AVAILABLE and len(boxes) > 0:
@@ -340,10 +303,7 @@ def process_image(
     if len(boxes) == 0:
         return []
 
-    # Step 4: Selective classification — only classify top-N crops for speed
-    # Strategy: ALL detections contribute to detection mAP (70% of score).
-    # Only top-N highest-confidence get classified for cls mAP (30%).
-    # Low-confidence detections get category_id=0 (neutral for cls mAP).
+    # Step 4: Classify ALL detections — every category_id=0 is lost cls mAP
     detections = []
 
     # Filter valid boxes
@@ -359,19 +319,14 @@ def process_image(
     if not valid_boxes:
         return []
 
-    # Sort by score descending for selective classification
-    valid_boxes.sort(key=lambda x: -x[5])
-
     if classifier.mode != "none":
-        # Prepare crops for top-N only
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(img_rgb)
         pil_w, pil_h = pil_img.size
 
-        n_classify = min(MAX_CLASSIFY_PER_IMAGE, len(valid_boxes))
+        # Prepare ALL crops
         crops = []
-
-        for idx, x1, y1, w, h, score in valid_boxes[:n_classify]:
+        for idx, x1, y1, w, h, score in valid_boxes:
             pad_x = w * CROP_PAD_RATIO
             pad_y = h * CROP_PAD_RATIO
             crop = pil_img.crop((
@@ -382,23 +337,14 @@ def process_image(
             ))
             crops.append(crop)
 
-        # Classify top-N
+        # Classify ALL crops — TTA is handled inside classifier
         classifications = classifier.classify(crops, batch_size=CLASSIFIER_BATCH_SIZE)
 
-        # Top-N: classified with real category_id
-        for j, (idx, x1, y1, w, h, score) in enumerate(valid_boxes[:n_classify]):
+        for j, (idx, x1, y1, w, h, score) in enumerate(valid_boxes):
             cat_id, _cls_conf = classifications[j]
             detections.append({
                 "x1": x1, "y1": y1, "w": w, "h": h,
                 "category_id": int(cat_id),
-                "score": score,
-            })
-
-        # Remaining: unclassified, category_id=0 (helps det mAP, neutral for cls mAP)
-        for idx, x1, y1, w, h, score in valid_boxes[n_classify:]:
-            detections.append({
-                "x1": x1, "y1": y1, "w": w, "h": h,
-                "category_id": 0,
                 "score": score,
             })
     else:
@@ -555,8 +501,13 @@ def main():
             print(f"  [{img_idx+1}/{num_images}] SKIP (cannot read): {img_path.name}")
             continue
 
+        # Use detection TTA when time budget allows (adds ~0.5s/image)
+        time_per_img_budget = budget.remaining() / max(1, images_remaining)
+        use_det_tta = time_per_img_budget > 1.5  # Only TTA if we have >1.5s/image budget
+
         detections = process_image(
             models, img_bgr, device, use_sahi, classifier,
+            use_det_tta=use_det_tta,
             multi_class_model=multi_class_model,
         )
 
@@ -576,7 +527,7 @@ def main():
         img_time = time.perf_counter() - img_start
         budget.record_image(img_time)
 
-        mode = "SAHI" if use_sahi else "fast"
+        mode = "SAHI" if use_sahi else ("TTA" if use_det_tta else "fast")
         print(
             f"  [{img_idx+1}/{num_images}] {img_path.name}: "
             f"{len(detections)} dets, {img_time:.2f}s ({mode}) | "

@@ -72,6 +72,9 @@ fi
 echo "=== Astar Island Round Runner ==="
 echo "Token: ${TOKEN:0:20}..."
 
+# Dashboard reporting helper
+REPORT="$(cd "$(dirname "$0")/.." && pwd)/report.sh"
+
 # ── Monitor-only mode ─────────────────────────────────────────────────────────
 if $MONITOR_ONLY; then
     echo ""
@@ -91,7 +94,11 @@ $NO_MC && AGENT_ARGS+=(--no-mc)
 $RESUME && AGENT_ARGS+=(--resume)
 AGENT_ARGS+=("${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}")
 
+# Report start to dashboard
+ASTAR_TEST_ID=$("$REPORT" test astar "Round run (mc=$MC_RUNS)" running 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+
 python3 "$SCRIPT_DIR/agent.py" "${AGENT_ARGS[@]}"
+AGENT_EXIT=$?
 
 # ── Post-submission monitoring ────────────────────────────────────────────────
 echo ""
@@ -106,9 +113,15 @@ echo "=== Reporting to dashboard ==="
 # Try to extract best score from monitor output
 SCORE=$(python3 "$SCRIPT_DIR/monitor.py" --token "$TOKEN" 2>/dev/null | grep -oP 'Score: \K[0-9.]+' | head -1)
 if [[ -n "${SCORE:-}" ]]; then
-    curl -s -X POST http://localhost:8090/api/score \
-      -H 'Content-Type: application/json' \
-      -d "{\"task\":\"astar\",\"raw\":${SCORE},\"note\":\"auto-reported from run_round.sh\"}" \
-      2>/dev/null || echo "Dashboard not running, skipping report"
+    "$REPORT" score astar "$SCORE" "" "" "auto-reported from run_round.sh" 2>/dev/null || true
+    if [[ -n "${ASTAR_TEST_ID:-}" ]]; then
+        "$REPORT" update "$ASTAR_TEST_ID" passed "$SCORE" "Score: ${SCORE}" 2>/dev/null || true
+    fi
     echo "Reported score: ${SCORE}"
+elif [[ -n "${ASTAR_TEST_ID:-}" ]]; then
+    if [[ "${AGENT_EXIT:-0}" -ne 0 ]]; then
+        "$REPORT" update "$ASTAR_TEST_ID" failed "" "Agent exited with code ${AGENT_EXIT}" 2>/dev/null || true
+    else
+        "$REPORT" update "$ASTAR_TEST_ID" submitted "" "Submitted, score pending" 2>/dev/null || true
+    fi
 fi
