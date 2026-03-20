@@ -53,7 +53,7 @@ ACTION_ENDPOINTS = """## Key Action Endpoints (use query params, NOT body)
 - PUT /invoice/{{id}}/:payment — paymentDate, paymentTypeId, paidAmount (ALL REQUIRED)
 - PUT /invoice/{{id}}/:createCreditNote — date (REQUIRED), comment (optional)
 - PUT /invoice/{{id}}/:send — sendType (REQUIRED: EMAIL, EHF, EFAKTURA, LETTER, MANUAL)
-- PUT /invoice/{{id}}/:createReminder — type (REQUIRED), date (REQUIRED), comment (optional)
+- PUT /invoice/{{id}}/:createReminder — type (REQUIRED), date (REQUIRED), sendMethod (REQUIRED: EMAIL), comment (optional)
 - PUT /employee/entitlement/:grantEntitlementsByTemplate — employeeId, template (REQUIRED)
 - PUT /travelExpense/:deliver — id (REQUIRED)
 - PUT /travelExpense/:approve — id (REQUIRED)
@@ -93,6 +93,20 @@ EXCEPTIONS (GET-before-create IS correct):
 - For create_invoice_with_payment: GET /invoice/paymentType can run PARALLEL with POST /customer (no dependency)
 """
 
+PARALLEL_HINTS = """## Parallel Execution Hints
+The executor can run independent steps in parallel. Steps that reference $step_N wait for step N.
+Steps WITHOUT $step_N references to each other run simultaneously.
+
+Examples of parallelizable patterns:
+- GET /employee + GET /customer (no dependencies)
+- GET /invoice/paymentType + POST /customer (no dependencies)
+- GET /ledger/account?number=1920 + GET /ledger/account?number=3000 (independent lookups)
+- GET /department + POST /customer (for create_employee with invoice)
+
+Mark steps that CAN run in parallel with "note": "Can run in parallel with step N".
+The executor detects parallelism automatically from $step_N references.
+"""
+
 VERIFICATION_AWARENESS = """## Verification Awareness
 After execution, the system verifies EVERY field against expected values.
 - EVERY voucher posting MUST include vatType. Use vatType.id=0 for bank/asset/liability accounts (1xxx, 2xxx). Use vatType.id=3 for revenue (3xxx). Use vatType.id=1 for expenses (6xxx, 7xxx). NEVER omit vatType.
@@ -107,7 +121,7 @@ After execution, the system verifies EVERY field against expected values.
 - Include description if mentioned (for products, projects)
 - For updates: ALWAYS include the version field from the GET response in the PUT body
 - Amounts with MVA/VAT: Use the EXACT amount from the prompt. If prompt says "2500 kr eksklusiv MVA", use 2500 as priceExcludingVatCurrency — do NOT add VAT yourself. If prompt says "inklusiv MVA", use that as priceIncludingVatCurrency.
-- Product prices: priceExcludingVatCurrency = the price WITHOUT VAT. Do NOT calculate or add VAT — just use the number from the prompt.
+- Product prices: If prompt says "pris 500 kr" without specifying VAT, use priceExcludingVatCurrency=500. If prompt says "inkl. mva" use priceIncludingVatCurrency. If prompt says "ekskl. mva" use priceExcludingVatCurrency. NEVER calculate VAT yourself.
 - For customer creation: ALWAYS include isCustomer: true
 - For employee creation: ALWAYS include userType: 'STANDARD'
 - For orders: ALWAYS include both orderDate AND deliveryDate (use same date if only one is given)
@@ -155,7 +169,11 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 21. Employee email: email CANNOT be changed via PUT /employee. Only phoneNumberMobile, firstName,
     lastName, dateOfBirth, address can be updated. If task asks to change email, skip it — the API
     does not allow it.
-22. Bank reconciliation dateTo: The field "dateTo" does NOT exist on POST /bank/reconciliation.
+22. FRESH SANDBOX — register payment: The sandbox is EMPTY. If the task says "register payment" or
+    "has an outstanding invoice", you MUST create the customer + order + invoice FIRST, then register payment.
+    For orderLines, create ONE line: [{{"description": "<service from prompt>", "count": 1, "unitPriceExcludingVatCurrency": <total_amount>}}].
+    Use today's date for orderDate/deliveryDate if not specified. Use paymentDate from the prompt.
+23. Bank reconciliation dateTo: The field "dateTo" does NOT exist on POST /bank/reconciliation.
     Instead, GET /ledger/accountingPeriod with periodEnd={{date_to}} to find the period ID,
     then use "accountingPeriod": {{"id": <period_id>}} in the POST body.
 23. Employment fields: POST /employee/employment does NOT accept "employmentType" or
@@ -271,6 +289,7 @@ Only ADD steps if the prompt requires additional operations not covered by the t
 {GLOSSARY}
 {ACTION_ENDPOINTS}
 {EFFICIENCY_RULES}
+{PARALLEL_HINTS}
 {VERIFICATION_AWARENESS}
 {KNOWN_PITFALLS}
 {tier_3_section}
@@ -398,7 +417,8 @@ To fix field mismatches:
 16. 422 on /employee/employment with "employmentType" or "percentageOfFullTimeEquivalent" -> These fields do NOT exist. Only use employee and startDate.
 17. 422 on /purchaseOrder missing "ourContact" -> ourContact is REQUIRED. Add GET /employee first, then "ourContact": {{"id": <employee_id>}}.
 18. 422 on /asset with "acquisitionDate" -> Field is "dateOfAcquisition", NOT "acquisitionDate". Also requires moduleFixedAssetRegister to be enabled.
-19. 422/500 on /supplierInvoice with "dueDate" or "invoiceDueDate" -> These fields cause errors. Remove them.
+19. 422/500 on /supplierInvoice with "dueDate" or "invoiceDueDate" -> These fields cause errors. Remove them. Also remove "orderDate", "deliveryDate", "orderLines" from supplierInvoice body.
+20. 422 on /salary/transaction with "employee" or "amount" -> Wrong field names. Use "employeeId" (integer, NOT object) instead of "employee", "count" instead of "amount", "salaryTypeId" (integer) instead of "salaryType".
 
 ## Instructions
 1. Analyze WHY each step failed
