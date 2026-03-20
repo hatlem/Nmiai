@@ -174,10 +174,18 @@ POST /project {{"name":"X", "startDate":"YYYY-MM-DD", "projectManager":{{"id":EM
 - PUT /invoice/ID/:send?sendType=EMAIL — send invoice (sendType UPPERCASE: EMAIL, EHF, EFAKTURA)
 - PUT /invoice/ID/:createCreditNote — credit note
 - PUT /ledger/voucher/ID/:reverse?date=YYYY-MM-DD — reverse voucher
+### Travel Expense (reiseregning)
+1. GET /employee?firstName=X&fields=id OR POST /employee to create
+2. POST /travelExpense {{"title":"X", "employee":{{"id":X}}, "travelDetails":{{"departureDate":"X", "returnDate":"X", "destination":"X"}}, "isDayTrip":false, "isForeignTravel":false}}
+3. GET /travelExpense/costCategory?fields=id,description to find cost category IDs
+4. For EACH cost: POST /travelExpense/cost {{"travelExpense":{{"id":TE_ID}}, "date":"YYYY-MM-DD", "costCategory":{{"id":CAT_ID}}, "paymentType":{{"id":0}}, "currency":{{"code":"NOK"}}, "costCurrency":AMOUNT, "vatType":{{"id":0}}, "isRefund":false}}
+- NEVER use /travelExpense/ID/expenses or /travelExpense/ID/expense — those don't exist!
+- NEVER use /travelExpense/type or /expenseType — those don't exist!
+- NEVER include "expenses" field in POST/PUT /travelExpense body — use /travelExpense/cost separately!
+- costCategory IDs: check GET /travelExpense/costCategory first
 - DELETE /travelExpense/ID — delete travel expense
 - PUT /travelExpense/ID/:deliver — submit travel expense
 - PUT /travelExpense/ID/:approve — approve travel expense
-- POST /travelExpense {{"title":"X", "employee":{{"id":X}}, "travelDetails":{{"departureDate":"X", "returnDate":"X"}}}}
 - POST /purchaseOrder {{"supplier":{{"id":X}}, "ourContact":{{"id":X}}, "deliveryDate":"X"}} then POST /purchaseOrder/orderline separately
 - POST /salary/transaction {{"year":2026, "month":3, "payslips":[{{"employee":{{"id":X}}}}]}}
 - POST /bank/reconciliation {{"account":{{"id":X}}, "type":"MANUAL", "dateFrom":"X"}}
@@ -209,15 +217,13 @@ async def tool_agent_solve(
 ) -> bool:
     """Run the tool-use agent. Returns True if task completed without errors."""
 
-    # Use Gemini 2.5 Pro for function calling (3.1 function calling not supported)
-    # Must init europe-north1 for 2.5, then restore global for 3.1 in agent.py
-    vertexai.init(project="ainm26osl-710", location="europe-north1")
+    vertexai.init(project="ainm26osl-710", location="global")
     model = GenerativeModel(
-        "gemini-2.5-pro",
+        "gemini-3.1-pro-preview",
         system_instruction=SYSTEM_PROMPT,
         tools=TOOLS,
     )
-    logger.info("Tool agent using gemini-2.5-pro (europe-north1)")
+    logger.info("Tool agent using gemini-3.1-pro-preview (global)")
 
     # Build initial user message
     parts = []
@@ -254,9 +260,23 @@ async def tool_agent_solve(
             had_errors = True
             break
         except Exception as e:
-            logger.error(f"Tool agent: LLM error at turn {turn}: {e}")
-            had_errors = True
-            break
+            error_str = str(e)
+            if "429" in error_str or "Resource exhausted" in error_str:
+                logger.warning(f"Tool agent: 429 rate limit at turn {turn}, retrying in 3s")
+                await asyncio.sleep(3)
+                try:
+                    response = await asyncio.wait_for(
+                        chat.send_message_async(user_parts),
+                        timeout=min(60.0, remaining - DEADLINE_BUFFER),
+                    )
+                except Exception as e2:
+                    logger.error(f"Tool agent: retry also failed: {e2}")
+                    had_errors = True
+                    break
+            else:
+                logger.error(f"Tool agent: LLM error at turn {turn}: {e}")
+                had_errors = True
+                break
 
         # Check if LLM wants to call functions
         candidates = response.candidates
