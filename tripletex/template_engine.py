@@ -290,12 +290,17 @@ def _apply_posting_defaults(body: dict, values: dict | None = None):
         values = {}
 
     # Map posting index to account number for vatType inference
-    # Template postings use $step_0 (debit) and $step_1 (credit)
     posting_account_numbers = []
     debit_acct = str(values.get("debit_account_number", ""))
     credit_acct = str(values.get("credit_account_number", ""))
     if debit_acct and credit_acct:
         posting_account_numbers = [debit_acct, credit_acct]
+    # Supplier invoice: expense account + AP account (2400)
+    elif values.get("expense_account_number"):
+        posting_account_numbers = [str(values["expense_account_number"]), "2400"]
+    # Generic: account_number_1, account_number_2
+    elif values.get("account_number"):
+        posting_account_numbers = [str(values["account_number"])]
 
     for i, posting in enumerate(postings):
         if not isinstance(posting, dict):
