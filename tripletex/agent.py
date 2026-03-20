@@ -532,6 +532,18 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         logger.warning(f"Very low confidence ({confidence:.2f}) -> unknown")
         task_type = "unknown"
 
+    # Remap task types for fresh sandbox (no pre-existing entities)
+    FRESH_SANDBOX_REMAP = {
+        "register_payment": "create_invoice_with_payment",
+        "register_payment_by_search": "create_invoice_with_payment",
+        "create_invoice_existing_customer": "create_invoice",
+        "create_project_existing_customer": "create_project",
+    }
+    if task_type in FRESH_SANDBOX_REMAP:
+        original = task_type
+        task_type = FRESH_SANDBOX_REMAP[task_type]
+        logger.info(f"Remap: {original} -> {task_type} (fresh sandbox)")
+
     return task_type, confidence
 
 
@@ -589,13 +601,25 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
 
     max_tokens = 8192
     logger.info(f"Planning {task_type} (tier={tier}): {prompt[:80]}...")
-    response = await asyncio.wait_for(
-        model.generate_content_async(
-            parts,
-            generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
-        ),
-        timeout=60.0,
-    )
+    try:
+        response = await asyncio.wait_for(
+            model.generate_content_async(
+                parts,
+                generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
+            ),
+            timeout=60.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"Planner LLM timed out (60s) for {task_type}")
+        template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+        return {
+            "task_type": task_type,
+            "tier": tier,
+            "reasoning": "Planner LLM timeout - using template",
+            "steps": template["steps"],
+            "extracted_values": {},
+            "classification_confidence": confidence,
+        }
 
     try:
         raw_text = response.text
@@ -663,13 +687,22 @@ async def self_repair(
     parts.append(Part.from_text(repair_prompt))
 
     logger.info(f"Self-repair (verification_errors={bool(verification_errors)}, files={len(files or [])})")
-    response = await asyncio.wait_for(
-        model.generate_content_async(
-            parts,
-            generation_config={"temperature": 0.0, "max_output_tokens": 8192},
-        ),
-        timeout=45.0,
-    )
+    try:
+        response = await asyncio.wait_for(
+            model.generate_content_async(
+                parts,
+                generation_config={"temperature": 0.0, "max_output_tokens": 8192},
+            ),
+            timeout=45.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Self-repair LLM timed out (45s)")
+        return {
+            "task_type": task_type,
+            "reasoning": "Self-repair: LLM timeout",
+            "steps": [],
+            "extracted_values": plan.get("extracted_values", {}),
+        }
 
     try:
         raw_text = response.text
