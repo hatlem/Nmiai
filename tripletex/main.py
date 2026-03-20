@@ -49,10 +49,6 @@ TOOL_AGENT_SIGNALS = [
     ("lønn", "bonus"), ("salary", "bonus"), ("løn", "bonus"),
     ("salario", "bonus"), ("gehalt", "bonus"),
     ("grunnlønn",), ("grunnløn",),
-    ("reverser", "betaling"), ("reverse", "payment"),
-    ("stornieren", "zahlung"), ("stornieren", "zurückgebucht"),
-    ("annulez", "paiement"), ("revierta", "pago"),
-    ("returnert", "banken"), ("zurückgebucht",), ("retourné",), ("devuelto",),
 ]
 
 # ── In-memory stats ──

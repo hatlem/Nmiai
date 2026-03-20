@@ -107,7 +107,7 @@ _DATE_FIELDS = {
     "date", "orderDate", "deliveryDate", "invoiceDate", "invoiceDueDate",
     "paymentDate", "startDate", "endDate", "dateOfBirth", "departureDate",
     "returnDate", "dateOfAcquisition", "dateFrom", "dateTo", "date_from",
-    "date_to",
+    "date_to", "creditNoteDate", "reverseDate", "paymentDatePlusOne",
 }
 
 # Fields that should be numeric
@@ -277,6 +277,22 @@ def _apply_defaults(steps: list[dict], values: dict, task_type: str) -> list[dic
             values["deliveryDate"] = values["invoiceDate"]
     if "departureDate" in values and "returnDate" not in values:
         values["returnDate"] = values["departureDate"]
+
+    # Reverse payment: compute paymentDatePlusOne for voucher search date range
+    if "paymentDate" in values and "paymentDatePlusOne" not in values:
+        try:
+            pd = datetime.strptime(values["paymentDate"], "%Y-%m-%d")
+            values["paymentDatePlusOne"] = (pd + timedelta(days=1)).strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            pass
+
+    # Reverse payment: default reverseDate to paymentDate if not set
+    if "paymentDate" in values and "reverseDate" not in values:
+        values["reverseDate"] = values["paymentDate"]
+
+    # Credit note: default creditNoteDate to invoiceDate or today
+    if "creditNoteDate" not in values:
+        values["creditNoteDate"] = values.get("invoiceDate", today)
 
     return steps
 

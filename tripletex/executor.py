@@ -26,12 +26,12 @@ def _deep_get(obj: Any, path_parts: list[str]) -> Any:
     for part in path_parts:
         if current is None:
             return None
-        array_match = re.match(r'(\w+)\[(\d+)\]', part)
+        array_match = re.match(r'(\w+)\[(-?\d+)\]', part)
         if array_match:
             key, idx = array_match.group(1), int(array_match.group(2))
             if isinstance(current, dict) and key in current:
                 current = current[key]
-                if isinstance(current, list) and idx < len(current):
+                if isinstance(current, list) and -len(current) <= idx < len(current):
                     current = current[idx]
                 else:
                     return None

@@ -46,7 +46,8 @@ CLASSIFIER_PROMPT = f"""You are a task classifier for a Norwegian accounting sys
 - "Opprett faktura for kunde X" -> create_invoice (creates customer too)
 - "Faktura til eksisterende kunde" -> create_invoice_existing_customer
 - "Betal faktura" / "Registrer innbetaling" -> register_payment
-- "Kreditnota" / "Krediter faktura" -> create_credit_note
+- "Kreditnota" / "Gutschrift" / "Credit note" (full flow) -> create_full_credit_note
+- "Reverser betaling" / "Reverse payment" / "Zurückgebucht" -> reverse_payment
 - "Slett reiseregning" -> delete_travel_expense
 - "Lever reiseregning" -> deliver_travel_expense
 - "Godkjenn reiseregning" -> approve_travel_expense

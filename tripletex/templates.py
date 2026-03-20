@@ -1556,6 +1556,150 @@ TEMPLATES: dict[str, dict] = {
         ],
     },
 
+    # ===== FULL CREDIT NOTE (customer + order + invoice + credit note) =====
+
+    "create_full_credit_note": {
+        "description": (
+            "Create a full credit note flow: create customer, create order with orderLines, "
+            "invoice the order, then create a credit note on the invoice.\n"
+            "This is used when the prompt says 'Gutschrift', 'kreditnota', 'credit note' etc. "
+            "and there is NO existing invoice — everything must be created from scratch."
+        ),
+        "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
+        "extract_fields": [
+            "customer_name", "customer_email", "customer_organizationNumber",
+            "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate",
+            "creditNoteDate", "comment",
+        ],
+        "optimal_calls": 4,
+        "steps": [
+            {
+                "method": "POST",
+                "path": "/customer",
+                "body": {
+                    "name": "{{customer_name}}",
+                    "isCustomer": True,
+                    "email": "{{customer_email}}",
+                    "organizationNumber": "{{customer_organizationNumber}}",
+                },
+            },
+            {
+                "method": "POST",
+                "path": "/order",
+                "body": {
+                    "customer": {"id": "$step_0.id"},
+                    "orderDate": "{{orderDate}}",
+                    "deliveryDate": "{{deliveryDate}}",
+                    "orderLines": "{{orderLines}}",
+                },
+                "note": "orderLines go IN the order body as array: [{description, count, unitPriceExcludingVatCurrency}]",
+            },
+            {
+                "method": "PUT",
+                "path": "/order/$step_1.id/:invoice",
+                "params": {
+                    "invoiceDate": "{{invoiceDate}}",
+                    "invoiceDueDate": "{{invoiceDueDate}}",
+                    "sendToCustomer": False,
+                },
+            },
+            {
+                "method": "PUT",
+                "path": "/invoice/$step_2.id/:createCreditNote",
+                "params": {
+                    "date": "{{creditNoteDate}}",
+                    "comment": "{{comment}}",
+                },
+                "note": "Creates credit note on the invoice. $step_2 is the invoice action response.",
+            },
+        ],
+    },
+
+    # ===== REVERSE PAYMENT (customer + order + invoice + payment + reverse voucher) =====
+
+    "reverse_payment": {
+        "description": (
+            "Create a full reverse payment flow: get payment type, create customer, "
+            "create order with orderLines, invoice, register payment, then find and reverse the voucher.\n"
+            "Used when the prompt says 'reverser betaling', 'reverse payment', 'zurückgebucht', 'stornieren' etc."
+        ),
+        "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice", "Voucher"],
+        "extract_fields": [
+            "customer_name", "customer_email", "customer_organizationNumber",
+            "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate",
+            "paymentDate", "paymentAmount", "reverseDate",
+        ],
+        "optimal_calls": 7,
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/invoice/paymentType",
+                "params": {"fields": "id,description"},
+                "note": "Step 0: Get payment type for registering payment later.",
+            },
+            {
+                "method": "POST",
+                "path": "/customer",
+                "body": {
+                    "name": "{{customer_name}}",
+                    "isCustomer": True,
+                    "email": "{{customer_email}}",
+                    "organizationNumber": "{{customer_organizationNumber}}",
+                },
+                "note": "Step 1: Create customer.",
+            },
+            {
+                "method": "POST",
+                "path": "/order",
+                "body": {
+                    "customer": {"id": "$step_1.id"},
+                    "orderDate": "{{orderDate}}",
+                    "deliveryDate": "{{deliveryDate}}",
+                    "orderLines": "{{orderLines}}",
+                },
+                "note": "Step 2: Create order with orderLines.",
+            },
+            {
+                "method": "PUT",
+                "path": "/order/$step_2.id/:invoice",
+                "params": {
+                    "invoiceDate": "{{invoiceDate}}",
+                    "invoiceDueDate": "{{invoiceDueDate}}",
+                    "sendToCustomer": False,
+                },
+                "note": "Step 3: Invoice the order.",
+            },
+            {
+                "method": "PUT",
+                "path": "/invoice/$step_3.id/:payment",
+                "params": {
+                    "paymentDate": "{{paymentDate}}",
+                    "paymentTypeId": "$step_0.values[0].id",
+                    "paidAmount": "{{paymentAmount}}",
+                },
+                "note": "Step 4: Register payment on the invoice.",
+            },
+            {
+                "method": "GET",
+                "path": "/ledger/voucher",
+                "params": {
+                    "dateFrom": "{{paymentDate}}",
+                    "dateTo": "{{paymentDatePlusOne}}",
+                    "fields": "id,date",
+                },
+                "note": "Step 5: Find the payment voucher created by the payment registration.",
+            },
+            {
+                "method": "PUT",
+                "path": "/ledger/voucher/$step_5.values[-1].id/:reverse",
+                "params": {
+                    "date": "{{reverseDate}}",
+                },
+                "note": "Step 6: Reverse the last voucher (the payment voucher).",
+            },
+        ],
+    },
+
     # ===== FALLBACK =====
 
     "unknown": {
@@ -1611,4 +1755,6 @@ KEYWORD_HINTS: dict[str, list[str]] = {
     "create_invoice_and_send": ["opprett og send faktura", "opprett og send ein faktura", "create and send invoice", "crea y envia", "créez et envoyez", "erstellen und senden", "faktura og send"],
     "fixed_price_project_invoice": ["fastpris", "fixed price", "prix forfaitaire", "festpreis", "precio fijo", "fastprisprosjekt", "fixed price project"],
     "create_dimensions_voucher": ["dimensjon", "dimensión contable", "regnskapsdimensjon", "accounting dimension", "custom dimension", "tilpasset dimensjon"],
+    "create_full_credit_note": ["gutschrift", "kreditnota", "credit note", "nota de crédito", "nota de credito", "note de crédit", "note de credit", "vollständige gutschrift", "full credit note", "reklamert", "reklamation"],
+    "reverse_payment": ["reverser betaling", "reverse payment", "zurückgebucht", "stornieren", "devuelto", "retourné", "annulez paiement", "returnert av banken", "betaling returnert", "payment returned", "payment reversed"],
 }
