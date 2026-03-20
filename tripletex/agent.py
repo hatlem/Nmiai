@@ -25,15 +25,17 @@ from templates import TEMPLATES, KEYWORD_HINTS
 
 logger = logging.getLogger(__name__)
 
-vertexai.init(project="ainm26osl-710", location="global")
+vertexai.init(project="ainm26osl-710", location="europe-north1")
 
 import warnings
 warnings.filterwarnings("ignore", message=".*REST async clients.*")
 warnings.filterwarnings("ignore", message=".*deprecated.*")
 
 # ---------- Model IDs ----------
-MODEL_PRO = "gemini-3.1-pro-preview"
-MODEL_FLASH_LITE = "gemini-3.1-flash-lite-preview"
+# Primary: Gemini 3.1 (requires location="global")
+# Fallback: Gemini 2.5 (works in europe-north1)
+MODEL_PRO = "gemini-2.5-pro"
+MODEL_FLASH_LITE = "gemini-2.5-flash"
 
 # ---------- Tier mapping ----------
 TIER_MAP: dict[str, int] = {

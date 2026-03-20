@@ -116,6 +116,30 @@ def process_round(round_info: dict):
     counts = {s: np.zeros((H, W, NUM_CLASSES), dtype=np.int32) for s in range(seeds_count)}
     settlements_data = {s: [] for s in range(seeds_count)}
 
+    # ── STAGE 1: Instant prior-only submission ────────────────────────
+    # Submit immediately with just lookup + priors (no observations needed).
+    # This ensures we have a baseline score even if queries fail.
+    # Prior-only scores 73-88 on typical rounds.
+    print("\n[STAGE 1] Submitting prior-only predictions (instant baseline)...")
+    try:
+        prior_preds = predict_all(
+            initial_states=initial_states,
+            counts=counts,  # Empty — no observations yet
+            observations=observations,
+            verbose=False,
+        )
+        for seed_idx in range(seeds_count):
+            pred = prior_preds[seed_idx]
+            pred = np.maximum(pred, STATIC_FLOOR)
+            pred /= pred.sum(axis=-1, keepdims=True)
+            resp = submit(round_id, seed_idx, pred.tolist())
+            print(f"  Seed {seed_idx}: {resp.get('status', 'ok')}")
+            time.sleep(0.55)
+        print("  Stage 1 complete — baseline score secured.")
+    except Exception as e:
+        print(f"  Stage 1 failed: {e} — continuing to queries...")
+
+    # ── STAGE 2: Query + resubmit ────────────────────────────────────
     if queries_left > 0:
         # Plan and execute queries
         print(f"\nPlanning {queries_left} queries...")
@@ -126,13 +150,28 @@ def process_round(round_info: dict):
         plan = optimizer.plan_queries()
         print(optimizer.summary())
 
+        from datetime import datetime, timezone
+        try:
+            closes_dt = datetime.fromisoformat(closes_at.replace("Z", "+00:00"))
+        except Exception:
+            closes_dt = None
+
         print(f"\nExecuting {len(plan)} queries...")
+        budget_exhausted = False
         for qi, (seed_idx, x, y, w, h) in enumerate(plan):
-            for attempt in range(3):
+            if budget_exhausted:
+                break
+            # Stop 5 min before close to ensure time for predict+submit
+            if closes_dt:
+                remaining_min = (closes_dt - datetime.now(timezone.utc)).total_seconds() / 60
+                if remaining_min < 5:
+                    print(f"  Stopping queries — {remaining_min:.0f}min left")
+                    break
+
+            for attempt in range(5):
                 try:
                     result = simulate(round_id, seed_idx, x, y, w, h)
 
-                    # Process observation
                     grid_data = result.get("grid", [])
                     sett_list = result.get("settlements", [])
 
@@ -155,18 +194,25 @@ def process_round(round_info: dict):
                         print(f"  Query {qi+1}/{len(plan)} done "
                               f"(seed={seed_idx}, viewport=({x},{y},{w},{h}))")
 
-                    time.sleep(0.3)  # Safe rate: ~3.3 req/s (limit is 5)
-                    break  # Success
+                    time.sleep(0.3)
+                    break
 
                 except requests.exceptions.HTTPError as e:
-                    if "budget" in str(e).lower() or "exhausted" in str(e).lower():
+                    err_text = str(e).lower()
+                    if "budget" in err_text or "exhausted" in err_text:
                         print(f"  Budget exhausted at query {qi+1}")
+                        budget_exhausted = True
                         break
-                    if e.response and e.response.status_code == 429:
-                        wait = 2.0 * (attempt + 1)
-                        print(f"  Query {qi+1} rate limited, waiting {wait}s...")
+                    status = getattr(getattr(e, 'response', None), 'status_code', 0)
+                    if status == 429:
+                        wait = 1.5 * (attempt + 1)
+                        print(f"  Query {qi+1} rate limited ({attempt+1}/5), {wait:.0f}s...")
                         time.sleep(wait)
                         continue
+                    if status == 400:
+                        print(f"  Query {qi+1}: round closed or invalid ({e})")
+                        budget_exhausted = True
+                        break
                     print(f"  Query {qi+1} failed: {e}")
                     time.sleep(1)
                     break
@@ -209,9 +255,8 @@ def process_round(round_info: dict):
             print("No queries remaining and no saved observations — skipping round")
             return
 
-    # Generate predictions using unified predictor
-    # Three layers: KT (observed) → GT lookup (197 bins) → adaptive distance priors
-    print("\nGenerating predictions...")
+    # ── STAGE 3: Resubmit with observations ────────────────────────────
+    print("\n[STAGE 3] Generating observation-enhanced predictions...")
     predictions = predict_all(
         initial_states=initial_states,
         counts=counts,
@@ -219,8 +264,7 @@ def process_round(round_info: dict):
         settlements_data=settlements_data,
     )
 
-    # Submit all seeds
-    print("\nSubmitting predictions...")
+    print("\n[STAGE 3] Resubmitting (overrides Stage 1 baseline)...")
     for seed_idx in range(seeds_count):
         pred = predictions[seed_idx]
         pred = np.maximum(pred, STATIC_FLOOR)

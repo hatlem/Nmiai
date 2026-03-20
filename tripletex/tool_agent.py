@@ -21,6 +21,7 @@ import logging
 import time
 from datetime import date
 
+import vertexai
 from vertexai.generative_models import (
     FunctionDeclaration,
     GenerativeModel,
@@ -28,9 +29,16 @@ from vertexai.generative_models import (
     Tool,
 )
 
+import warnings
+warnings.filterwarnings("ignore", message=".*REST async clients.*")
+warnings.filterwarnings("ignore", message=".*deprecated.*")
+
 from tripletex_client import TripletexClient
 
 logger = logging.getLogger(__name__)
+
+# Gemini 2.5 works in europe-north1 (lowest latency from Cloud Run).
+vertexai.init(project="ainm26osl-710", location="europe-north1")
 
 MAX_TURNS = 20
 DEADLINE_BUFFER = 25  # stop 25s before timeout
@@ -189,11 +197,15 @@ async def tool_agent_solve(
 ) -> bool:
     """Run the tool-use agent. Returns True if task completed without errors."""
 
+    # Use Gemini 2.5 Pro for function calling (works reliably in europe-north1)
+    # Gemini 3.1 Pro function calling returns 404 from "global" location
+    vertexai.init(project="ainm26osl-710", location="europe-north1")
     model = GenerativeModel(
-        "gemini-3.1-pro-preview",
+        "gemini-2.5-pro",
         system_instruction=SYSTEM_PROMPT,
         tools=TOOLS,
     )
+    logger.info("Tool agent using gemini-2.5-pro (europe-north1)")
 
     # Build initial user message
     parts = []
@@ -242,7 +254,7 @@ async def tool_agent_solve(
 
         content = candidates[0].content
         has_function_calls = any(
-            hasattr(part, 'function_call') and part.function_call.name
+            hasattr(part, 'function_call') and part.function_call is not None and part.function_call.name
             for part in content.parts
         )
 

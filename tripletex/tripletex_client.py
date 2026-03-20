@@ -24,6 +24,17 @@ class TripletexClient:
         self.call_count = 0
         self.error_count = 0
         self._cache: dict[str, dict] = {}
+        self.call_log: list[dict] = []  # Per-call details for failure tracking
+
+    def _log_call(self, method: str, path: str, status: int, ok: bool, error_snippet: str = ""):
+        """Record API call for failure tracking."""
+        self.call_log.append({
+            "method": method,
+            "path": path,
+            "status": status,
+            "ok": ok,
+            "error": error_snippet[:200] if error_snippet else "",
+        })
 
     async def request(
         self, method: str, path: str, body: dict | None = None, params: dict | None = None
@@ -71,12 +82,14 @@ class TripletexClient:
                 if "Name or service not known" in err_str or "nodename nor servname" in err_str:
                     logger.error(f"{method} {path} DNS error (no retry): {e}")
                     self._dns_ok = False
+                    self._log_call(method, path, 0, False, err_str)
                     return {"status_code": 0, "ok": False, "data": {"error": err_str, "network_error": True}}
                 if attempt < MAX_RETRIES:
                     wait = RETRY_BACKOFF[attempt]
                     logger.warning(f"{method} {path} network error, retry {attempt+1} in {wait}s: {e}")
                     await asyncio.sleep(wait)
                     continue
+                self._log_call(method, path, 0, False, err_str)
                 return {"status_code": 0, "ok": False, "data": {"error": err_str, "network_error": True}}
 
             result = {
@@ -109,9 +122,15 @@ class TripletexClient:
             if cache_key and result["ok"]:
                 self._cache[cache_key] = result
 
+            err_snip = ""
+            if not result["ok"]:
+                import json as _json
+                err_snip = _json.dumps(result.get("data", {}), ensure_ascii=False, default=str)[:200]
+            self._log_call(method, path, response.status_code, result["ok"], err_snip)
             return result
 
         # Should not reach here, but safety net
+        self._log_call(method, path, 0, False, "max retries exhausted")
         return {"status_code": 0, "ok": False, "data": {"error": "max retries exhausted"}}
 
     async def get(self, path: str, params: dict | None = None) -> dict:

@@ -106,8 +106,8 @@ def _parse_output(
 
     rows, cols = raw.shape
 
-    # Heuristic: if cols >> rows, it's transposed (rows are features, cols are detections)
-    if rows < cols and rows >= 4:
+    # Heuristic: only transpose when first dim looks like features (small) and second like detections (large)
+    if rows <= 360 and cols > rows * 2:
         raw = raw.T  # Now (N, features)
         rows, cols = raw.shape
 

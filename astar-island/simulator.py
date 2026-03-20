@@ -248,14 +248,7 @@ class NorseSimulator:
             # Wealth decay — maintenance costs, corruption, etc.
             s.wealth *= 0.90
 
-            # Port degradation: ports can lose port status over time
-            # GT: Port→Settlement = 9.2% over 50 years
-            # At 1%/yr: 39% degrade, ~25% survive = ~10% Port→Settlement
-            if s.has_port and rng.random() < 0.01:
-                s.has_port = False
-                grid[s.y, s.x] = SETTLEMENT
-
-            # Port development: coastal + enough wealth
+            # Port development: coastal + enough wealth (checked before degradation)
             if not s.has_port and coastal[s.y, s.x]:
                 threshold = p["port_development_threshold"]
                 if s.wealth > threshold and rng.random() < 0.15 * (1 + s.tech_level):
@@ -266,6 +259,12 @@ class NorseSimulator:
             if not s.has_longship and s.has_port:
                 if s.wealth > 0.5 and rng.random() < 0.1 * (1 + s.tech_level * 0.3):
                     s.has_longship = True
+
+            # Port degradation (after development, so new ports don't immediately degrade)
+            # GT: Port→Settlement = 9.2% over 50 years
+            if s.has_port and rng.random() < 0.01:
+                s.has_port = False
+                grid[s.y, s.x] = SETTLEMENT
 
         # Expansion phase: build occupancy grid once, then check candidates O(1)
         # Calibrated: Empty→Settlement = 11% over 50 years needs aggressive expansion
@@ -505,10 +504,7 @@ class NorseSimulator:
         # Precompute forest adjacency once for this phase (avoid repeated calls)
         forest_adj_count = _count_adjacent(grid, FOREST)
 
-        # Track ruin age for age-dependent decay
-        if not hasattr(self, '_ruin_age'):
-            self._ruin_age = {}
-        # Register new ruins
+        # Register new ruins (age tracking reset in run())
         for ry, rx in zip(ruin_ys, ruin_xs):
             key = (int(ry), int(rx))
             if key not in self._ruin_age:

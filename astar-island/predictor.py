@@ -30,6 +30,7 @@ from adaptive_calibration import (
     compute_observed_transitions,
     blend_with_calibration,
     create_adaptive_prior_fn,
+    compute_distance_band_transitions,
 )
 
 TERRAIN_TO_CLASS = {10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
@@ -226,19 +227,83 @@ def predict_all(
                 cls_names = ["Empty", "Settlement", "Port", "Ruin", "Forest"]
                 print(f"    {cls_names[cls]}: {obs_counts[cls]} obs → {blended[cls].round(3)}")
 
-    # ── Compute adaptive scaling factor for lookup ──
-    # If adaptive calibration shows different rates than the global average,
-    # we scale the lookup predictions proportionally.
-    # Scale = adaptive_global / calibration_global
+    # ── Compute per-context-bin scaling from observations ──
+    # Build observed distributions per context bin, then scale lookup entries
+    from collections import defaultdict
+    bin_obs = defaultdict(lambda: np.zeros(NUM_CLASSES, dtype=np.float64))
+    bin_counts = defaultdict(int)
+
+    for si, state in enumerate(initial_states):
+        if si not in counts:
+            continue
+        grid = np.asarray(state["grid"], dtype=np.int64)
+        H, W = grid.shape
+        settlements = state.get("settlements", [])
+        ic_grid = _classify_grid(grid)
+        sd_grid = _settlement_distance(grid, settlements, W, H)
+        fd_grid = np.minimum(_food_map(grid).astype(np.int32), 4)
+        cs_grid = _coastal_mask(grid).astype(np.int32)
+        ns_grid = np.minimum(_neighbor_settlements(grid, H, W), 3)
+        cc = counts[si][:, :, :NUM_CLASSES].astype(np.float64)
+        nobs = cc.sum(axis=2)
+
+        for y in range(H):
+            for x in range(W):
+                if nobs[y, x] < 1:
+                    continue
+                ic = int(ic_grid[y, x])
+                db = _dist_bin(float(sd_grid[y, x]))
+                fd = int(fd_grid[y, x])
+                cs = int(cs_grid[y, x])
+                ns = int(ns_grid[y, x])
+                key = f"{ic}_{fd}_{cs}_{db}_{ns}"
+                bin_obs[key] += cc[y, x]
+                bin_counts[key] += int(nobs[y, x])
+
+    # Build per-bin scale factors: observed / lookup
+    # Only use bins with enough observations to be reliable
+    bin_scales = {}
+    for key, obs_dist in bin_obs.items():
+        if bin_counts[key] < 30:  # Need 30+ obs for reliable bin-level scaling
+            continue
+        obs_norm = (obs_dist + 0.5) / (obs_dist.sum() + NUM_CLASSES * 0.5)
+        if key in GT_LOOKUP:
+            lookup_dist = GT_LOOKUP[key]
+            scale = obs_norm / (lookup_dist + 1e-8)
+            scale = np.clip(scale, 0.5, 2.0)  # Conservative clipping
+            bin_scales[key] = scale
+
+    # Global fallback scale (per init class)
     lookup_scales = {}
     for cls in range(5):
-        if obs_counts.get(cls, 0) > 50:  # Need enough data
+        if obs_counts.get(cls, 0) > 50:
             cal_global = get_domain_prior(cls)
             adp_global = adaptive_fn(cls)
             scale = adp_global / (cal_global + 1e-8)
-            # Clip extreme scales (0.3x to 3.0x)
             scale = np.clip(scale, 0.3, 3.0)
             lookup_scales[cls] = scale
+
+    if verbose and bin_scales:
+        print(f"  Per-bin scales: {len(bin_scales)} bins calibrated")
+
+    # ── Per-distance-band scaling (the key improvement) ──
+    # near-settlement cells vary 2-3x between rounds, global scaling misses this
+    band_transitions = compute_distance_band_transitions(
+        initial_states, counts, observations or {},
+    )
+    # Build per-(class, band) scale factors against lookup averages
+    band_scales = {}
+    for (ic, band), obs_dist in band_transitions.items():
+        # Find average lookup prediction for this (class, band)
+        matching_keys = [k for k in GT_LOOKUP if k.startswith(f"{ic}_") and f"_{band}_" in k]
+        if matching_keys:
+            avg_lookup = np.mean([GT_LOOKUP[k] for k in matching_keys], axis=0)
+            scale = obs_dist / (avg_lookup + 1e-8)
+            scale = np.clip(scale, 0.3, 3.0)
+            band_scales[(ic, band)] = scale
+
+    if verbose and band_scales:
+        print(f"  Per-band scales: {len(band_scales)} (class, band) pairs")
 
     predictions = {}
 
@@ -285,44 +350,50 @@ def predict_all(
                 cs = int(coastal[y, x])
                 ns = int(n_sett_map[y, x])
 
-                # ── Layer 1: KT estimator for observed cells ──
-                if n_obs[y, x] >= 1:
-                    # KT with informative prior from lookup or distance
-                    lk = _lookup_predict(ic, fd, cs, db, ns)
-                    if lk is not None:
-                        # Scale lookup by adaptive factor
-                        if ic in lookup_scales:
-                            lk = lk * lookup_scales[ic]
-                            lk = np.maximum(lk, 0.001)
-                            lk /= lk.sum()
-                        prior = lk
-                    else:
-                        prior = _distance_prior(ic, db, adaptive_fn)
-
-                    # Prior strength: 1.5 for settlements (volatile), 2.5 for stable terrain
-                    strength = 1.5 if ic in (1, 2) else 2.5
-                    if sd > 6:
-                        strength = 3.0  # Far cells are more predictable
-
-                    # Dirichlet posterior: (counts + prior * strength) / (n + strength)
-                    kt_pred = (cell_counts[y, x] + prior * strength) / (n_obs[y, x] + strength)
-                    pred[y, x] = kt_pred
-                    n_kt += 1
-
+                # ── Base prediction: GT lookup scaled by adaptive observations ──
+                # Apply finest-grained scaling available:
+                #   1. Per-bin scale (exact context match, 30+ obs) — most specific
+                #   2. Per-band scale (class + distance band) — good middle ground
+                #   3. Global per-class scale — broadest fallback
+                lk = _lookup_predict(ic, fd, cs, db, ns)
+                bin_key = f"{ic}_{fd}_{cs}_{db}_{ns}"
+                if lk is not None:
+                    if bin_key in bin_scales:
+                        lk = lk * bin_scales[bin_key]
+                    elif (ic, db) in band_scales:
+                        lk = lk * band_scales[(ic, db)]
+                    elif ic in lookup_scales:
+                        lk = lk * lookup_scales[ic]
+                    lk = np.maximum(lk, 0.001)
+                    lk /= lk.sum()
+                    base_pred = lk
+                    n_lookup += 1
                 else:
-                    # ── Layer 2: GT lookup for unobserved cells ──
-                    lk = _lookup_predict(ic, fd, cs, db, ns)
-                    if lk is not None:
-                        if ic in lookup_scales:
-                            lk = lk * lookup_scales[ic]
-                            lk = np.maximum(lk, 0.001)
-                            lk /= lk.sum()
-                        pred[y, x] = lk
-                        n_lookup += 1
+                    base_pred = _distance_prior(ic, db, adaptive_fn)
+                    n_dist += 1
+
+                # ── Blend with observations (KT estimator) ──
+                n = n_obs[y, x]
+                if n >= 1:
+                    # KT estimator with informative prior.
+                    # n=1: weak signal but still one MC sample. Use higher
+                    # prior strength so base_pred dominates.
+                    # n=2+: progressively trust observations more.
+                    if n == 1:
+                        strength = 8.0 if ic in (1, 2) else 10.0
                     else:
-                        # ── Layer 3: Adaptive distance prior ──
-                        pred[y, x] = _distance_prior(ic, db, adaptive_fn)
-                        n_dist += 1
+                        strength = 3.5 if ic in (1, 2) else 5.0
+                    if sd > 6:
+                        strength = max(strength, 6.0)
+                    kt_pred = (cell_counts[y, x] + base_pred * strength) / (n + strength)
+                    kt_weight = n / (n + strength)
+                    pred[y, x] = kt_weight * kt_pred + (1 - kt_weight) * base_pred
+                    n_kt += 1
+                    n_lookup -= 1 if lk is not None else 0
+                    n_dist -= 1 if lk is None else 0
+                else:
+                    # No observations: trust the lookup/prior entirely
+                    pred[y, x] = base_pred
 
         # ── Final safety floors ──
         # Static terrain

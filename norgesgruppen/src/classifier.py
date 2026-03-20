@@ -373,7 +373,7 @@ class ProductClassifier:
         flipped_crops = [c.transpose(Image.FLIP_LEFT_RIGHT) for c in crops]
         batch_flip = torch.stack([self._supervised_transform(c) for c in flipped_crops]).to(self.device)
 
-        with torch.no_grad(), torch.amp.autocast("cuda", enabled=self._use_fp16):
+        with torch.no_grad(), torch.cuda.amp.autocast(enabled=self._use_fp16):
             logits_orig = self._supervised_head(self._supervised_model(batch_orig))
             logits_flip = self._supervised_head(self._supervised_model(batch_flip))
             # Average logits before softmax — better calibrated than averaging probs

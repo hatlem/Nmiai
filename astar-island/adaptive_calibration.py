@@ -132,6 +132,72 @@ def blend_with_calibration(
     return blended
 
 
+def compute_distance_band_transitions(
+    initial_states: list,
+    counts: dict,
+    observations: dict,
+) -> dict[tuple[int, str], np.ndarray]:
+    """
+    Compute transition distributions per (init_class, distance_band).
+
+    This is the KEY improvement: near-settlement cells behave very differently
+    from far cells, and this varies enormously between rounds.
+    Global per-class calibration misses this — a round with high expansion
+    needs near-cells scaled up 2-3x but far-cells unchanged.
+
+    Returns:
+        {(init_cls, dist_band): np.array(6,)} normalized distributions
+    """
+    from collections import defaultdict
+
+    band_counts = defaultdict(lambda: np.zeros(NUM_CLASSES, dtype=np.float64))
+    band_totals = defaultdict(int)
+
+    for seed_idx, state in enumerate(initial_states):
+        if seed_idx not in counts:
+            continue
+        grid = np.asarray(state["grid"], dtype=np.int64)
+        H, W = grid.shape
+        settlements = state.get("settlements", [])
+        cell_counts = counts[seed_idx][:, :, :NUM_CLASSES].astype(np.float64)
+        n_obs = cell_counts.sum(axis=2)
+
+        # Compute settlement distance
+        dist = np.full((H, W), 999.0)
+        yy, xx = np.mgrid[0:H, 0:W]
+        for s in settlements:
+            sx, sy = s.get("x", -1), s.get("y", -1)
+            if 0 <= sx < W and 0 <= sy < H:
+                dist = np.minimum(dist, np.abs(xx - sx).astype(float) + np.abs(yy - sy).astype(float))
+
+        for y in range(H):
+            for x in range(W):
+                if n_obs[y, x] < 1:
+                    continue
+                ic = _classify_value(int(grid[y, x]))
+                d = dist[y, x]
+                if d <= 3:
+                    band = "near"
+                elif d <= 7:
+                    band = "mid"
+                elif d <= 12:
+                    band = "far"
+                else:
+                    band = "remote"
+                key = (ic, band)
+                band_counts[key] += cell_counts[y, x]
+                band_totals[key] += int(n_obs[y, x])
+
+    # Normalize with smoothing
+    result = {}
+    for key, raw in band_counts.items():
+        if band_totals[key] >= 10:  # Need minimum observations
+            smoothed = raw + 0.5
+            result[key] = smoothed / smoothed.sum()
+
+    return result
+
+
 def create_adaptive_prior_fn(
     blended_priors: dict[int, np.ndarray],
 ) -> Callable[[int], np.ndarray]:
@@ -139,12 +205,6 @@ def create_adaptive_prior_fn(
     Create a callable that returns adaptive priors for a given initial class.
 
     Works as a drop-in replacement for get_domain_prior().
-
-    Args:
-        blended_priors: {init_cls: np.array(6,)} from blend_with_calibration
-
-    Returns:
-        Callable[[int], np.ndarray] that returns a copy of the blended prior
     """
     def adaptive_prior(init_cls: int) -> np.ndarray:
         return blended_priors.get(init_cls, blended_priors.get(0, get_domain_prior(init_cls))).copy()

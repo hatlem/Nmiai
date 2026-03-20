@@ -20,13 +20,21 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+
+# Patch torch.load for PyTorch 2.6+ compatibility (sandbox has torch==2.6.0)
+_original_torch_load = torch.load
+def _patched_torch_load(f, *args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _original_torch_load(f, *args, **kwargs)
+torch.load = _patched_torch_load
+
 from ultralytics import YOLO
 
 # ── Config ────────────────────────────────────────────────────────────
 TOTAL_TIMEOUT = 280
 CONF_THRESHOLD = 0.001
 NMS_IOU = 0.65
-SCALES = [640, 1280]
+SCALES = [640, 960, 1280]  # 3 scales + TTA augment=True gives 6 effective passes
 MIN_BOX_SIZE = 4
 
 # WBF

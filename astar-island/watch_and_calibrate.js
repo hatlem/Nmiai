@@ -141,7 +141,16 @@ async function check() {
 
     // Rebuild lookup with new data
     rebuildLookup();
-    console.log('Lookup updated. auto_submit.js will use new lookup on next restart.');
+    console.log('Lookup updated.');
+
+    // Also retrain model
+    try {
+      const { execSync } = require('child_process');
+      execSync('node train_model.js 2>&1', {cwd: __dirname, timeout: 120000});
+      console.log('Model retrained with new data.');
+    } catch (e) {
+      console.log('Model retrain failed: ' + e.message.slice(0, 100));
+    }
 
   } catch (e) { console.error(`\nError: ${e.message}`); }
 }

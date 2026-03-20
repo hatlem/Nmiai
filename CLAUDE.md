@@ -178,8 +178,16 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | 2 | 2026-03-19 | ~22:00 | submission_v2.zip | YOLOv8x + WBF multi-scale | ? | Ukjent resultat |
 | 3 | 2026-03-20 | 10:33 | submission_v3.zip | YOLOv8x single-class + EfficientNet-B3 classifier, score=det_conf only | — | Ikke submittet |
 | 4 | 2026-03-20 | 10:38 | submission_20260320_103349.zip | YOLO26-x ONNX + DINOv2, score=det*cls^0.15 | **0.6740** | 287.9s, +41.6% vs forrige |
-| 5 | 2026-03-20 | 11:52 | submission_20260320_115200.zip | YOLO26-x ONNX + DINOv2 + multi-class YOLO hybrid, score=det_score only | — | Ikke submittet |
+| 5 | 2026-03-20 | 11:52 | submission_20260320_115200.zip | YOLO26-x ONNX + DINOv2 + multi-class YOLO hybrid, score=det_score only | — | Ikke submittet (failed exit code 1) |
 | 6 | 2026-03-20 | 14:16 | submission_20260320_141629.zip | YOLO26-x FP16 ONNX + DINOv2 only, score=det_score, CLAHE on crops only, conf=0.01, no SAHI, no multi-class | KLAR | 257MB, 2/3 weights. Fixes: no timeout, pure det ranking |
+| 7 | 2026-03-21 | 15:30 | submission_20260321_153000.zip | YOLO26-x ONNX + DINOv2-Base v2 (FP16, epoch 26, val=91.5%, Focal+Mixup+EMA) | ? | 250MB, 2/3 weights. V2 classifier |
+
+### Nåværende status (oppdatert 20. mars ~15:00)
+- **Beste score:** 0.6740 (submission #4)
+- **Rank:** #109 av 166 lag
+- **Daglig kvote:** 1/6 brukt, 5 igjen
+- **Topp 3:** prompt injection 1678 (0.9199), sf (0.9193), 000110 000111 (0.9154)
+- **Gap til topp:** 0.9199 - 0.6740 = **0.2459** (36.4% forbedring nødvendig)
 
 ### Regler for submission-logging
 - **ALLTID** oppdater tabellen over når en ny submission lages
@@ -187,22 +195,34 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 - Oppdater Score-kolonnen når resultatet er kjent
 - NorgesGruppen har **max 3 submissions per dag**
 
-### Classifier Training Tracker
+### VIKTIG: Multi-class YOLO slår two-stage
+
+**GCP eval på treningsdata (20. mars):**
+
+| Tilnærming | Det mAP | Cls mAP | Score | Bilder | Tid |
+|---|---|---|---|---|---|
+| **Multi-class YOLOv8x** (end-to-end) | **0.9474** | **0.8758** | **0.9259** | 248/248 | 164s |
+| Two-stage YOLO26+DINOv2 (sub #4) | ~0.82 | ~0.35 | 0.6740 | 117/248 | 288s |
+
+**IKKE bruk two-stage (YOLO26+DINOv2).** Grunner:
+1. DINOv2 classifier topper på 91.3% val_acc uansett trening (V1 og V2 ga identisk resultat)
+2. Two-stage er tregere — bare 117/248 bilder ble prosessert
+3. Category mapping mellom detektor og classifier skaper feil
+4. Multi-class YOLO ser spatial context (hylleposisjon) for klassifisering
+5. Score er naturlig kalibrert — riktige klasser får høyere confidence
+
+**All fremtidig innsats bør gå til å forbedre multi-class YOLO:**
+- Flere treningsepochs
+- Bedre augmentation
+- Større modell (YOLO26-x multi-class)
+- Ensemble av multi-class modeller
+
+### Classifier Training Tracker (DEPRECATED — bruk multi-class YOLO i stedet)
 
 | Versjon | Modell | Val Acc | Mean/Cat | Top-5 | Epochs | Status |
 |---|---|---|---|---|---|---|
-| v1 | DINOv2 + CE + label_smoothing | 91.3% | ? | ? | 20 | Brukt i sub #4 (0.6740) |
-| v2 | DINOv2 + FocalLoss + Mixup + EMA | **90.7%** (ep13) | 83.4% | 97.3% | 13/50 | **TRENER PÅ GCP** `classifier-train` — stiger +0.2%/ep, 259/>90% |
-
-**Sjekk trenings-status:**
-```bash
-gcloud compute ssh classifier-train --zone europe-west4-a --project ainm26osl-710 --command "grep '^E' ~/norgesgruppen/train_fast.log"
-```
-
-**Last ned ferdige vekter:**
-```bash
-gcloud compute scp classifier-train:~/norgesgruppen/models/dinov2_classifier_weights.pt norgesgruppen/models/ --zone europe-west4-a --project ainm26osl-710
-```
+| v1 | DINOv2 + CE + label_smoothing | 91.3% | ? | ? | 20 | DEPRECATED |
+| v2 | DINOv2 + FocalLoss + Mixup + EMA | 91.3% (ep19) | 84.1% | 97.5% | 21/50 | DEPRECATED |
 
 ### GCP Training Fleet (oppdatert 14:17 20. mars)
 

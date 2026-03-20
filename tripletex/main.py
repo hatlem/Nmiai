@@ -48,6 +48,7 @@ STATS = {
 HISTORY: deque = deque(maxlen=100)
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:8090")
+RESULTS_LOG = os.path.join(os.path.dirname(__file__), "results.jsonl")
 
 
 def _report_task_result(task_type: str, tier: int, success: bool, elapsed: float,
@@ -76,10 +77,20 @@ def _report_task_result(task_type: str, tier: int, success: bool, elapsed: float
         pass
 
 
+def _log_to_jsonl(entry: dict):
+    """Append a result entry to results.jsonl for offline analysis."""
+    import json as _json
+    try:
+        with open(RESULTS_LOG, "a") as f:
+            f.write(_json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except Exception as e:
+        logger.warning(f"Failed to write results.jsonl: {e}")
+
+
 def _record(task_type: str, success: bool, elapsed: float, api_calls: int,
             errors: int, repairs: int, prompt: str, verified: bool | None = None,
             tier: int = 0, confidence: float = 0, extracted_keys: list | None = None,
-            error_detail: str = ""):
+            error_detail: str = "", call_log: list | None = None):
     STATS["total"] += 1
     STATS["total_api_calls"] += api_calls
     STATS["total_errors"] += errors

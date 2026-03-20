@@ -751,7 +751,12 @@ function finalNormalize(pred, ig, H, W) {
 
 // ── Main pipeline ───────────────────────────────────────────────────────────
 
-const completed = new Set();
+// Persist completed rounds to file so restarts don't re-trigger
+const COMPLETED_FILE = path.join(__dirname, 'completed_rounds.json');
+let _completedList = [];
+try { _completedList = JSON.parse(fs.readFileSync(COMPLETED_FILE, 'utf8')); } catch {}
+const completed = new Set(_completedList);
+function saveCompleted() { try { fs.writeFileSync(COMPLETED_FILE, JSON.stringify([...completed])); } catch {} }
 
 async function processRound(round) {
   const t0 = Date.now();
@@ -937,7 +942,7 @@ async function poll() {
     }
     for (const round of active) {
       processing = true;
-      completed.add(round.id); // Mark immediately to prevent re-trigger
+      completed.add(round.id); saveCompleted(); // Mark immediately to prevent re-trigger
       try {
         await processRound(round);
       } catch (e) {
