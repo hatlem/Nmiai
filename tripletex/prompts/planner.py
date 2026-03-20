@@ -231,6 +231,70 @@ These tasks are scored with a 3x multiplier — getting them right matters enorm
 """
 
 
+def build_extraction_prompt(task_type: str, tier: int = 1) -> str:
+    """Build extraction-only prompt — LLM extracts values, does NOT generate steps."""
+    template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+    extract_fields = template.get("extract_fields", [])
+
+    conditional_field_hint = ""
+    if template.get("conditional_steps"):
+        cond_fields = [k.removeprefix("if_") for k in template["conditional_steps"]]
+        conditional_field_hint = f"""
+## Conditional Fields
+If the prompt mentions any of these, include them: {json.dumps(cond_fields)}
+For example, if a role/entitlement is mentioned (e.g., "kontoadministrator", "ALL_PRIVILEGES", "regnskapsforer", "ACCOUNTANT"), extract it as "role".
+Entitlement template values: ALL_PRIVILEGES, INVOICING_MANAGER, PERSONELL_MANAGER, ACCOUNTANT, AUDITOR, DEPARTMENT_LEADER
+"""
+
+    return f"""You are a value extractor for Tripletex accounting tasks. Your ONLY job is to extract field values from the task prompt.
+
+DO NOT generate API steps, paths, or methods. ONLY extract values.
+
+## Task Type: {task_type}
+{template["description"]}
+
+## Fields to Extract
+{json.dumps(extract_fields)}
+Extract ONLY these fields (plus any conditional fields below). If a field is not mentioned in the prompt, OMIT it entirely.
+{conditional_field_hint}
+{GLOSSARY}
+
+{VERIFICATION_AWARENESS}
+
+## Rules
+1. Output ONLY a valid JSON object with extracted values. No markdown, no explanation, no steps.
+2. Keys MUST match the field names listed above exactly.
+3. Dates in YYYY-MM-DD format. If the prompt says "today" or no date, use today's date (provided in the task).
+4. Amounts as numbers, not strings: 1500.00 not "1500.00"
+5. Preserve special characters exactly (Ø, Æ, Å, ñ, ü, etc.)
+6. Phone numbers: preserve as-is from the prompt.
+7. For update tasks: put the fields to change in a "fields_to_update" dict.
+8. For invoices/orders with line items: extract as "orderLines" array of objects with description, count, unitPriceExcludingVatCurrency (or unitPriceIncludingVatCurrency if "inkl. mva").
+9. If the prompt mentions a VAT/MVA amount with "eksklusiv"/"ekskl.", use the amount as-is for priceExcludingVatCurrency. If "inklusiv"/"inkl.", use priceIncludingVatCurrency. NEVER calculate VAT.
+10. For addresses: extract addressLine1, postalCode, city as separate top-level keys.
+11. If files are attached, extract ALL data from them (every line, amount, account number).
+12. For voucher/opening balance tasks: extract each account number and amount. Use "accounts" as a list of objects: [{{"number": "1920", "amount": 100000}}, ...]. Positive = debit, negative = credit.
+13. Numbers should be numbers (not strings).
+
+## Output Format
+```json
+{{"fieldName": "value from prompt", ...}}
+```
+
+EXAMPLE for employee creation:
+Task: "Opprett ansatt Kari Nordmann, kari@test.no, tlf 99887766, født 1990-05-15"
+Output: {{"firstName": "Kari", "lastName": "Nordmann", "email": "kari@test.no", "phoneNumberMobile": "99887766", "dateOfBirth": "1990-05-15"}}
+
+EXAMPLE for customer creation:
+Task: "Opprett kunde Bedrift AS, org.nr 987654321, epost info@bedrift.no"
+Output: {{"name": "Bedrift AS", "organizationNumber": "987654321", "email": "info@bedrift.no"}}
+
+EXAMPLE for invoice:
+Task: "Lag faktura til Kunde AS for konsulentarbeid, 10 timer a 1500 kr ekskl. mva, fakturadato 2026-03-20"
+Output: {{"customer_name": "Kunde AS", "invoiceDate": "2026-03-20", "invoiceDueDate": "2026-04-03", "orderLines": [{{"description": "Konsulentarbeid", "count": 10, "unitPriceExcludingVatCurrency": 1500}}]}}
+"""
+
+
 def build_planner_prompt(task_type: str, tier: int = 1) -> str:
     """Build Stage 2 prompt with task-specific context."""
     template = TEMPLATES.get(task_type, TEMPLATES["unknown"])

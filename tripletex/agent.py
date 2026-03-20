@@ -13,7 +13,7 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 
 from prompts.classifier import CLASSIFIER_PROMPT, CLASSIFIER_PROMPT_PRO
-from prompts.planner import build_planner_prompt, build_self_repair_prompt
+from prompts.planner import build_planner_prompt, build_self_repair_prompt, build_extraction_prompt
 from templates import TEMPLATES, KEYWORD_HINTS
 
 logger = logging.getLogger(__name__)
@@ -577,11 +577,8 @@ def _build_file_instructions(files: list[dict] | None) -> str:
     return "\n".join(instructions)
 
 
-async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
-    """Two-stage planning: classify then fill template."""
-    task_type, confidence = await classify_task(prompt)
-    tier = get_tier(task_type)
-
+async def _create_plan_full_llm(prompt: str, task_type: str, tier: int, confidence: float, files: list[dict] | None = None) -> dict:
+    """Full LLM planning for unknown task types — LLM generates steps + extracted_values."""
     planner_prompt = build_planner_prompt(task_type, tier)
     model = _get_model(MODEL_PRO, planner_prompt)
 
@@ -603,7 +600,7 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
 
     max_tokens = 8192
     plan_timeout = 120.0 if tier >= 3 else 90.0
-    logger.info(f"Planning {task_type} (tier={tier}, timeout={plan_timeout}s): {prompt[:80]}...")
+    logger.info(f"Full LLM planning {task_type} (tier={tier}, timeout={plan_timeout}s): {prompt[:80]}...")
     try:
         response = await asyncio.wait_for(
             model.generate_content_async(
@@ -633,7 +630,6 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
         plan = _parse_json(raw_text)
     except (json.JSONDecodeError, Exception) as e:
         logger.error(f"Failed to parse plan JSON: {e}. Raw: {raw_text[:300]}")
-        # Retry once with a simpler prompt asking for just the JSON
         try:
             retry_model = _get_model(MODEL_PRO, "Return ONLY valid JSON. No markdown fences. Keep reasoning under 20 words.")
             retry_response = await retry_model.generate_content_async(
@@ -657,9 +653,126 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     plan["tier"] = tier
     plan["classification_confidence"] = confidence
     plan.setdefault("extracted_values", {})
+    return plan
+
+
+def _resolve_conditional_steps(template: dict, extracted_values: dict) -> list[dict]:
+    """Append conditional steps from template if the trigger field is present in extracted_values."""
+    import copy
+    steps = copy.deepcopy(template["steps"])
+    conditional = template.get("conditional_steps", {})
+    for trigger_key, step in conditional.items():
+        # trigger_key is like "if_role" — check if "role" is in extracted_values
+        field = trigger_key.removeprefix("if_")
+        if field in extracted_values and extracted_values[field]:
+            steps.append(copy.deepcopy(step))
+    return steps
+
+
+async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
+    """Two-stage planning: classify then extract values into FIXED template.
+
+    For known task types: LLM only extracts values, template steps are used as-is.
+    For unknown task types: falls back to full LLM planning.
+    """
+    task_type, confidence = await classify_task(prompt)
+    tier = get_tier(task_type)
+
+    # For unknown tasks, fall back to full LLM planning
+    if task_type == "unknown":
+        logger.info("Unknown task type — using full LLM planning")
+        plan = await _create_plan_full_llm(prompt, task_type, tier, confidence, files)
+        logger.info(
+            f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps, "
+            f"extracted {len(plan.get('extracted_values', {}))} values"
+        )
+        return plan
+
+    template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+    # If template is the unknown fallback, use full LLM planning
+    if task_type not in TEMPLATES:
+        logger.info(f"No template for {task_type} — using full LLM planning")
+        plan = await _create_plan_full_llm(prompt, task_type, tier, confidence, files)
+        logger.info(
+            f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps, "
+            f"extracted {len(plan.get('extracted_values', {}))} values"
+        )
+        return plan
+
+    # Build extraction-only prompt
+    extraction_prompt = build_extraction_prompt(task_type, tier)
+    model = _get_model(MODEL_PRO, extraction_prompt)
+
+    parts = []
+    if files:
+        for f in files:
+            file_data = base64.b64decode(f["content_base64"])
+            parts.append(Part.from_data(data=file_data, mime_type=f["mime_type"]))
+            parts.append(Part.from_text(f"[Attached file: {f['filename']}]"))
+
+    file_instructions = _build_file_instructions(files)
+    today = date.today().isoformat()
+
+    task_text = f"Today's date is {today}.\n"
+    if file_instructions:
+        task_text += f"\n{file_instructions}\n\n"
+    task_text += f"Extract values from this accounting task:\n\n{prompt}"
+    parts.append(Part.from_text(task_text))
+
+    # Extraction is simpler — smaller output, shorter timeout
+    max_tokens = 2048
+    plan_timeout = 45.0 if tier < 3 else 60.0
+    logger.info(f"Extracting values for {task_type} (tier={tier}, timeout={plan_timeout}s): {prompt[:80]}...")
+
+    extracted_values = {}
+    try:
+        response = await asyncio.wait_for(
+            model.generate_content_async(
+                parts,
+                generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
+            ),
+            timeout=plan_timeout,
+        )
+        try:
+            raw_text = response.text
+        except (ValueError, AttributeError):
+            raw_text = ""
+
+        try:
+            parsed = _parse_json(raw_text)
+            # The LLM should return {"field": "value", ...} directly
+            # But it might wrap in {"extracted_values": {...}} — handle both
+            if "extracted_values" in parsed and isinstance(parsed["extracted_values"], dict):
+                extracted_values = parsed["extracted_values"]
+            else:
+                extracted_values = parsed
+            # Remove meta keys that aren't actual field values
+            for meta_key in ("task_type", "reasoning", "steps"):
+                extracted_values.pop(meta_key, None)
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Failed to parse extraction JSON: {e}. Raw: {raw_text[:300]}")
+            # Extraction failed — still use template with empty values
+            extracted_values = {}
+
+    except asyncio.TimeoutError:
+        logger.error(f"Extraction LLM timed out ({plan_timeout}s) for {task_type}")
+        extracted_values = {}
+
+    # Use FIXED template steps (with conditional steps resolved)
+    steps = _resolve_conditional_steps(template, extracted_values)
+
+    plan = {
+        "task_type": task_type,
+        "tier": tier,
+        "reasoning": f"Template-driven extraction for {task_type}",
+        "steps": steps,
+        "extracted_values": extracted_values,
+        "classification_confidence": confidence,
+    }
+
     logger.info(
-        f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps, "
-        f"extracted {len(plan.get('extracted_values', {}))} values"
+        f"Plan: {plan['task_type']} with {len(steps)} steps, "
+        f"extracted {len(extracted_values)} values"
     )
     return plan
 
