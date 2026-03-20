@@ -307,38 +307,34 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
 
 
 async def _ensure_bank_account(client: TripletexClient):
-    """Pre-flight: ensure the company has a bank account number for invoicing."""
+    """Pre-flight: ensure account 1920 has a bank account number for invoicing.
+    Sets bankAccountNumber via PUT /ledger/account if empty."""
     try:
-        resp = await client.get("/company", params={"fields": "id,bankAccountNumber,version"})
+        resp = await client.get("/ledger/account", params={"number": "1920", "fields": "id,bankAccountNumber,version"})
         if not resp.get("ok"):
-            logger.warning(f"Pre-flight: GET /company failed: {resp.get('status_code')}")
             return
         data = resp.get("data", {})
-        # Handle both list response and single-value response
         values = data.get("values", [])
         if not values:
             inner = data.get("value", {})
-            if isinstance(inner, dict) and inner.get("id"):
-                values = [inner]
-            elif isinstance(inner, dict):
+            if isinstance(inner, dict):
                 values = inner.get("values", [])
         if not values:
-            logger.warning("Pre-flight: no company found")
             return
-        company = values[0]
-        if company.get("bankAccountNumber"):
-            logger.info("Pre-flight: bank account already set")
+        acct = values[0]
+        if acct.get("bankAccountNumber"):
+            logger.debug("Pre-flight: bank account already set on 1920")
             return
-        logger.info("Pre-flight: setting bankAccountNumber on company")
+        logger.info("Pre-flight: setting bankAccountNumber on account 1920")
         await client.put(
-            f"/company/{company['id']}",
+            f"/ledger/account/{acct['id']}",
             body={
-                "id": company["id"],
-                "version": company.get("version", 0),
-                "bankAccountNumber": "15031750204",
+                "id": acct["id"],
+                "version": acct.get("version", 0),
+                "bankAccountNumber": "12345678903",
             },
         )
-        logger.info("Pre-flight: bankAccountNumber set successfully")
+        logger.info("Pre-flight: bankAccountNumber set on 1920")
     except Exception as e:
         logger.warning(f"Pre-flight bank account failed: {e}")
 

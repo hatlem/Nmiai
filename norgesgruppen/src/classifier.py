@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from PIL import Image
 from torchvision import transforms
 
-TEMPERATURE = 0.07
+TEMPERATURE = 1.0
 NUM_CLASSES = 356
 
 
@@ -164,29 +164,36 @@ class ProductClassifier:
             head = nn.Linear(768, NUM_CLASSES)
 
             state_dict = torch.load(
-                str(weights_path), map_location=self.device, weights_only=True
+                str(weights_path), map_location=self.device, weights_only=False
             )
 
+            # Cast FP16 weights to FP32 for stable inference
+            def _to_float32(d):
+                return {k: v.float() if hasattr(v, 'float') else v for k, v in d.items()}
+
             # Support both combined and separate state dicts
-            if "backbone" in state_dict and "head" in state_dict:
-                model.load_state_dict(state_dict["backbone"], strict=False)
-                head.load_state_dict(state_dict["head"])
+            if "backbone" in state_dict and ("classifier_head" in state_dict or "head" in state_dict):
+                head_key = "classifier_head" if "classifier_head" in state_dict else "head"
+                backbone_sd = _to_float32(state_dict["backbone"])
+                head_sd = _to_float32(state_dict[head_key])
+                embed_dim = state_dict.get("embed_dim", 768)
+                head = nn.Linear(embed_dim, NUM_CLASSES)
+                model.load_state_dict(backbone_sd, strict=False)
+                head.load_state_dict(head_sd)
             elif any(k.startswith("head.") for k in state_dict):
-                # Combined state dict with head.weight, head.bias + backbone keys
-                backbone_sd = {
+                backbone_sd = _to_float32({
                     k: v for k, v in state_dict.items() if not k.startswith("head.")
-                }
-                head_sd = {
+                })
+                head_sd = _to_float32({
                     k.replace("head.", ""): v
                     for k, v in state_dict.items()
                     if k.startswith("head.")
-                }
+                })
                 if backbone_sd:
                     model.load_state_dict(backbone_sd, strict=False)
                 head.load_state_dict(head_sd)
             else:
-                # Assume it's a full model state dict; try loading directly
-                model.load_state_dict(state_dict, strict=False)
+                model.load_state_dict(_to_float32(state_dict), strict=False)
 
             head = head.to(self.device).eval()
 
@@ -225,7 +232,7 @@ class ProductClassifier:
                 img_size=224,
             )
             state_dict = torch.load(
-                str(weights_path), map_location=self.device, weights_only=True
+                str(weights_path), map_location=self.device, weights_only=False
             )
             model.load_state_dict(state_dict, strict=False)
             model = model.to(self.device).eval()
@@ -273,7 +280,7 @@ class ProductClassifier:
 
             if weights_path.exists():
                 state_dict = torch.load(
-                    str(weights_path), map_location=self.device, weights_only=True
+                    str(weights_path), map_location=self.device, weights_only=False
                 )
                 model.load_state_dict(state_dict, strict=False)
                 print(f"[CLASSIFIER] Loaded EfficientNet-B3 weights from {weights_path.name}")

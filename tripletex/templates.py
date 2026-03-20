@@ -720,7 +720,7 @@ TEMPLATES: dict[str, dict] = {
                     "firstName": "{{firstName}}",
                     "lastName": "{{lastName}}",
                     "email": "{{email}}",
-                    "phoneNumber": "{{phoneNumber}}",
+                    "phoneNumberMobile": "{{phoneNumber}}",
                     "customer": {"id": "$step_0.values[0].id"},
                 },
             },
@@ -908,17 +908,17 @@ TEMPLATES: dict[str, dict] = {
         "description": (
             "Create a bank reconciliation. This is a COMPLEX multi-step process:\n"
             "1. GET /bank to find the bank account ID (look for matching accountNumber)\n"
-            "2. POST /bank/reconciliation to create the reconciliation period (MUST include dateFrom, dateTo, type=MANUAL)\n"
-            "3. For each transaction: POST /bank/reconciliation/match or create vouchers for unmatched items\n"
-            "4. If a bank statement (CSV/file) is attached, use POST /bank/statement/import to import it first\n"
-            "5. Unmatched transactions may need manual vouchers via POST /ledger/voucher\n"
-            "IMPORTANT: The accounting period must be open for the reconciliation date range. "
-            "Use type=MANUAL for manual reconciliation. dateFrom and dateTo must be within the same open period.\n"
+            "2. GET /ledger/accountingPeriod to find the accounting period ID for the date range\n"
+            "3. POST /bank/reconciliation with accountingPeriod (NOT dateTo — dateTo does NOT exist!)\n"
+            "4. For each transaction: POST /bank/reconciliation/match or create vouchers for unmatched items\n"
+            "5. If a bank statement (CSV/file) is attached, use POST /bank/statement/import to import it first\n"
+            "IMPORTANT: The API does NOT accept dateTo. You MUST use accountingPeriod: {id: X} instead.\n"
+            "Use type=MANUAL for manual reconciliation.\n"
             "If the task specifies a closing balance, the sum of matched transactions must equal it."
         ),
         "relevant_schemas": ["Voucher", "Posting"],
         "extract_fields": ["date_from", "date_to", "bank_account_number", "transactions", "closing_balance"],
-        "optimal_calls": 2,
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "GET",
@@ -927,15 +927,21 @@ TEMPLATES: dict[str, dict] = {
                 "note": "Find the bank account. Match by accountNumber if specified in the task.",
             },
             {
+                "method": "GET",
+                "path": "/ledger/accountingPeriod",
+                "params": {"fields": "id,start,end,isClosed", "count": "1", "periodEnd": "{{date_to}}"},
+                "note": "Find the accounting period that covers the date range. Use periodEnd to filter.",
+            },
+            {
                 "method": "POST",
                 "path": "/bank/reconciliation",
                 "body": {
                     "account": {"id": "$step_0.values[0].id"},
                     "type": "MANUAL",
                     "dateFrom": "{{date_from}}",
-                    "dateTo": "{{date_to}}",
+                    "accountingPeriod": {"id": "$step_1.values[0].id"},
                 },
-                "note": "dateFrom is required — must be within an open accounting period.",
+                "note": "dateFrom is required. Use accountingPeriod instead of dateTo (dateTo does NOT exist).",
             },
         ],
     },
@@ -1122,9 +1128,9 @@ TEMPLATES: dict[str, dict] = {
     # ===== EMPLOYEE EMPLOYMENT =====
 
     "create_employment": {
-        "description": "Create or update employment details for an employee (ansettelsesforhold)",
+        "description": "Create or update employment details for an employee (ansettelsesforhold). NOTE: employmentType and percentageOfFullTimeEquivalent do NOT exist on this endpoint. Only employee and startDate are accepted.",
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["search_firstName", "search_lastName", "startDate", "employmentType", "percentageOfFullTimeEquivalent"],
+        "extract_fields": ["search_firstName", "search_lastName", "startDate"],
         "optimal_calls": 2,
         "steps": [
             {
@@ -1138,8 +1144,6 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "employee": {"id": "$step_0.values[0].id"},
                     "startDate": "{{startDate}}",
-                    "employmentType": "{{employmentType}}",
-                    "percentageOfFullTimeEquivalent": "{{percentageOfFullTimeEquivalent}}",
                 },
             },
         ],

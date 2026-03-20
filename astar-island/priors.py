@@ -46,8 +46,8 @@ def _load_calibration() -> dict[int, np.ndarray]:
 
     # Override Ruin (class 3) — calibration shows uniform due to insufficient data.
     # Domain-informed prior: ruins tend to stay as ruins or become forest,
-    # with some reclamation by nearby settlements.
-    priors[3] = np.array([0.15, 0.12, 0.03, 0.35, 0.30, 0.05])
+    # with modest reclamation by nearby settlements.
+    priors[3] = np.array([0.15, 0.08, 0.02, 0.35, 0.35, 0.05])
     priors[3] /= priors[3].sum()
 
     return priors

@@ -282,30 +282,31 @@ class HeuristicAgent(SwarmAgent):
                     dist[4] = 0.03
                     dist[5] = PROB_FLOOR
 
-                # Empty near settlements -> expansion
+                # Empty near settlements -> expansion (conservative)
                 elif ic == 0 and sd <= 4:
-                    exp_prob = 0.05 + 0.03 * (4 - sd)
+                    exp_prob = 0.02 + 0.01 * (4 - sd)
                     dist[1] = exp_prob
-                    dist[3] = exp_prob * 0.3
-                    dist[0] = 1.0 - exp_prob * 1.5 - dist[4]
+                    dist[3] = exp_prob * 0.15
+                    dist[4] = max(dist[4], 0.06 + 0.02 * forest_growth)
+                    dist[0] = max(0.70, 1.0 - dist[1] - dist[3] - dist[4] - 0.02)
 
-                # Forest near settlements -> potential clearing
+                # Forest near settlements -> mostly stays forest
                 elif ic == 4 and sd <= 3:
-                    dist[1] = 0.05
-                    dist[0] = 0.08
-                    dist[4] = 0.82
+                    dist[1] = 0.02
+                    dist[0] = 0.04
+                    dist[4] = 0.89
 
                 # Empty near forest -> forest growth
                 elif ic == 0 and food >= 2:
-                    dist[4] = 0.10 + 0.10 * forest_growth
+                    dist[4] = 0.12 + 0.12 * forest_growth
                     dist[0] = 1.0 - dist[4] - 0.02
 
                 # Ruin dynamics
                 elif ic == 3:
                     if sd <= 3:
-                        dist[1] = 0.15
-                    dist[4] = 0.10 + 0.08 * forest_growth
-                    dist[3] = max(0.3, 1.0 - dist[1] - dist[4] - 0.1)
+                        dist[1] = 0.10
+                    dist[4] = 0.12 + 0.10 * forest_growth
+                    dist[3] = max(0.30, 1.0 - dist[1] - dist[4] - 0.1)
                     dist[0] = 0.08
 
                 pred[y, x] = dist
@@ -525,7 +526,7 @@ class SwarmCoordinator:
         seeds_count: int,
         inferred_params: dict,
         posterior_samples: list[dict],
-        mc_runs_per_agent: int = 30,
+        mc_runs_per_agent: int = 80,
         n_mc_agents: int = 8,
     ):
         self.initial_states = initial_states
@@ -549,17 +550,17 @@ class SwarmCoordinator:
                 name=f"mc_{i}",
                 params=params,
                 n_runs=mc_runs_per_agent,
-                weight=1.0,
+                weight=1.5,
             ))
 
         # ── Add non-MC agents ────────────────────────────────────────────
         # Weights reflect reliability. Statistical + contextual pooling are most
         # reliable as they're based on calibrated empirical data.
         self.agents.append(StatisticalAgent(weight=3.0))
-        self.agents.append(SettlementTrajectoryAgent(weight=2.0))
+        self.agents.append(SettlementTrajectoryAgent(weight=2.5))
         self.agents.append(TransitionAgent(weight=0.8))
         self.agents.append(HeuristicAgent(weight=0.8))
-        self.agents.append(SpatialAgent(weight=0.5))
+        self.agents.append(SpatialAgent(weight=0.3))
 
         # Contextual pooling: cross-seed empirical data is extremely valuable
         self._contextual_agent_weight = 3.0
@@ -622,13 +623,25 @@ class SwarmCoordinator:
             kt_pred = _build_kt_with_priors(init_grid_kt, cell_counts, n_obs, settlements_kt, self.H, self.W)
 
             # More observations → trust KT more
-            # n=1: 33%, n=3: 60%, n=5: 71%, n=10: 83%
+            # Default: n=1: 33%, n=3: 60%, n=5: 71%, n=10: 83%
+            # When all observations agree (mode_count == n_obs), use n/(n+1)
+            # which gives n=1: 50%, n=2: 67% — a single consistent observation
+            # is quite informative for static terrain.
             observed = n_obs > 0
             if observed.any():
-                kt_weight = (n_obs[observed] / (n_obs[observed] + 2.0))[:, np.newaxis]
+                obs_counts = cell_counts[observed]
+                obs_n = n_obs[observed]
+                mode_counts = obs_counts.max(axis=1)
+                # Cells where all observations agree
+                all_agree = mode_counts == obs_n
+                kt_w = np.where(
+                    all_agree,
+                    obs_n / (obs_n + 1.0),   # n=1: 50%, n=2: 67%
+                    obs_n / (obs_n + 2.0),   # n=1: 33%, n=3: 60%
+                )[:, np.newaxis]
                 combined[observed] = (
-                    kt_weight * kt_pred[observed] +
-                    (1.0 - kt_weight) * combined[observed]
+                    kt_w * kt_pred[observed] +
+                    (1.0 - kt_w) * combined[observed]
                 )
 
             # ── Unobserved cells: blend domain prior with ensemble ──
@@ -639,15 +652,29 @@ class SwarmCoordinator:
             )
             unobserved = ~observed
             if unobserved.any():
-                # For unobserved cells, domain priors are much more reliable
-                # than the ensemble geometric mean (which averages toward uniform).
-                # Use 80% domain prior / 20% ensemble to retain some ensemble signal
-                # from cross-seed contextual pooling agent.
+                # For unobserved cells, contextual pooling (cross-seed data) is
+                # most informative. Get the contextual agent's prediction and blend
+                # it with domain priors. The ensemble geometric mean includes this
+                # agent but dilutes it with less-reliable agents.
+                ctx_pred = ctx_agent.predict(
+                    seed_idx=seed_idx,
+                    initial_state=self.initial_states[seed_idx],
+                    W=self.W, H=self.H,
+                    counts=counts[seed_idx],
+                    observations=observations[seed_idx],
+                    settlements_data=settlements_data.get(seed_idx, []),
+                    inferred_params=self.inferred_params,
+                )
                 for cls_id in range(NUM_CLASSES):
                     cls_mask = unobserved & (init_cls == cls_id)
                     if cls_mask.any():
                         prior = get_domain_prior(cls_id)
-                        combined[cls_mask] = 0.80 * prior + 0.20 * combined[cls_mask]
+                        # 50% domain prior + 30% contextual pooling + 20% full ensemble
+                        combined[cls_mask] = (
+                            0.50 * prior +
+                            0.30 * ctx_pred[cls_mask] +
+                            0.20 * combined[cls_mask]
+                        )
 
             # Final safety with class-conditional floors
             init_grid = np.asarray(self.initial_states[seed_idx]["grid"], dtype=np.int64)
@@ -722,7 +749,7 @@ class SwarmCoordinator:
         - Well-observed cells (n >= 4): T=0.95 (slightly sharpen — we have good data)
         - Moderately observed (n = 2-3): T=1.0 (neutral)
         - Barely observed (n = 1): T=1.05 (slightly soften — uncertain)
-        - Unobserved dynamic cells: T=1.10 (soften — domain priors are imperfect)
+        - Unobserved dynamic cells: T=1.15 (soften — domain priors are imperfect)
         """
         result = pred.copy()
 
@@ -733,7 +760,7 @@ class SwarmCoordinator:
         T[n_obs >= 4] = 0.95
         T[(n_obs >= 2) & (n_obs < 4)] = 1.0
         T[(n_obs == 1)] = 1.05
-        T[n_obs == 0] = 1.10
+        T[n_obs == 0] = 1.15
         T[static_mask] = 1.0  # Don't touch static terrain
 
         # Apply temperature: q_scaled = softmax(log(q) / T)
@@ -877,19 +904,20 @@ def _get_cell_prior(init_cls: int, sett_dist: float, food: float,
         base[3] -= 0.03
 
     if sett_dist > 6 and init_cls == 0:
-        base = np.array([0.92, 0.01, 0.01, 0.01, 0.04, 0.01])
+        base = np.array([0.91, 0.005, 0.005, 0.005, 0.07, 0.005])
 
     if sett_dist > 6 and init_cls == 4:
-        base = np.array([0.04, 0.01, 0.01, 0.01, 0.90, 0.01])
+        base = np.array([0.03, 0.005, 0.005, 0.005, 0.95, 0.005])
 
     if sett_dist <= 3 and init_cls == 0:
-        base[1] += 0.06
-        base[3] += 0.03
-        base[0] -= 0.06
+        base[1] += 0.02
+        base[3] += 0.005
+        base[0] -= 0.02
+        base[4] += 0.01
 
     if neighbor_sett >= 2 and init_cls == 0 and sett_dist <= 4:
-        base[1] += 0.04
-        base[0] -= 0.03
+        base[1] += 0.01
+        base[0] -= 0.01
 
     base = np.maximum(base, PROB_FLOOR)
     base /= base.sum()

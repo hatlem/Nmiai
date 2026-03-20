@@ -236,18 +236,18 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_contact": {
         "entity_path": "/contact",
         "id_from_step": 1,
-        "search_params": {"fields": "id,firstName,lastName,email,phoneNumber,customer"},
+        "search_params": {"fields": "id,firstName,lastName,email,phoneNumberMobile,customer"},
         "check_fields": {
             "firstName": "extract:firstName",
             "lastName": "extract:lastName",
             "email": "extract:email",
-            "phoneNumber": "extract:phoneNumber",
+            "phoneNumberMobile": "extract:phoneNumber",
         },
     },
 
     "create_voucher": {
         "entity_path": "/ledger/voucher",
-        "id_from_step": 2,
+        "id_from_step": None,
         "search_params": {"fields": "id,date,description,postings"},
         "check_fields": {
             "exists:id": "exists",

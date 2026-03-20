@@ -5,16 +5,19 @@ Scoring uses entropy-weighted KL divergence. Only dynamic cells (near settlement
 contribute meaningfully to score. Static terrain has ~0 entropy → ~0 score weight.
 
 Strategy (50 queries, 5 seeds):
-  Phase 1 (60% budget): Cover each settlement viewport at least 2x per seed,
-    plus expansion zone viewports (3-6 manhattan distance from settlements).
-  Phase 2 (40% budget): Adaptive — pick highest information gain viewport
-    across all seeds using entropy-based scoring.
+  Phase 1 (65% focus / 35% other): Every seed gets minimum coverage
+    (all settlement viewports + 1 repeat). Remaining budget distributed
+    proportional to settlement count.
+  Phase 2: Adaptive overflow — pick highest info-gain viewport across
+    all seeds, with coverage bonus for under-observed seeds.
 
-Key improvements over previous version:
+Key improvements:
+  - Minimum coverage guarantee per seed (no seed gets starved)
+  - 65/35 focus/other split (was 80/20) for better average scores
+  - Coverage bonus in adaptive phase for under-observed seeds
   - Information-theoretic gain weighting per cell
   - Expansion zone viewports (Empty→Settlement is 13%!)
   - Unequal seed allocation weighted by settlement count
-  - Two-phase strategy: coverage first, then adaptive info gain
 """
 
 from __future__ import annotations
@@ -130,8 +133,10 @@ class QueryOptimizer:
                 cell = grid[y, x]
                 near = dist_map[y, x] <= near_threshold
 
-                if cell == 10 or cell == 11:  # Ocean
+                if cell == 10:  # Ocean
                     entropy_map[y, x] = _ENTROPY_STATIC
+                elif cell == 11:  # Plains (class 0, but can become settlement)
+                    entropy_map[y, x] = _ENTROPY_EMPTY_NEAR if near else _ENTROPY_EMPTY_FAR
                 elif cell == 5:  # Mountain
                     entropy_map[y, x] = _ENTROPY_STATIC
                 elif cell in (1, 2):  # Settlement, Port
@@ -384,8 +389,10 @@ class QueryOptimizer:
 
         Strategy:
         - Pick top 3 seeds by settlement count ("focus seeds")
-        - Allocate 80% of budget to focus seeds, 20% to others
-        - Within each seed: re-query settlement viewports 3-5x each
+        - Allocate 60% of budget to focus seeds, 40% to others
+        - Every seed gets at least len(settlement_viewports)+1 queries minimum
+        - After minimums, remaining budget distributed proportional to settlement count
+        - Within each seed: re-query settlement viewports multiple times
         - Expansion viewports get 1-2x (lower priority but still valuable)
         - NO full-coverage tiles (static terrain = wasted queries)
 
@@ -402,29 +409,69 @@ class QueryOptimizer:
         def record_query(seed_idx: int, x: int, y: int, w: int, h: int):
             sim_counts[seed_idx][y:y+h, x:x+w] += 1.0
 
-        # ── Classify seeds: top 3 get 80% of budget ──────────────────────
+        # ── Allocate budget with minimum coverage guarantees ─────────────
+        #
+        # Every seed gets at least len(settlement_viewports) + 1 queries
+        # so all settlement viewports are covered once plus one repeat.
+        # After minimum allocations, remaining budget is distributed
+        # proportionally by settlement count.
 
         n_focus = min(3, self.seeds_count)
         focus_seeds = self._seed_rank[:n_focus]
         other_seeds = self._seed_rank[n_focus:]
 
-        focus_budget = int(self.budget * 0.80)
+        # Step 1: Compute minimum allocation per seed
+        min_per_seed: dict[int, int] = {}
+        for s in range(self.seeds_count):
+            n_vps = len(self._seed_viewports[s])
+            min_per_seed[s] = max(2, n_vps)  # cover all viewports at least once
+
+        total_min = sum(min_per_seed.values())
+
+        # If total minimums exceed budget, scale them down proportionally
+        if total_min > self.budget:
+            scale = self.budget / total_min
+            for s in min_per_seed:
+                min_per_seed[s] = max(1, int(min_per_seed[s] * scale))
+            total_min = sum(min_per_seed.values())
+
+        # Step 2: 60/40 split between focus and other seeds
+        focus_budget = int(self.budget * 0.60)
         other_budget = self.budget - focus_budget
 
-        # Distribute focus budget weighted by settlement count
+        # Ensure other_budget can cover minimums for other seeds
+        other_min = sum(min_per_seed[s] for s in other_seeds)
+        if other_budget < other_min:
+            other_budget = other_min
+            focus_budget = self.budget - other_budget
+
+        # Ensure focus_budget can cover minimums for focus seeds
+        focus_min = sum(min_per_seed[s] for s in focus_seeds)
+        if focus_budget < focus_min:
+            focus_budget = focus_min
+            other_budget = self.budget - focus_budget
+
+        # Safety: clamp to budget
+        focus_budget = min(focus_budget, self.budget)
+        other_budget = min(other_budget, self.budget - focus_budget)
+
+        # Step 3: Distribute focus budget — minimums first, then proportional
         focus_sett_counts = [max(len(self.settlement_coords[s]), 1) for s in focus_seeds]
         focus_total = sum(focus_sett_counts)
-        focus_per_seed = {
-            s: max(3, int(focus_budget * focus_sett_counts[i] / focus_total))
-            for i, s in enumerate(focus_seeds)
-        }
+        focus_remaining = focus_budget - sum(min_per_seed[s] for s in focus_seeds)
+        focus_per_seed: dict[int, int] = {}
+        for i, s in enumerate(focus_seeds):
+            extra = int(max(0, focus_remaining) * focus_sett_counts[i] / focus_total)
+            focus_per_seed[s] = min_per_seed[s] + extra
 
-        # Distribute other budget evenly
-        other_per_seed = {}
-        if other_seeds:
-            per_other = max(2, other_budget // len(other_seeds))
-            for s in other_seeds:
-                other_per_seed[s] = per_other
+        # Step 4: Distribute other budget — minimums first, then proportional
+        other_sett_counts = [max(len(self.settlement_coords[s]), 1) for s in other_seeds]
+        other_total = max(sum(other_sett_counts), 1)
+        other_remaining = other_budget - sum(min_per_seed[s] for s in other_seeds)
+        other_per_seed: dict[int, int] = {}
+        for i, s in enumerate(other_seeds):
+            extra = int(max(0, other_remaining) * other_sett_counts[i] / other_total)
+            other_per_seed[s] = min_per_seed[s] + extra
 
         # ── Focus seeds: deep observation ─────────────────────────────────
 
@@ -574,10 +621,33 @@ class QueryOptimizer:
                 return (seed_idx, *vps[0])
 
         # Priority 2: Information-theoretic gain across all candidates
+        # Add a coverage bonus for seeds with the fewest observations relative
+        # to their dynamic cell count, so under-observed seeds catch up.
         best_gain = -1.0
         best_query: Optional[tuple[int, int, int, int, int]] = None
 
+        # Compute per-seed observation ratio for coverage bonus
+        seed_obs_ratios: dict[int, float] = {}
         for seed_idx in range(self.seeds_count):
+            seed_counts = counts.get(seed_idx)
+            dynamic_cells = float(np.sum(self._entropy_prior[seed_idx] > 0))
+            dynamic_cells = max(dynamic_cells, 1.0)
+            if seed_counts is not None:
+                total_obs = float(seed_counts.sum())
+            else:
+                total_obs = 0.0
+            seed_obs_ratios[seed_idx] = total_obs / dynamic_cells
+
+        # The seed with the lowest ratio gets the highest bonus
+        max_ratio = max(seed_obs_ratios.values()) if seed_obs_ratios else 1.0
+        max_ratio = max(max_ratio, 1e-6)
+
+        for seed_idx in range(self.seeds_count):
+            # Coverage bonus: higher when this seed has fewer observations
+            # relative to its dynamic cells compared to the best-observed seed.
+            # Ranges from 1.0 (least observed) to ~0.3 (most observed).
+            ratio = seed_obs_ratios[seed_idx]
+            coverage_bonus = 1.0 - 0.7 * (ratio / max_ratio)
 
             # Build candidate list: settlement + expansion + coverage tiles
             candidates = list(self._seed_viewports[seed_idx])
@@ -593,9 +663,10 @@ class QueryOptimizer:
                 gain = self._viewport_info_gain(
                     seed_idx, x, y, w, h, counts=counts
                 )
+                adjusted_gain = gain * coverage_bonus
 
-                if gain > best_gain:
-                    best_gain = gain
+                if adjusted_gain > best_gain:
+                    best_gain = adjusted_gain
                     best_query = (seed_idx, x, y, w, h)
 
         if best_query:
@@ -606,7 +677,10 @@ class QueryOptimizer:
 
     def summary(self) -> str:
         """Human-readable summary of query allocation."""
-        plan = self.plan_queries()
+        return self.summary_from_plan(self.plan_queries())
+
+    def summary_from_plan(self, plan: list) -> str:
+        """Human-readable summary from a pre-built plan."""
         seed_info: dict[int, dict] = {}
 
         for seed_idx, x, y, w, h in plan:
@@ -627,7 +701,7 @@ class QueryOptimizer:
         lines = [
             f"Query plan: {len(plan)} queries, "
             f"concentrated deep-observation strategy",
-            f"  Focus seeds: {focus_seeds} (80% budget)",
+            f"  Focus seeds: {focus_seeds} (65% budget, min coverage guaranteed)",
         ]
 
         for seed_idx in range(self.seeds_count):

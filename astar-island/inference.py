@@ -372,16 +372,20 @@ class ParameterInference:
         if n_empty > 20:
             # Also check Ruin -> Forest as confirmation
             ruin_to_forest, n_ruin = self._safe_rate(3, 4)
-            forest_signal = empty_to_forest * 3.0  # Reduced from 5.0 — was overestimating
+            forest_signal = empty_to_forest  # Use raw transition rate directly
             if n_ruin > 5:
-                forest_signal = (forest_signal + ruin_to_forest * 2.0) / 2.0
+                # Average with ruin→forest, weight toward higher-confidence source
+                if n_empty > n_ruin:
+                    forest_signal = forest_signal * 0.7 + ruin_to_forest * 0.3
+                else:
+                    forest_signal = forest_signal * 0.3 + ruin_to_forest * 0.7
             results["forest_growth_rate"] = (float(np.clip(forest_signal, 0, 1)), conf_forest)
 
         # Empty -> Settlement: expansion_rate
         empty_to_sett, _ = self._safe_rate(0, 1)
         if n_empty > 20:
             results["expansion_rate"] = (
-                float(np.clip(empty_to_sett * 6.0, 0, 1)), conf_forest
+                float(np.clip(empty_to_sett * 1.0, 0, 1)), conf_forest
             )
 
         # Ruin -> Settlement or Empty: ruin_reclaim_rate
@@ -439,7 +443,7 @@ class ParameterInference:
         # Death ratio: faction_aggression + winter_severity
         if n_total > 0:
             death_ratio = stats["total_dead"] / n_total
-            results["faction_aggression"] = (float(np.clip(death_ratio * 2.0, 0, 1)), conf * 0.5)
+            results["faction_aggression"] = (float(np.clip(death_ratio * 1.5, 0, 1)), conf * 0.5)
 
         # Port frequency
         if stats["total_alive"] > 0:
@@ -469,7 +473,7 @@ class ParameterInference:
             # NND typically 1-15. Low = clustered = high expansion
             expansion = np.clip(1.0 - avg_nnd / 12.0, 0, 1)
             conf = min(len(stats["settlement_cluster_density"]) / 3, 1.0)
-            results["expansion_rate"] = (float(expansion), float(conf) * 0.4)
+            results["expansion_rate"] = (float(expansion), float(conf) * 0.1)
 
         # Settlement spread -> expansion_rate (confirmation)
         if stats["settlement_spread"]:
@@ -480,8 +484,8 @@ class ParameterInference:
             if "expansion_rate" in results:
                 # Average with transition-based estimate
                 old_val, old_conf = results["expansion_rate"]
-                new_val = (old_val * old_conf + expansion_spread * conf * 0.3) / (old_conf + conf * 0.3)
-                results["expansion_rate"] = (float(new_val), max(old_conf, float(conf) * 0.3))
+                new_val = (old_val * old_conf + expansion_spread * conf * 0.1) / (old_conf + conf * 0.1)
+                results["expansion_rate"] = (float(new_val), max(old_conf, float(conf) * 0.1))
 
         # Ruin-settlement distances -> raid_range
         if stats["ruin_settlement_distances"]:
@@ -495,7 +499,7 @@ class ParameterInference:
         if stats["forest_border_growth"]:
             avg_growth = np.mean(stats["forest_border_growth"])
             conf = min(len(stats["forest_border_growth"]) / 3, 1.0)
-            results["forest_growth_rate"] = (float(np.clip(avg_growth * 2.0, 0, 1)), float(conf) * 0.6)
+            results["forest_growth_rate"] = (float(np.clip(avg_growth * 1.0, 0, 1)), float(conf) * 0.6)
 
         return results
 
@@ -632,7 +636,7 @@ class ParameterInference:
                 # Shape the Beta distribution:
                 # High confidence -> tight distribution around MAP
                 # Low confidence -> broad distribution
-                concentration = 2.0 + conf * 30.0  # 2 (vague) to 32 (tight)
+                concentration = 2.0 + conf * 20.0  # 2 (vague) to 22 (moderately tight)
 
                 # Ensure val is in (0, 1) for Beta parametrization
                 val_safe = np.clip(val, 0.02, 0.98)
@@ -717,9 +721,9 @@ class ParameterInference:
         pdt = params["port_development_threshold"]
 
         # Empty (0) transitions
-        pred_trans[0, 0] = 1.0 - fg * 0.15 - er * 0.08
-        pred_trans[0, 4] = fg * 0.15
-        pred_trans[0, 1] = er * 0.08
+        pred_trans[0, 0] = 1.0 - fg * 0.08 - er * 0.05
+        pred_trans[0, 4] = fg * 0.08
+        pred_trans[0, 1] = er * 0.05
 
         # Settlement (1) transitions
         death_rate = ws * 0.15 + fa * 0.20

@@ -242,7 +242,10 @@ class EmbeddingClassifier:
 
             model = timm.create_model(config["model_name"], pretrained=False, num_classes=0)
             if weights_path.exists():
-                state_dict = torch.load(str(weights_path), map_location=device, weights_only=True)
+                try:
+                    state_dict = torch.load(str(weights_path), map_location=device, weights_only=True)
+                except Exception:
+                    state_dict = torch.load(str(weights_path), map_location=device, weights_only=False)
                 model.load_state_dict(state_dict, strict=False)
                 print(f"[CLASSIFIER] Loaded EfficientNet-B3 from {weights_path.name}")
             else:
@@ -367,12 +370,13 @@ def main():
         img_h, img_w = img.shape[:2]
 
         # Decide: SAHI vs multi-scale based on time budget
+        # Start conservative (no SAHI) until we have timing data
         use_sahi = False
-        if images_left > 0:
-            avg_time = np.mean(image_times) if image_times else 3.0
+        if images_left > 0 and len(image_times) >= 2:
+            avg_time = np.mean(image_times)
             time_per_image_budget = time_left / images_left
-            # Use SAHI if we have >2x the average time remaining per image
-            use_sahi = time_per_image_budget > avg_time * 1.5 and time_left > 30
+            # Use SAHI only if we have >2x budget headroom
+            use_sahi = time_per_image_budget > avg_time * 2.0 and time_left > 60
 
         # Detect
         if use_sahi:
@@ -403,8 +407,11 @@ def main():
         # ── Hybrid classification ──────────────────────────────────────
         # YOLO gives category_id from multi-class training.
         # EfficientNet refines uncertain predictions.
-        # If YOLO is single-class (all labels=0), EfficientNet provides all classification.
-        is_single_class = len(labels) > 0 and np.all(labels == 0)
+        # Detect single-class model: check if ALL labels are exactly 0
+        # AND we have many detections (avoids false positive when category 0
+        # happens to be the only product on a shelf).
+        is_single_class = (len(labels) > 5 and len(np.unique(labels)) == 1
+                           and int(labels[0]) == 0)
 
         if classifier.available:
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -443,27 +450,20 @@ def main():
                 det_score = float(scores[vi])
                 yolo_cat = int(labels[vi])
 
+                # IMPORTANT: Never reduce det_score — it controls detection mAP
+                # ranking (70% of final score). Only change category_id.
                 if is_single_class:
                     # Single-class detector: EfficientNet provides ALL classification
                     final_cat = eff_cat
-                    final_score = det_score * eff_conf
-                elif eff_conf >= EFF_CONFIDENCE_THRESHOLD:
-                    if eff_cat == yolo_cat:
-                        # Agreement: boost confidence
-                        final_cat = yolo_cat
-                        final_score = det_score * max(eff_conf, 0.9)
-                    elif eff_conf > 0.6:
-                        # EfficientNet very confident, disagrees → trust EfficientNet
-                        final_cat = eff_cat
-                        final_score = det_score * eff_conf
-                    else:
-                        # Both have some confidence — prefer YOLO (trained e2e)
-                        final_cat = yolo_cat
-                        final_score = det_score * 0.85
+                    final_score = det_score  # preserve detection score
+                elif eff_conf >= EFF_CONFIDENCE_THRESHOLD and eff_cat != yolo_cat and eff_conf > 0.6:
+                    # EfficientNet very confident AND disagrees → override YOLO category
+                    final_cat = eff_cat
+                    final_score = det_score  # preserve detection score
                 else:
-                    # EfficientNet uncertain — keep YOLO classification
+                    # Keep YOLO classification (default — trained end-to-end)
                     final_cat = yolo_cat
-                    final_score = det_score * 0.8
+                    final_score = det_score  # preserve detection score
 
                 w = x2 - x1
                 h = y2 - y1

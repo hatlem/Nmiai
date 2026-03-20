@@ -160,7 +160,7 @@ def detect_simple(model, img: np.ndarray, device: str):
         conf=CONF_THRESHOLD,
         iou=NMS_IOU,
         imgsz=IMGSZ_FULL,
-        augment=True,
+        augment=False,
     )
 
     boxes_list, scores_list = [], []
@@ -189,7 +189,7 @@ def detect_multiscale_wbf(model, img: np.ndarray, device: str):
             conf=CONF_THRESHOLD,
             iou=NMS_IOU,
             imgsz=scale,
-            augment=True,
+            augment=False,
         )
 
         for r in results:
@@ -282,12 +282,31 @@ def process_image(
         boxes, scores, labels = detect_sahi(primary_model, img, device)
     elif has_multi_model and ENSEMBLE_AVAILABLE:
         boxes, scores, labels = detect_ensemble(models, img, device)
-    elif SAHI_AVAILABLE:
-        # Even without ensemble, SAHI alone is better than multi-scale
-        boxes, scores, labels = detect_sahi(primary_model, img, device)
     else:
-        # Fallback: multi-scale WBF
-        boxes, scores, labels = detect_multiscale_wbf(primary_model, img, device)
+        # Fast mode: single-pass detection at full resolution
+        results = primary_model(
+            img,
+            device=device,
+            verbose=False,
+            conf=CONF_THRESHOLD,
+            iou=NMS_IOU,
+            imgsz=IMGSZ_FULL,
+            augment=False,
+        )
+        all_b, all_s, all_l = [], [], []
+        for r in results:
+            if r.boxes is not None and len(r.boxes) > 0:
+                all_b.append(r.boxes.xyxy.cpu().numpy())
+                all_s.append(r.boxes.conf.cpu().numpy())
+                all_l.append(r.boxes.cls.cpu().numpy().astype(int))
+        if all_b:
+            boxes = np.concatenate(all_b)
+            scores = np.concatenate(all_s)
+            labels = np.concatenate(all_l)
+        else:
+            boxes = np.zeros((0, 4))
+            scores = np.array([])
+            labels = np.array([], dtype=int)
 
     if len(boxes) == 0:
         return []
@@ -352,11 +371,12 @@ def process_image(
         # Batch classification via unified ProductClassifier
         all_classifications = classifier.classify(crops, batch_size=CLASSIFIER_BATCH_SIZE)
 
-        # Step 5: Combine detection score x classification confidence
+        # Step 5: Use detection score for ranking, classifier only for category_id
+        # CRITICAL: Do NOT multiply det_score * cls_conf — it destroys mAP ranking
+        # by pushing correct detections down when classifier is uncertain
         for idx, (cat_id, cls_conf) in zip(valid_indices, all_classifications):
             x1, y1, x2, y2 = boxes[idx]
             det_score = float(scores[idx])
-            combined_score = det_score * cls_conf
 
             detections.append({
                 "x1": float(x1),
@@ -364,7 +384,7 @@ def process_image(
                 "w": float(x2 - x1),
                 "h": float(y2 - y1),
                 "category_id": int(cat_id),
-                "score": combined_score,
+                "score": det_score,
             })
     else:
         # Detection-only mode — category_id=0, use raw detection score

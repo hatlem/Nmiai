@@ -222,7 +222,8 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
             phase1_budget = int(remaining * 0.60)
             plan = optimizer.plan_queries()
             phase1_plan = plan[:phase1_budget]
-            print(optimizer.summary())
+            # summary() re-calls plan_queries() internally, so pass pre-built plan
+            print(optimizer.summary_from_plan(plan))
             print(f"  Phase 1: {len(phase1_plan)} planned, "
                   f"Phase 2: {remaining - len(phase1_plan)} adaptive")
 
@@ -268,6 +269,7 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
                 print(f"\n  Phase 2: {phase2_remaining} adaptive queries "
                       f"using observation data...")
 
+            adaptive_failures = 0
             while queries_used < budget_max:
                 seed_idx, x, y, w, h = optimizer.next_query(
                     observations, counts, budget_max - queries_used,
@@ -282,7 +284,11 @@ def run(token: str, dry_run=False, submit_only=False, no_query=False,
                         "viewport_w": w, "viewport_h": h,
                     })
                 except RuntimeError as e:
+                    adaptive_failures += 1
                     print(f"  Q{queries_used+1} adaptive failed: {e}")
+                    if adaptive_failures >= 5:
+                        print("  Too many failures, stopping adaptive phase")
+                        break
                     time.sleep(1)
                     continue
 
@@ -386,9 +392,9 @@ if __name__ == "__main__":
     parser.add_argument("--no-mc", action="store_true",
                         help="Skip Monte Carlo agents in swarm")
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--mc-runs", type=int, default=80,
+    parser.add_argument("--mc-runs", type=int, default=120,
                         help="Monte Carlo runs per swarm agent")
-    parser.add_argument("--mc-agents", type=int, default=10,
+    parser.add_argument("--mc-agents", type=int, default=12,
                         help="Number of MC agents in swarm")
     args = parser.parse_args()
 

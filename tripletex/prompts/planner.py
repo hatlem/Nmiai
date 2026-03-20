@@ -145,6 +145,12 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
     - "amountGross": number (positive = debit, negative = credit)
     - "amountGrossCurrency": number (MUST equal amountGross)
     Example: {{"row": 1, "account": {{"id": 123}}, "amountGross": 1500, "amountGrossCurrency": 1500}}
+20. VAT-locked accounts: Some accounts (e.g. 3000 Salgsinntekt) are locked to a specific vatType.
+    When using these accounts in voucher postings, you MUST first GET /ledger/vatType to find the
+    correct vatType ID, then include "vatType": {{"id": <vatTypeId>}} in each posting that uses
+    a VAT-locked account. Revenue accounts (3xxx) typically need vatType 3 (utgående mva, høy sats).
+    Expense accounts (6xxx-7xxx) may need vatType 1 (inngående mva). Bank/asset accounts (1xxx, 2xxx)
+    usually need vatType 0 (ingen mva). If unsure, GET /ledger/account/{id}?fields=vatType to check.
 14. Bank reconciliation — accounting period must be open: The reconciliation date range must fall within
     an open accounting period. If you get a 422 error about closed period, the dates are wrong.
     After creating the reconciliation, you may need to POST individual payment/match entries.

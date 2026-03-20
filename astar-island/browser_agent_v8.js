@@ -192,58 +192,80 @@
  }
 
  // CHANGE 2: Informative Dirichlet prior per cell
+ // Uses GT_CTX_PRIORS as primary source when available
  function getCellPrior(initCls, sd, food, coastal, nSett) {
+  // Try GT context prior first (most accurate)
+  const foodBucket = Math.min(food, 3);
+  const distBucket = sd <= 3 ? 'near' : sd <= 7 ? 'mid' : 'far';
+  const coastInt = coastal ? 1 : 0;
+  const gtKey = `${initCls}_${foodBucket}_${coastInt}_${distBucket}`;
+  const gtPrior = GT_CTX_PRIORS[gtKey];
+  if (gtPrior) {
+   const base = new Float64Array(NUM_CLASSES);
+   for (let i = 0; i < NUM_CLASSES; i++) base[i] = Math.max(gtPrior[i], 0.002);
+   normalize(base);
+   return base;
+  }
+
+  // Fallback: hand-tuned priors
   const src = CALIBRATED_PRIORS[initCls] || CALIBRATED_PRIORS[0];
   const base = new Float64Array(NUM_CLASSES);
   for (let i = 0; i < NUM_CLASSES; i++) base[i] = src[i];
 
-  // Coastal settlement/port: boost port
-  if (coastal && (initCls === 1 || initCls === 2)) {
-   base[2] += 0.08;
-   base[0] -= 0.04;
-  }
-  // High food settlement: boost survival
-  if (food >= 2 && initCls === 1) {
-   base[1] += 0.10;
-   base[0] -= 0.05;
-   base[3] -= 0.03;
-  }
-  // Far from settlements: empty stays empty
-  if (sd > 6 && initCls === 0) {
-   base[0] = 0.92; base[1] = 0.01; base[2] = 0.01;
-   base[3] = 0.01; base[4] = 0.04; base[5] = 0.01;
-  }
-  // Far from settlements: forest stays forest
-  if (sd > 6 && initCls === 4) {
-   base[4] = 0.90; base[0] = 0.04; base[1] = 0.01;
-   base[2] = 0.01; base[3] = 0.01; base[5] = 0.01;
-  }
-  // Near settlements + empty: boost settlement/ruin
-  if (sd <= 3 && initCls === 0) {
-   base[1] += 0.06;
-   base[3] += 0.03;
-   base[0] -= 0.06;
-  }
-  // Near settlements with many neighbors
-  if (nSett >= 2 && initCls === 0 && sd <= 4) {
-   base[1] += 0.04;
-   base[0] -= 0.03;
+  // Coastal cells: boost port significantly (GT shows 10-28% port near settlements)
+  if (coastal) {
+   if (initCls === 1 || initCls === 2) {
+    // Coastal settlement/port: ~30% port
+    base[2] = 0.30; base[1] = 0.15; base[0] = 0.35; base[4] = 0.17; base[3] = 0.02;
+   } else if (initCls === 0 && sd <= 3) {
+    // Coastal empty near settlements: ~10% port, ~6% settlement
+    base[2] = 0.10; base[1] = 0.06; base[0] = 0.80;
+   } else if (initCls === 4 && sd <= 3) {
+    // Coastal forest near settlements: ~17% port, ~12% settlement
+    base[2] = 0.17; base[1] = 0.12; base[4] = 0.60; base[0] = 0.07;
+   } else if (initCls === 0 && sd <= 7) {
+    base[2] = 0.03; base[1] = 0.03; base[0] = 0.92;
+   }
+  } else {
+   // Non-coastal: port is near-impossible
+   base[2] = 0.002;
+   if (sd > 6 && initCls === 0) {
+    base[0] = 0.92; base[1] = 0.01; base[3] = 0.01; base[4] = 0.04; base[5] = 0.01;
+   } else if (sd > 6 && initCls === 4) {
+    base[4] = 0.90; base[0] = 0.04; base[1] = 0.01; base[3] = 0.01; base[5] = 0.01;
+   } else if (sd <= 3 && initCls === 0) {
+    // Near settlements: GT shows ~22% settlement!
+    base[1] = 0.22; base[0] = 0.72; base[3] = 0.016; base[4] = 0.04;
+   } else if (sd <= 7 && initCls === 0) {
+    // Mid range: GT shows ~13% settlement
+    base[1] = 0.13; base[0] = 0.84; base[3] = 0.01; base[4] = 0.02;
+   } else if (sd <= 3 && initCls === 4) {
+    // Forest near settlements: GT shows ~22% settlement, 66% forest
+    base[1] = 0.22; base[4] = 0.66; base[0] = 0.10; base[3] = 0.017;
+   } else if (sd <= 7 && initCls === 4) {
+    base[1] = 0.13; base[4] = 0.81; base[0] = 0.05; base[3] = 0.01;
+   }
   }
 
-  // Ensure non-negative and normalized
-  for (let i = 0; i < NUM_CLASSES; i++) base[i] = Math.max(base[i], PROB_FLOOR);
+  if (nSett >= 2 && initCls === 0 && sd <= 4) {
+   base[1] += 0.04; base[0] -= 0.03;
+  }
+
+  for (let i = 0; i < NUM_CLASSES; i++) base[i] = Math.max(base[i], 0.002);
+  base[5] = (initCls === 5) ? 0.99 : 0.002; // Mountain never appears
   normalize(base);
   return base;
  }
 
  // CHANGE 2: Prior strength that decays with observations
+ // Reduced base values so observations dominate faster
  function getPriorStrength(initCls, sd, nObs) {
   let base;
-  if (initCls === 5) base = 4.0;
-  else if (sd > 6 && initCls === 0) base = 3.0;
-  else if (initCls === 1 || initCls === 2) base = 1.5;
-  else if (sd <= 3) base = 2.0;
-  else base = 2.5;
+  if (initCls === 5) base = 4.0;         // mountain stays strong
+  else if (initCls === 1 || initCls === 2) base = 0.5;  // settlements: was 1.5
+  else if (sd <= 3) base = 0.8;           // near-settlement: was 2.0
+  else if (sd > 6 && initCls === 0) base = 1.5;  // far-static: was 3.0
+  else base = 1.0;                        // default: was 2.5
 
   if (nObs > 0) base = base / (1.0 + nObs / base);
   return base;
@@ -294,9 +316,10 @@
    const total = pooled.reduce((a, b) => a + b, 0);
    if (total > 2) { // Need at least 3 obs for reliable pooling
     const p = new Float64Array(NUM_CLASSES);
-    // Blend with GT prior: weight = n/(n+20) for current obs, rest from GT
+    // Blend with GT prior: weight = n/(n+8) for current obs, rest from GT
+    // Reduced from n+20 to n+8 to trust current-round data more
     const gtPrior = GT_CTX_PRIORS[key];
-    const obsWeight = total / (total + 20);
+    const obsWeight = total / (total + 8);
     const alpha = 0.5;
     const denom = total + NUM_CLASSES * alpha;
     for (let c = 0; c < NUM_CLASSES; c++) {
@@ -423,7 +446,8 @@
   };
  }
 
- // CHANGE 7: Query optimizer that concentrates on dynamic cells
+ // CHANGE 7+: Query optimizer — concentrate ALL queries on settlement viewports
+ // No expansion zone viewports. Every query must hit settlement areas.
  class QueryOptimizer {
   constructor(W, H, seedsCount, budget, initialStates) {
    this.W = W;
@@ -433,7 +457,7 @@
    this.initialStates = initialStates;
    this.settlementCoords = [];
    this.grids = [];
-   this.settDistMaps = []; // precompute settlement distance for each seed
+   this.settDistMaps = [];
 
    for (let si = 0; si < seedsCount; si++) {
     const state = initialStates[si];
@@ -444,7 +468,6 @@
      .map((s) => [s.x, s.y]);
     this.settlementCoords.push(coords);
 
-    // Precompute settlement distance map
     const distMap = Array.from({ length: H }, () => new Float64Array(W).fill(999));
     for (const [sx, sy] of coords)
      for (let y = 0; y < H; y++)
@@ -455,7 +478,7 @@
     this.settDistMaps.push(distMap);
    }
 
-   // Precompute importance maps: 5=settlement, 2=expansion zone, 0.1=static, 1=other
+   // Importance: 10=settlement, 5=coastal near sett, 3=adjacent, 1=nearby dynamic, 0=static/remote
    this.importanceMaps = [];
    for (let si = 0; si < seedsCount; si++) {
     const imp = Array.from({ length: H }, () => new Float64Array(W));
@@ -465,13 +488,16 @@
      for (let x = 0; x < W; x++) {
       const v = grid[y][x];
       if (v === 10 || v === 5) { imp[y][x] = 0; continue; }
-      if (v === 1 || v === 2 || v === 3) { imp[y][x] = 5; continue; }
-      if (dist[y][x] <= 6) { imp[y][x] = 2; continue; }
-      imp[y][x] = 0.3; // remote dynamic
+      if (v === 1 || v === 2 || v === 3) { imp[y][x] = 10; continue; }
+      if (dist[y][x] <= 3 && isCoastal(grid, H, W, y, x)) { imp[y][x] = 5; continue; }
+      if (dist[y][x] <= 3) { imp[y][x] = 3; continue; }
+      if (dist[y][x] <= 6) { imp[y][x] = 1; continue; }
+      imp[y][x] = 0; // remote cells: zero importance, no queries wasted
      }
     this.importanceMaps.push(imp);
    }
 
+   // Find MINIMUM covering viewports per seed (settlements + 3-cell buffer)
    this.seedViewports = [];
    for (let si = 0; si < seedsCount; si++)
     this.seedViewports.push(this._findSettlementViewports(si));
@@ -484,23 +510,34 @@
     const cy = Math.max(0, Math.floor(this.H / 2) - Math.floor(VIEWPORT_MAX / 2));
     return [[cx, cy, Math.min(VIEWPORT_MAX, this.W - cx), Math.min(VIEWPORT_MAX, this.H - cy)]];
    }
+   // Greedy set cover: cover all settlements with minimum viewports, 3-cell buffer
+   const buffer = 3;
    const uncovered = new Set(coords.map((_, i) => i));
    const viewports = [];
    while (uncovered.size > 0) {
     let bestVP = null, bestCov = new Set(), bestScore = -1;
     for (const i of uncovered) {
      const [sx, sy] = coords[i];
-     const vx = clamp(sx - Math.floor(VIEWPORT_MAX / 2), 0, this.W - VIEWPORT_MAX);
-     const vy = clamp(sy - Math.floor(VIEWPORT_MAX / 2), 0, this.H - VIEWPORT_MAX);
+     const vx = clamp(sx - Math.floor(VIEWPORT_MAX / 2), 0, Math.max(0, this.W - VIEWPORT_MAX));
+     const vy = clamp(sy - Math.floor(VIEWPORT_MAX / 2), 0, Math.max(0, this.H - VIEWPORT_MAX));
      const vw = Math.min(VIEWPORT_MAX, this.W - vx);
      const vh = Math.min(VIEWPORT_MAX, this.H - vy);
+     // Count settlements covered with buffer
      const contained = new Set();
      for (const j of uncovered) {
       const [cx, cy] = coords[j];
-      if (cx >= vx && cx < vx + vw && cy >= vy && cy < vy + vh) contained.add(j);
+      if (cx >= vx + buffer && cx < vx + vw - buffer &&
+          cy >= vy + buffer && cy < vy + vh - buffer) contained.add(j);
+     }
+     // Fallback: without buffer if none fit
+     if (contained.size === 0) {
+      for (const j of uncovered) {
+       const [cx, cy] = coords[j];
+       if (cx >= vx && cx < vx + vw && cy >= vy && cy < vy + vh) contained.add(j);
+      }
      }
      const dynScore = this._viewportImportance(seedIdx, vx, vy, vw, vh);
-     const score = contained.size * 100 + dynScore;
+     const score = contained.size * 1000 + dynScore;
      if (score > bestScore) {
       bestVP = [vx, vy, vw, vh];
       bestCov = contained;
@@ -524,7 +561,6 @@
    return total;
   }
 
-  // CHANGE 7: Information gain = sum(importance / (1 + nObs)) for dynamic cells
   _viewportInfoGain(seedIdx, x, y, w, h, simCounts) {
    const imp = this.importanceMaps[seedIdx];
    const counts = simCounts[seedIdx];
@@ -541,7 +577,6 @@
 
   planQueries() {
    const plan = [];
-   // Track per-cell observation counts (simplified)
    const simCounts = {};
    for (let si = 0; si < this.seedsCount; si++)
     simCounts[si] = Array.from({ length: this.H }, () => new Float64Array(this.W));
@@ -552,51 +587,32 @@
       simCounts[si][gy][gx] += 1;
    };
 
-   // Phase 1 (10 queries): 1 best viewport per seed, then 2nd best
-   const phase1Budget = Math.min(this.seedsCount * 2, Math.floor(this.budget * 0.2));
-   for (let pass = 0; pass < 2 && plan.length < phase1Budget; pass++) {
-    for (let si = 0; si < this.seedsCount && plan.length < phase1Budget; si++) {
-     const vps = this.seedViewports[si];
-     const vpIdx = Math.min(pass, vps.length - 1);
-     const vp = vps[vpIdx];
+   // Phase 1: One query per unique viewport per seed (typically 1-2 per seed = 5-10 total)
+   for (let si = 0; si < this.seedsCount; si++) {
+    for (const vp of this.seedViewports[si]) {
+     if (plan.length >= this.budget) break;
      plan.push([si, ...vp]);
      recordQuery(si, vp[0], vp[1], vp[2], vp[3]);
     }
    }
 
-   // Phase 2 (remaining): Adaptive — highest information gain
-   // Build candidate viewports: settlement viewports + expansion viewports
+   // Build candidate set: ONLY settlement viewports, NO expansion
    const candidates = [];
+   const seen = new Set();
    for (let si = 0; si < this.seedsCount; si++) {
-    for (const vp of this.seedViewports[si])
-     candidates.push({ si, vp });
-    // Also add shifted viewports to cover expansion zones
     for (const vp of this.seedViewports[si]) {
-     const [vx, vy, vw, vh] = vp;
-     // Shift in 4 directions by half viewport
-     for (const [dy, dx] of [[-7,0],[7,0],[0,-7],[0,7]]) {
-      const nx = clamp(vx + dx, 0, this.W - VIEWPORT_MAX);
-      const ny = clamp(vy + dy, 0, this.H - VIEWPORT_MAX);
-      const nw = Math.min(VIEWPORT_MAX, this.W - nx);
-      const nh = Math.min(VIEWPORT_MAX, this.H - ny);
-      candidates.push({ si, vp: [nx, ny, nw, nh] });
+     const key = `${si}_${vp.join("_")}`;
+     if (!seen.has(key)) {
+      seen.add(key);
+      candidates.push({ si, vp });
      }
     }
    }
-   // Deduplicate
-   const seen = new Set();
-   const dedupCandidates = [];
-   for (const c of candidates) {
-    const key = `${c.si}_${c.vp.join("_")}`;
-    if (!seen.has(key)) {
-     seen.add(key);
-     dedupCandidates.push(c);
-    }
-   }
 
+   // Phase 2: ALL remaining queries — adaptive repeat, highest marginal info gain
    while (plan.length < this.budget) {
     let bestGain = -1, bestQuery = null;
-    for (const c of dedupCandidates) {
+    for (const c of candidates) {
      const [x, y, w, h] = c.vp;
      const gain = this._viewportInfoGain(c.si, x, y, w, h, simCounts);
      if (gain > bestGain) {
@@ -678,7 +694,8 @@
      floorNorm(pred[y][x], cellFloors);
 
     } else if (nObs >= 1) {
-     // Layer 2: 60% KT + 40% contextual pooling (CHANGE 3)
+     // Layer 2: Adaptive blend of KT + contextual pooling
+     // More obs → trust KT more. ktWeight scales from 0.35 (n=1) to 0.75 (n=4)
      observedMask[y][x] = 1;
      const denom = nObs + strength;
      const kt = new Float64Array(NUM_CLASSES);
@@ -687,8 +704,9 @@
 
      const ctxPred = contextPoolCell(contextMap, grid, H, W, settlements, y, x);
      if (ctxPred) {
+      const ktW = 0.25 + 0.125 * nObs; // n=1→0.375, n=2→0.5, n=3→0.625, n=4→0.75
       for (let c = 0; c < NUM_CLASSES; c++)
-       pred[y][x][c] = 0.6 * kt[c] + 0.4 * ctxPred[c];
+       pred[y][x][c] = ktW * kt[c] + (1 - ktW) * ctxPred[c];
      } else {
       for (let c = 0; c < NUM_CLASSES; c++)
        pred[y][x][c] = kt[c];
@@ -1014,5 +1032,6 @@
   finally { running = false; }
  };
  window.__completedRounds = completedRounds;
+ window.__GT_CTX_PRIORS = GT_CTX_PRIORS;
  startPoll();
 })();

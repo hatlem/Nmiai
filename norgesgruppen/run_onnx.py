@@ -91,23 +91,17 @@ def preprocess_image(img_bgr, imgsz=1280):
 
 
 def postprocess_detections(output, ratio, dw, dh, conf_threshold=0.15, iou_threshold=0.45):
-    """Post-process YOLO ONNX output to get boxes in original image coords.
+    """Post-process YOLO26 ONNX output to get boxes in original image coords.
 
-    YOLO26 output format: [1, num_detections, 5] where last dim is [x_center, y_center, w, h, conf]
-    or [1, 5, num_detections] transposed.
+    YOLO26 output format: [1, 300, 6] where last dim is [x1, y1, x2, y2, confidence, class_id]
+    Already in xyxy corner format, NMS-free (built into model).
     """
     preds = output[0]  # First output tensor
 
-    # Handle different output shapes
     if len(preds.shape) == 3:
-        if preds.shape[1] == 5:
-            # Shape [1, 5, N] — transpose to [1, N, 5]
-            preds = np.transpose(preds, (0, 2, 1))
-        preds = preds[0]  # Remove batch dim: [N, 5]
-    elif len(preds.shape) == 2:
-        pass  # Already [N, 5]
+        preds = preds[0]  # Remove batch dim: [300, 6]
 
-    # Filter by confidence
+    # Filter by confidence (col 4)
     scores = preds[:, 4]
     mask = scores > conf_threshold
     preds = preds[mask]
@@ -116,22 +110,17 @@ def postprocess_detections(output, ratio, dw, dh, conf_threshold=0.15, iou_thres
     if len(preds) == 0:
         return np.zeros((0, 4)), np.array([])
 
-    # Convert from center to corner format
-    cx, cy, w, h = preds[:, 0], preds[:, 1], preds[:, 2], preds[:, 3]
-    x1 = cx - w / 2
-    y1 = cy - h / 2
-    x2 = cx + w / 2
-    y2 = cy + h / 2
-
-    boxes = np.stack([x1, y1, x2, y2], axis=1)
+    # Already in xyxy format
+    boxes = preds[:, :4].copy()
 
     # Undo letterbox: remove padding and scale
     boxes[:, [0, 2]] = (boxes[:, [0, 2]] - dw) / ratio
     boxes[:, [1, 3]] = (boxes[:, [1, 3]] - dh) / ratio
 
-    # NMS
-    keep = nms(boxes, scores, iou_threshold)
-    return boxes[keep], scores[keep]
+    # Clip to image bounds
+    boxes = np.clip(boxes, 0, None)
+
+    return boxes, scores
 
 
 def enhance_retail_image(img_bgr):
@@ -207,7 +196,7 @@ def main():
     model_dir = Path(__file__).parent
 
     # Stage 1: Load ONNX detector
-    onnx_path = model_dir / "yolo26x_single_fp16.onnx"
+    onnx_path = model_dir / "yolo26x_single_best.onnx"
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
     detector = ort.InferenceSession(str(onnx_path), providers=providers)
     input_name = detector.get_inputs()[0].name

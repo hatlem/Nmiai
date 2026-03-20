@@ -34,7 +34,7 @@ POLL_INTERVAL = 30  # seconds between round checks
 
 
 def headers():
-    return {"Cookie": f"access_token={TOKEN}"}
+    return {"Authorization": f"Bearer {TOKEN}"}
 
 
 def get_rounds():
@@ -237,7 +237,6 @@ def main():
         sys.exit(1)
 
     print("Astar Island Auto-Pilot started")
-    print(f"Token: {TOKEN[:20]}...")
 
     completed_rounds: set = set()
 
