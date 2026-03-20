@@ -232,10 +232,24 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
                 logger.info("Quick-fix: added amountGrossCurrency to voucher postings")
                 continue
 
-        # 422 with "vatType" or "mva-kode" on voucher postings - can't quick-fix without API call
-        # Fall through to LLM repair which will add GET /ledger/vatType step
+        # 422 with "vatType" or "mva-kode" — posting missing vatType, add default {id: 0}
         if status == 422 and ("vattype" in error_msg or "mva-kode" in error_msg or "avgiftspliktig" in error_msg):
-            logger.info("Quick-fix: vatType error on voucher — delegating to LLM repair (needs GET /ledger/vatType)")
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            postings = fixed_body.get("postings", [])
+            if isinstance(postings, list) and postings:
+                fixed_postings = []
+                for p in postings:
+                    fp = dict(p) if isinstance(p, dict) else p
+                    if isinstance(fp, dict) and "vatType" not in fp:
+                        fp["vatType"] = {"id": 0}
+                    fixed_postings.append(fp)
+                fixed_body["postings"] = fixed_postings
+                fixed_step["body"] = fixed_body
+                new_steps.append(fixed_step)
+                logger.info("Quick-fix: added vatType {id: 0} to postings missing it")
+                continue
+            # No postings to fix — fall through
             return None
 
         # 422 with "bankkontonummer" - company needs bank account number
@@ -297,6 +311,66 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
                 continue
             else:
                 return None
+
+        # 422 with activity error — wrong activity type for timesheet
+        if status == 422 and ("aktiviteten kan ikke benyttes" in error_msg or "activity" in error_msg):
+            # Add GET /activity to find a valid project activity, then retry
+            get_step_idx = len(new_steps)
+            new_steps.append({
+                "method": "GET",
+                "path": "/activity",
+                "params": {"isProjectActivity": "true", "count": 1, "fields": "id,name"},
+                "note": "quick-fix: fetch project activity for timesheet",
+            })
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            fixed_body["activity"] = {"id": f"$step_{get_step_idx}.values[0].id"}
+            fixed_step["body"] = fixed_body
+            new_steps.append(fixed_step)
+            logger.info("Quick-fix: replaced activity with project activity for timesheet")
+            continue
+
+        # 422 with projectManager entitlement error — grant entitlement then retry
+        if status == 422 and (("prosjektleder" in error_msg or "projectmanager" in error_msg) and "tilgang" in error_msg):
+            fixed_body = original_step.get("body", {})
+            # Try to extract employee ID from the body's projectManager field
+            pm = fixed_body.get("projectManager", {})
+            emp_id = pm.get("id") if isinstance(pm, dict) else None
+            if emp_id:
+                new_steps.append({
+                    "method": "PUT",
+                    "path": f"/employee/entitlement/{emp_id}/:grantEntitlementsByTemplate",
+                    "params": {},
+                    "body": {},
+                    "note": "quick-fix: grant project manager entitlements",
+                })
+                new_steps.append(dict(original_step))
+                logger.info(f"Quick-fix: granting entitlements for employee {emp_id} then retrying project")
+                continue
+            # Can't determine employee ID — fall through
+            return None
+
+        # 422 with date before project start — can't fix without project dates
+        if status == 422 and ("startdato" in error_msg or "før denne datoen" in error_msg):
+            logger.info("Quick-fix: timesheet date before project start — delegating to LLM repair")
+            return None
+
+        # 422 with ourContact null — purchase order missing ourContact
+        if status == 422 and "ourcontact" in error_msg and "null" in error_msg:
+            get_step_idx = len(new_steps)
+            new_steps.append({
+                "method": "GET",
+                "path": "/employee",
+                "params": {"count": 1, "fields": "id,firstName,lastName"},
+                "note": "quick-fix: fetch employee for ourContact",
+            })
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            fixed_body["ourContact"] = {"id": f"$step_{get_step_idx}.values[0].id"}
+            fixed_step["body"] = fixed_body
+            new_steps.append(fixed_step)
+            logger.info("Quick-fix: added ourContact from employee lookup")
+            continue
 
         # No quick fix available for this error
         return None
@@ -390,8 +464,9 @@ async def solve(request: Request):
         extracted_values = plan.get("extracted_values", {})
         logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
 
-        # Pre-flight: ensure bank account for invoice tasks
-        if "invoice" in task_type:
+        # Pre-flight: ensure bank account only for tasks that CREATE invoices
+        INVOICE_CREATION_TYPES = {"create_invoice", "create_invoice_existing_customer", "create_invoice_with_payment"}
+        if task_type in INVOICE_CREATION_TYPES:
             await _ensure_bank_account(client)
 
         # Phase 2: Execute
@@ -402,7 +477,19 @@ async def solve(request: Request):
         current_result = result
         verification_errors = None
 
-        while attempt < MAX_REPAIR_ATTEMPTS and time.monotonic() - start < REPAIR_DEADLINE_SECONDS:
+        # Determine max repair attempts based on task complexity
+        tier = get_tier(task_type)
+        max_repairs = 1 if tier == 1 else MAX_REPAIR_ATTEMPTS
+
+        # Well-tested task types where verification can be skipped if all API calls succeed
+        SKIP_VERIFY_IF_ALL_OK = {
+            "create_customer", "create_product", "create_department",
+            "create_supplier", "create_contact", "create_customer_supplier",
+            "delete_travel_expense", "deliver_travel_expense", "approve_travel_expense",
+            "send_invoice", "reverse_voucher", "delete_entity",
+        }
+
+        while attempt < max_repairs and time.monotonic() - start < REPAIR_DEADLINE_SECONDS:
             has_http_errors = not current_result["success"]
 
             # If all API calls succeeded but verification fails, limit to 1 repair
@@ -413,9 +500,14 @@ async def solve(request: Request):
 
             # Skip verification for simple tier 1 tasks when all calls succeeded
             # Verification GETs count as API calls and hurt efficiency bonus
-            tier = get_tier(task_type)
             if not has_http_errors and tier == 1 and attempt == 0:
                 logger.info(f"Skipping verification for tier 1 task {task_type} (efficiency)")
+                verified = True
+                break
+
+            # Skip verification for well-tested task types when all calls succeeded
+            if not has_http_errors and task_type in SKIP_VERIFY_IF_ALL_OK and attempt == 0:
+                logger.info(f"Skipping verification for well-tested task {task_type} (efficiency)")
                 verified = True
                 break
 

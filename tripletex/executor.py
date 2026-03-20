@@ -284,6 +284,29 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
                 # Ensure amountGrossCurrency is set if amountGross is present
                 if "amountGross" in posting and "amountGrossCurrency" not in posting:
                     posting["amountGrossCurrency"] = posting["amountGross"]
+                # Auto-assign vatType based on account patterns if not set
+                # This is a heuristic - the LLM should set it, but this catches misses
+                if "vatType" not in posting:
+                    # Default to no VAT (id=0) — safest default for balance sheet accounts
+                    posting["vatType"] = {"id": 0}
+
+    # POST-specific defaults to prevent 422 errors
+    if method == "POST":
+        path_lower = path.lower() if isinstance(path, str) else ""
+
+        if "/employee" in path_lower and "userType" not in cleaned:
+            cleaned["userType"] = "STANDARD"
+
+        if "/order" in path_lower:
+            from datetime import date as d
+            today = d.today().isoformat()
+            if "orderDate" not in cleaned:
+                cleaned["orderDate"] = today
+            if "deliveryDate" not in cleaned:
+                cleaned["deliveryDate"] = cleaned.get("orderDate", today)
+
+        if path.rstrip("/") == "/customer" and "isCustomer" not in cleaned:
+            cleaned["isCustomer"] = True
 
     # Smart date defaults for invoice-related fields
     if "orderDate" in cleaned and "deliveryDate" not in cleaned:

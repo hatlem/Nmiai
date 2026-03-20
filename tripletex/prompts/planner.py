@@ -95,6 +95,7 @@ EXCEPTIONS (GET-before-create IS correct):
 
 VERIFICATION_AWARENESS = """## Verification Awareness
 After execution, the system verifies EVERY field against expected values.
+- EVERY voucher posting MUST include vatType. Use vatType.id=0 for bank/asset/liability accounts (1xxx, 2xxx). Use vatType.id=3 for revenue (3xxx). Use vatType.id=1 for expenses (6xxx, 7xxx). NEVER omit vatType.
 - Include ALL fields from the prompt in your API calls — every missing field loses points
 - Dates in YYYY-MM-DD format
 - Amounts as numbers (not strings): 1500.00 not "1500.00"
@@ -169,6 +170,9 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
     for the subsequent /:payment call. Do NOT try to search for the invoice separately.
 16. Bank account for invoicing: If invoice creation fails with "bankkontonummer" error, the company needs a bank account. This is usually pre-configured in competition sandboxes but may need: PUT /company with bankAccountNumber field.
 17. deliveryDate on orders: REQUIRED field. If not specified in the prompt, use the same date as orderDate.
+25. Supplier invoice postings: Expense account postings (6xxx-7xxx) MUST include vatType id 1 (inngående mva 25%). Accounts payable (2400) should have no vatType or vatType id 0.
+26. Asset dateOfAcquisition: The field is called dateOfAcquisition (NOT acquisitionDate). Also requires moduleFixedAssetRegister to be enabled.
+27. Timesheet date range: The date for a timesheet entry MUST be >= project startDate and <= project endDate. If the task specifies a date outside the project range, use the project's startDate instead.
 """
 
 
@@ -176,10 +180,13 @@ TIER_3_GUIDANCE = """## TIER 3 COMPLEX TASK GUIDANCE (READ CAREFULLY)
 These tasks are scored with a 3x multiplier — getting them right matters enormously.
 
 ### Opening Balance
+- Use POST /ledger/voucher (NOT /ledger/voucher/openingBalance — that endpoint has incompatible field names).
+- Set description to 'Åpningsbalanse' or 'Opening balance'.
+- Each posting needs: row (1,2,3...), account.id, amountGross, amountGrossCurrency, vatType.id=0.
+- Positive amountGross = debit, negative = credit.
 - Postings MUST be balanced: total debit = total credit (sum to zero).
 - If the task only mentions asset accounts (1xxx), you MUST add a balancing equity posting on account 2050 (Annen egenkapital).
 - Each account number needs its own GET /ledger/account?number=X step. Do NOT skip any.
-- Positive amountGross = debit, negative amountGross = credit.
 - Example: 1920 bank 100000 (debit) + 1500 inventory 50000 (debit) -> 2050 equity -150000 (credit).
 
 ### Bank Reconciliation
@@ -390,7 +397,7 @@ To fix field mismatches:
 15. 422 on /bank/reconciliation with "dateTo" -> Field does NOT exist. Use "accountingPeriod": {{"id": X}} instead. GET /ledger/accountingPeriod?periodEnd=DATE first.
 16. 422 on /employee/employment with "employmentType" or "percentageOfFullTimeEquivalent" -> These fields do NOT exist. Only use employee and startDate.
 17. 422 on /purchaseOrder missing "ourContact" -> ourContact is REQUIRED. Add GET /employee first, then "ourContact": {{"id": <employee_id>}}.
-18. 422 on /asset with "acquisitionDate" -> Field is "dateOfAcquisition", NOT "acquisitionDate".
+18. 422 on /asset with "acquisitionDate" -> Field is "dateOfAcquisition", NOT "acquisitionDate". Also requires moduleFixedAssetRegister to be enabled.
 19. 422/500 on /supplierInvoice with "dueDate" or "invoiceDueDate" -> These fields cause errors. Remove them.
 
 ## Instructions

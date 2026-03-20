@@ -169,8 +169,19 @@ TEMPLATES: dict[str, dict] = {
                     "customer": {"id": "$step_0.id"},
                     "orderDate": "{{orderDate}}",
                     "deliveryDate": "{{deliveryDate}}",
-                    "orderLines": "{{orderLines}}",
                 },
+                "note": "Step 2: Create purchase order WITHOUT orderLines (they must be added separately).",
+            },
+            {
+                "method": "POST",
+                "path": "/purchaseOrder/orderline",
+                "body": {
+                    "purchaseOrder": {"id": "$step_2.id"},
+                    "description": "{{orderLine_description}}",
+                    "count": "{{orderLine_count}}",
+                    "unitPriceExcludingVatCurrency": "{{orderLine_unitPriceExcludingVatCurrency}}",
+                },
+                "note": "Step 3: Add order line to the purchase order. Repeat for each line.",
             },
             {
                 "method": "PUT",
@@ -202,8 +213,19 @@ TEMPLATES: dict[str, dict] = {
                     "customer": {"id": "$step_0.values[0].id"},
                     "orderDate": "{{orderDate}}",
                     "deliveryDate": "{{deliveryDate}}",
-                    "orderLines": "{{orderLines}}",
                 },
+                "note": "Step 2: Create purchase order WITHOUT orderLines (they must be added separately).",
+            },
+            {
+                "method": "POST",
+                "path": "/purchaseOrder/orderline",
+                "body": {
+                    "purchaseOrder": {"id": "$step_2.id"},
+                    "description": "{{orderLine_description}}",
+                    "count": "{{orderLine_count}}",
+                    "unitPriceExcludingVatCurrency": "{{orderLine_unitPriceExcludingVatCurrency}}",
+                },
+                "note": "Step 3: Add order line to the purchase order. Repeat for each line.",
             },
             {
                 "method": "PUT",
@@ -817,7 +839,7 @@ TEMPLATES: dict[str, dict] = {
     # ===== SUPPLIER INVOICES =====
 
     "create_supplier_invoice": {
-        "description": "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, and voucher postings. NOTE: dueDate/invoiceDueDate causes errors — do NOT include it.",
+        "description": "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, and voucher postings. NOTE: dueDate/invoiceDueDate causes errors — do NOT include it. If POST /supplierInvoice returns 500, fall back to creating a regular voucher via POST /ledger/voucher with supplier reference in postings, then manually mark it as a supplier invoice.",
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
         "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "amount", "account_number", "description", "expense_account_number"],
         "optimal_calls": 4,
@@ -861,8 +883,8 @@ TEMPLATES: dict[str, dict] = {
                         "date": "{{invoiceDate}}",
                         "description": "{{description}}",
                         "postings": [
-                            {"account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}"},
-                            {"account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}"},
+                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}},
+                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}},
                         ],
                     },
                 },
@@ -873,16 +895,21 @@ TEMPLATES: dict[str, dict] = {
     # ===== PURCHASE ORDERS =====
 
     "create_purchase_order": {
-        "description": "Create a purchase order to a supplier. NOTE: ourContact is REQUIRED — must reference an employee.",
+        "description": (
+            "Create a purchase order to a supplier. IMPORTANT:\n"
+            "- ourContact (employee ref) is REQUIRED on the purchase order.\n"
+            "- orderLines CANNOT be included in the POST /purchaseOrder body (they need a purchaseOrder reference).\n"
+            "- Solution: Create the purchase order first WITHOUT orderLines, then POST each orderLine separately."
+        ),
         "relevant_schemas": ["Supplier"],
-        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "deliveryDate", "orderLines", "ourContact"],
-        "optimal_calls": 3,
+        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "deliveryDate", "orderLine_description", "orderLine_count", "orderLine_unitPriceExcludingVatCurrency", "orderLines"],
+        "optimal_calls": 4,
         "steps": [
             {
                 "method": "GET",
                 "path": "/employee",
-                "params": {"fields": "id,firstName,lastName", "count": 1},
-                "note": "Get employee for ourContact (REQUIRED on purchase order).",
+                "params": {"fields": "id", "count": 1},
+                "note": "Step 0: Get employee for ourContact (REQUIRED on purchase order).",
             },
             {
                 "method": "POST",
@@ -900,6 +927,7 @@ TEMPLATES: dict[str, dict] = {
                         "city": "{{supplier_city}}",
                     },
                 },
+                "note": "Step 1: Create supplier.",
             },
             {
                 "method": "POST",
@@ -908,8 +936,19 @@ TEMPLATES: dict[str, dict] = {
                     "supplier": {"id": "$step_1.id"},
                     "ourContact": {"id": "$step_0.values[0].id"},
                     "deliveryDate": "{{deliveryDate}}",
-                    "orderLines": "{{orderLines}}",
                 },
+                "note": "Step 2: Create purchase order WITHOUT orderLines (they must be added separately).",
+            },
+            {
+                "method": "POST",
+                "path": "/purchaseOrder/orderline",
+                "body": {
+                    "purchaseOrder": {"id": "$step_2.id"},
+                    "description": "{{orderLine_description}}",
+                    "count": "{{orderLine_count}}",
+                    "unitPriceExcludingVatCurrency": "{{orderLine_unitPriceExcludingVatCurrency}}",
+                },
+                "note": "Step 3: Add order line to the purchase order. Repeat for each line.",
             },
         ],
     },
@@ -918,15 +957,14 @@ TEMPLATES: dict[str, dict] = {
 
     "bank_reconciliation": {
         "description": (
-            "Create a bank reconciliation. This is a COMPLEX multi-step process:\n"
-            "1. GET /bank to find the bank account ID (look for matching accountNumber)\n"
-            "2. GET /ledger/accountingPeriod to find the accounting period ID for the date range\n"
-            "3. POST /bank/reconciliation with accountingPeriod (NOT dateTo — dateTo does NOT exist!)\n"
-            "4. For each transaction: POST /bank/reconciliation/match or create vouchers for unmatched items\n"
-            "5. If a bank statement (CSV/file) is attached, use POST /bank/statement/import to import it first\n"
-            "IMPORTANT: The API does NOT accept dateTo. You MUST use accountingPeriod: {id: X} instead.\n"
-            "Use type=MANUAL for manual reconciliation.\n"
-            "If the task specifies a closing balance, the sum of matched transactions must equal it."
+            "Create a bank reconciliation. Multi-step process:\n"
+            "1. GET /bank to find bank account (match by accountNumber if specified)\n"
+            "2. POST /bank/reconciliation with account.id, type=MANUAL, dateFrom, dateTo\n"
+            "3. If CSV/file attached: parse transactions and create vouchers via POST /ledger/voucher\n"
+            "4. For each unmatched transaction: POST /bank/reconciliation/match\n"
+            "IMPORTANT: dateFrom and dateTo MUST be within an open accounting period.\n"
+            "closingBalance should match the sum of all transactions if specified.\n"
+            "GET /ledger/account for each account number before creating vouchers."
         ),
         "relevant_schemas": ["Voucher", "Posting"],
         "extract_fields": ["date_from", "date_to", "bank_account_number", "transactions", "closing_balance"],
@@ -961,7 +999,12 @@ TEMPLATES: dict[str, dict] = {
     # ===== TIMESHEET =====
 
     "create_timesheet_entry": {
-        "description": "Register hours/timesheet entry for an employee on a project/activity",
+        "description": (
+            "Register hours/timesheet entry for an employee on a project/activity.\n"
+            "IMPORTANT: The timesheet date MUST be on or after the project's startDate. "
+            "If the prompt doesn't specify a date, use today's date but ensure it falls within the project's date range.\n"
+            "Use an activity where isProjectActivity=true (e.g. 'Fakturerbart arbeid' or 'Prosjektadministrasjon')."
+        ),
         "relevant_schemas": ["Employee", "Project", "Activity"],
         "extract_fields": ["employee_name", "project_name", "activity_name", "date", "hours", "comment"],
         "optimal_calls": 4,
@@ -974,12 +1017,13 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "GET",
                 "path": "/project",
-                "params": {"name": "{{project_name}}", "fields": "id,name"},
+                "params": {"name": "{{project_name}}", "fields": "id,name,startDate,endDate"},
             },
             {
                 "method": "GET",
                 "path": "/activity",
-                "params": {"fields": "id,name"},
+                "params": {"fields": "id,name,isProjectActivity"},
+                "note": "Pick an activity where isProjectActivity=true",
             },
             {
                 "method": "POST",
@@ -992,6 +1036,7 @@ TEMPLATES: dict[str, dict] = {
                     "hours": "{{hours}}",
                     "comment": "{{comment}}",
                 },
+                "note": "Ensure date >= project startDate from step 1 response. If date is before project startDate, use project startDate instead.",
             },
         ],
     },
@@ -1000,15 +1045,14 @@ TEMPLATES: dict[str, dict] = {
 
     "create_opening_balance": {
         "description": (
-            "Set opening balance entries for the company. Each entry has an account and an amount.\n"
-            "IMPORTANT: You MUST add one GET /ledger/account?number=X step for EACH account number "
-            "mentioned in the prompt. Opening balance typically involves 2-5 accounts. Then create "
-            "ONE POST /ledger/voucher/openingBalance with ALL postings.\n"
-            "Do NOT fetch all accounts — only GET the specific accounts mentioned in the task.\n"
-            "CRITICAL: All postings MUST sum to zero (total debit = total credit). If the task only "
-            "specifies asset/liability accounts, you MUST add a balancing entry on an equity account "
-            "(e.g. 2050 Annen egenkapital). GET this equity account too.\n"
-            "Postings format: [{\"account\": {\"id\": <id>}, \"amountGross\": <positive_for_debit_negative_for_credit>}]"
+            "Set opening balance entries. CRITICAL RULES:\n"
+            "1. Add ONE GET /ledger/account?number=X step for EACH account number in the prompt\n"
+            "2. ALL postings MUST sum to zero (debit = credit)\n"
+            "3. If only asset accounts given, add balancing equity posting (account 2050)\n"
+            "4. GET the equity account too if you need to add a balancing entry\n"
+            "5. Each posting: {row: N, account: {id: X}, amountGross: Y, amountGrossCurrency: Y}\n"
+            "6. Positive = debit, negative = credit\n"
+            "7. Row numbers start from 1 (NEVER 0)"
         ),
         "relevant_schemas": ["Voucher", "Posting"],
         "extract_fields": ["date", "entries", "account_number_1"],
@@ -1036,7 +1080,7 @@ TEMPLATES: dict[str, dict] = {
     # ===== ASSETS =====
 
     "create_asset": {
-        "description": "Register a fixed asset (anleggsmiddel). NOTE: The date field is 'dateOfAcquisition' (NOT 'acquisitionDate'). Module moduleFixedAssetRegister must be enabled.",
+        "description": "Register a fixed asset (anleggsmiddel). NOTE: The date field is 'dateOfAcquisition' (NOT 'acquisitionDate'). Requires moduleFixedAssetRegister to be enabled. If POST /asset returns permission error, the module may need to be enabled first via the Tripletex web UI or via PUT /company/modules.",
         "relevant_schemas": ["Voucher", "Posting"],
         "extract_fields": ["name", "description", "dateOfAcquisition", "acquisitionCost", "account_number", "depreciationAccount_number"],
         "optimal_calls": 1,
@@ -1057,7 +1101,14 @@ TEMPLATES: dict[str, dict] = {
     # ===== SALARY =====
 
     "create_salary_payment": {
-        "description": "Create a salary transaction / salary payment for an employee",
+        "description": (
+            "Create a salary transaction for an employee.\n"
+            "1. GET /employee to find employee ID\n"
+            "2. GET /salary/type to find the correct salary type ID\n"
+            "3. POST /salary/transaction with employee, salaryType, date, year, month, amount\n"
+            "If the prompt specifies a salary type (e.g. 'fastlonn', 'overtid'), match it "
+            "against the salary types from step 2."
+        ),
         "relevant_schemas": ["Employee"],
         "extract_fields": ["employee_name", "date", "year", "month", "amount", "salary_type"],
         "optimal_calls": 3,
@@ -1251,8 +1302,19 @@ TEMPLATES: dict[str, dict] = {
                     "customer": {"id": "$step_1.id"},
                     "orderDate": "{{orderDate}}",
                     "deliveryDate": "{{deliveryDate}}",
-                    "orderLines": "{{orderLines}}",
                 },
+                "note": "Step 2: Create purchase order WITHOUT orderLines (they must be added separately).",
+            },
+            {
+                "method": "POST",
+                "path": "/purchaseOrder/orderline",
+                "body": {
+                    "purchaseOrder": {"id": "$step_2.id"},
+                    "description": "{{orderLine_description}}",
+                    "count": "{{orderLine_count}}",
+                    "unitPriceExcludingVatCurrency": "{{orderLine_unitPriceExcludingVatCurrency}}",
+                },
+                "note": "Step 3: Add order line to the purchase order. Repeat for each line.",
             },
             {
                 "method": "PUT",
@@ -1307,26 +1369,26 @@ TEMPLATES: dict[str, dict] = {
 # Map keywords to task types for fast classification (multilingual)
 KEYWORD_HINTS: dict[str, list[str]] = {
     "create_employee": ["ansatt", "employee", "empleado", "empregado", "mitarbeiter", "employe", "tilsett", "tilsatt", "opprett ansatt", "ny ansatt", "create employee", "new employee"],
-    "update_employee": ["oppdater ansatt", "endre ansatt", "update employee", "endre telefon", "endre epost"],
+    "update_employee": ["oppdater ansatt", "endre ansatt", "update employee", "endre telefon", "endre epost", "mitarbeiter aktualisieren", "actualizar empleado", "atualizar empregado", "mettre a jour employe", "oppdater tilsett", "oppdater tilsatt"],
     "create_customer": ["kunde", "customer", "cliente", "client", "Kunde", "opprett kunde", "ny kunde", "registrer kunde"],
-    "update_customer": ["oppdater kunde", "endre kunde", "update customer"],
+    "update_customer": ["oppdater kunde", "endre kunde", "update customer", "kunde aktualisieren", "actualizar cliente", "atualizar cliente", "mettre a jour client"],
     "create_product": ["produkt", "product", "producto", "produto", "Produkt", "produit", "opprett produkt", "nytt produkt"],
     "create_invoice": ["faktura", "invoice", "factura", "fatura", "Rechnung", "facture", "opprett faktura", "ny faktura"],
     "create_invoice_with_payment": ["faktura med betaling", "invoice with payment", "faktura og betaling"],
-    "register_payment": ["innbetaling", "betaling", "payment", "pago", "pagamento", "Zahlung", "paiement", "registrer betaling", "registrer innbetaling"],
+    "register_payment": ["innbetaling", "betaling", "payment", "pago", "pagamento", "Zahlung", "paiement", "registrer betaling", "registrer innbetaling", "zahlung registrieren", "registrar pago", "enregistrer paiement", "registrar pagamento"],
     "register_payment_by_search": ["betal faktura nummer", "registrer betaling pa faktura", "payment on invoice number", "betal faktura nr", "betaling for faktura", "pay invoice number", "payment for invoice", "betaling på faktura"],
-    "create_credit_note": ["kreditnota", "credit note", "nota de credito", "Gutschrift", "avoir"],
-    "create_travel_expense": ["reiseregning", "travel expense", "gastos de viaje", "despesas de viagem", "Reisekosten", "note de frais", "reiserekning", "registrer reiseregning"],
-    "delete_travel_expense": ["slett reiseregning", "delete travel"],
-    "deliver_travel_expense": ["lever reiseregning", "deliver travel expense", "send inn reiseregning"],
-    "approve_travel_expense": ["godkjenn reiseregning", "approve travel expense"],
+    "create_credit_note": ["kreditnota", "credit note", "nota de credito", "Gutschrift", "avoir", "note de credit"],
+    "create_travel_expense": ["reiseregning", "travel expense", "gastos de viaje", "despesas de viagem", "Reisekosten", "note de frais", "reiserekning", "registrer reiseregning", "registrer reiserekning", "ny reiserekning", "reisekosten erstellen"],
+    "delete_travel_expense": ["slett reiseregning", "delete travel", "slett reiserekning", "reisekosten loschen", "reisekosten löschen", "eliminar gasto de viaje", "supprimer note de frais"],
+    "deliver_travel_expense": ["lever reiseregning", "deliver travel expense", "send inn reiseregning", "lever reiserekning"],
+    "approve_travel_expense": ["godkjenn reiseregning", "approve travel expense", "godkjenn reiserekning"],
     "create_project": ["prosjekt", "project", "proyecto", "projeto", "Projekt", "projet", "opprett prosjekt", "nytt prosjekt"],
     "create_project_existing_customer": ["prosjekt for eksisterende kunde", "project for existing customer", "prosjekt eksisterende"],
-    "create_internal_project": ["internt prosjekt", "internal project", "proyecto interno", "internes Projekt"],
+    "create_internal_project": ["internt prosjekt", "internal project", "proyecto interno", "internes Projekt", "innvendig prosjekt"],
     "update_project": ["oppdater prosjekt", "endre prosjekt", "update project"],
     "create_department": ["avdeling", "department", "departamento", "Abteilung", "departement", "opprett avdeling", "ny avdeling"],
     "create_supplier": ["leverandør", "leverandor", "supplier", "proveedor", "fornecedor", "Lieferant", "fournisseur", "opprett leverandør", "registrer leverandør", "ny leverandør"],
-    "update_supplier": ["oppdater leverandor", "oppdater leverandør", "endre leverandor", "endre leverandør", "update supplier"],
+    "update_supplier": ["oppdater leverandor", "oppdater leverandør", "endre leverandor", "endre leverandør", "update supplier", "lieferant aktualisieren", "actualizar proveedor", "atualizar fornecedor", "mettre a jour fournisseur"],
     "update_department": ["oppdater avdeling", "endre avdeling", "update department"],
     "update_product": ["oppdater produkt", "endre produkt", "update product"],
     "create_contact": ["kontaktperson", "contact person", "persona de contacto", "Kontaktperson", "kontakt"],
@@ -1334,10 +1396,10 @@ KEYWORD_HINTS: dict[str, list[str]] = {
     "reverse_voucher": ["reverser", "reverse", "tilbakefor"],
     "send_invoice": ["send faktura", "send invoice"],
     "create_supplier_invoice": ["leverandorfaktura", "leverandørfaktura", "supplier invoice", "inngaende faktura", "incoming invoice", "factura proveedor", "Lieferantenrechnung"],
-    "create_purchase_order": ["innkjopsordre", "purchase order", "bestilling", "orden de compra", "Bestellung"],
+    "create_purchase_order": ["innkjopsordre", "purchase order", "bestilling", "orden de compra", "Bestellung", "bon de commande"],
     "bank_reconciliation": ["bankavstemming", "bank reconciliation", "kontoutskrift", "bank statement", "conciliacion bancaria", "Bankabstimmung"],
     "create_timesheet_entry": ["timeregistrering", "timeforing", "timesheet", "timer", "hours", "horas", "Stunden", "heures"],
-    "create_opening_balance": ["apningsbalanse", "opening balance", "inngaende balanse", "balance inicial", "Eroeffnungsbilanz"],
+    "create_opening_balance": ["apningsbalanse", "opening balance", "inngaende balanse", "balance inicial", "Eroeffnungsbilanz", "eröffnungsbilanz", "balance de apertura", "bilan d'ouverture"],
     "create_asset": ["anleggsmiddel", "eiendel", "fixed asset", "activo fijo", "Anlagevermoegen"],
     "create_salary_payment": ["lonn", "salary", "loenning", "salario", "Gehalt", "salaire"],
     "create_customer_supplier": ["kunde og leverandor", "kunde og leverandør", "customer and supplier", "both customer and supplier"],

@@ -146,7 +146,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_project": {
         "entity_path": "/project",
-        "id_from_step": 2,
+        "id_from_step": 3,
         "search_params": {"fields": "id,name,startDate,endDate,isInternal,customer"},
         "check_fields": {
             "name": "extract:project_name",
@@ -155,7 +155,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_project_existing_customer": {
         "entity_path": "/project",
-        "id_from_step": 2,
+        "id_from_step": 3,
         "search_params": {"fields": "id,name,startDate,endDate,isInternal,customer"},
         "check_fields": {
             "name": "extract:project_name",
@@ -164,7 +164,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_internal_project": {
         "entity_path": "/project",
-        "id_from_step": 1,
+        "id_from_step": 2,
         "search_params": {"fields": "id,name,startDate,endDate,isInternal"},
         "check_fields": {
             "name": "extract:project_name",
@@ -268,7 +268,14 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         },
     },
 
-    "bank_reconciliation": {"skip_verify": True},
+    "bank_reconciliation": {
+        "entity_path": "/bank/reconciliation",
+        "id_from_step": 1,
+        "search_params": {"fields": "id"},
+        "check_fields": {
+            "exists:id": "exists",
+        },
+    },
 
     "create_timesheet_entry": {
         "entity_path": "/timesheet/entry",
@@ -279,9 +286,32 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         },
     },
 
-    "create_opening_balance": {"skip_verify": True},
-    "create_asset": {"skip_verify": True},
-    "create_salary_payment": {"skip_verify": True},
+    "create_opening_balance": {
+        "entity_path": "/ledger/voucher",
+        "id_from_step": -1,
+        "search_params": {"fields": "id,number,date"},
+        "check_fields": {
+            "exists:id": "exists",
+        },
+    },
+
+    "create_asset": {
+        "entity_path": "/asset",
+        "id_from_step": -1,
+        "search_params": {"fields": "id,name"},
+        "check_fields": {
+            "exists:id": "exists",
+        },
+    },
+
+    "create_salary_payment": {
+        "entity_path": "/salary/transaction",
+        "id_from_step": -1,
+        "search_params": {"fields": "id"},
+        "check_fields": {
+            "exists:id": "exists",
+        },
+    },
 
     "create_customer_supplier": {
         "entity_path": "/customer",
@@ -299,8 +329,24 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         },
     },
 
-    "create_reminder": {"skip_verify": True},
-    "create_employment": {"skip_verify": True},
+    "create_reminder": {
+        "entity_path": "/invoice",
+        "id_from_step": None,
+        "id_from_extract": "invoice_id",
+        "search_params": {"fields": "id,invoiceNumber"},
+        "check_fields": {
+            "exists:id": "exists",
+        },
+    },
+
+    "create_employment": {
+        "entity_path": "/employee/employment",
+        "id_from_step": -1,
+        "search_params": {"fields": "id,employee,startDate"},
+        "check_fields": {
+            "exists:id": "exists",
+        },
+    },
     "enable_modules": {"skip_verify": True},
 }
 
