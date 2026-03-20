@@ -275,6 +275,16 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
             v = [_pre_validate_body(method, path, item, None) if isinstance(item, dict) else item for item in v]
         cleaned[k] = v
 
+    # Fix voucher postings: row must start from 1 (row 0 is reserved/system-generated)
+    if "postings" in cleaned and isinstance(cleaned["postings"], list):
+        for i, posting in enumerate(cleaned["postings"]):
+            if isinstance(posting, dict):
+                if "row" not in posting or posting.get("row", 0) == 0:
+                    posting["row"] = i + 1
+                # Ensure amountGrossCurrency is set if amountGross is present
+                if "amountGross" in posting and "amountGrossCurrency" not in posting:
+                    posting["amountGrossCurrency"] = posting["amountGross"]
+
     # Smart date defaults for invoice-related fields
     if "orderDate" in cleaned and "deliveryDate" not in cleaned:
         cleaned["deliveryDate"] = cleaned["orderDate"]
