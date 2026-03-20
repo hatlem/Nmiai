@@ -1,5 +1,6 @@
 # tripletex/main.py
 """FastAPI agent with plan-execute-verify-repair loop + live dashboard."""
+import os
 import time
 import logging
 from datetime import datetime, timezone
@@ -20,6 +21,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tripletex AI Agent")
+
+# Auth: if API_KEY is set, require Bearer token on /solve
+API_KEY = os.environ.get("API_KEY", "")
 
 MAX_REPAIR_ATTEMPTS = 3
 REPAIR_DEADLINE_SECONDS = 270  # leave 30s buffer for verification + response
@@ -341,14 +345,34 @@ async def _ensure_bank_account(client: TripletexClient):
 
 @app.post("/solve")
 async def solve(request: Request):
-    start = time.monotonic()
-    body = await request.json()
-    prompt = body["prompt"]
-    files = body.get("files", [])
-    creds = body["tripletex_credentials"]
+    # Auth check
+    if API_KEY:
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != API_KEY:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-    base_url = creds["base_url"]
-    session_token = creds["session_token"]
+    start = time.monotonic()
+    try:
+        body = await request.json()
+        prompt = body["prompt"]
+        creds = body["tripletex_credentials"]
+        base_url = creds["base_url"]
+        session_token = creds["session_token"]
+    except (KeyError, TypeError) as e:
+        return JSONResponse({"error": f"missing field: {e}"}, status_code=400)
+
+    # SSRF prevention: validate base_url against known Tripletex proxy domains
+    ALLOWED_HOSTS = ("tx-proxy.ainm.no", "api.tripletex.dev", "api.tripletex.io", "tripletex.no", "tripletex.dev")
+    from urllib.parse import urlparse
+    parsed = urlparse(base_url)
+    if parsed.scheme not in ("https", "http") or not any(
+        parsed.hostname == h or (parsed.hostname and parsed.hostname.endswith(f".{h}"))
+        for h in ALLOWED_HOSTS
+    ):
+        logger.warning(f"Rejected base_url: {base_url}")
+        return JSONResponse({"error": "invalid base_url"}, status_code=400)
+
+    files = body.get("files", [])
 
     logger.info(f"Task: {prompt[:120]}...")
 
