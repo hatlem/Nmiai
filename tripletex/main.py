@@ -698,6 +698,30 @@ async def solve(request: Request):
                     logger.info("Repaired plan has no steps — nothing to fix")
                     break
 
+                # Post-repair sanitizer: strip known-bad fields that LLM keeps adding back
+                _ENDPOINT_FORBIDDEN_FIELDS = {
+                    "/employee/employment": {"userType", "employmentType", "percentageOfFullTimeEquivalent", "type"},
+                    "/salary/transaction": {"employeeId", "amount", "rate", "count", "salaryType", "salaryTypeId"},
+                    "/supplierInvoice": {"orderDate", "orderNumber"},
+                }
+                for step in repaired_plan.get("steps", []):
+                    path = step.get("path", "")
+                    body = step.get("body", {})
+                    if isinstance(body, dict):
+                        for endpoint, forbidden in _ENDPOINT_FORBIDDEN_FIELDS.items():
+                            if endpoint in path:
+                                stripped = [f for f in forbidden if f in body]
+                                for f in stripped:
+                                    del body[f]
+                                if stripped:
+                                    logger.info(f"Sanitizer: stripped {stripped} from {endpoint}")
+                    # Also ensure reminder has dispatchType not sendMethod
+                    if "createReminder" in path:
+                        params = step.get("params", {})
+                        if "sendMethod" in params and "dispatchType" not in params:
+                            params["dispatchType"] = params.pop("sendMethod")
+                            logger.info("Sanitizer: renamed sendMethod -> dispatchType on reminder")
+
                 if time.monotonic() - start < REPAIR_DEADLINE_SECONDS:
                     current_result = await execute_plan(
                         repaired_plan, client, start,

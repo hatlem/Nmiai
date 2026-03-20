@@ -790,8 +790,71 @@ async def self_repair(
     verification_errors: list[dict] | None = None,
     files: list[dict] | None = None,
 ) -> dict:
-    """Self-repair: feed errors + optional verification mismatches to Pro model."""
+    """Self-repair: for known task types, re-extract values into FIXED template.
+    For unknown types, fall back to full LLM repair."""
     task_type = plan.get("task_type", "unknown")
+
+    # For known task types: re-extract values, DON'T let LLM generate new steps
+    if task_type in TEMPLATES and task_type != "unknown":
+        template = TEMPLATES[task_type]
+        error_context = []
+        for fail_idx, fail_res in failed:
+            err_data = fail_res.get("data", {})
+            error_context.append(f"Step {fail_idx} failed: {json.dumps(err_data, ensure_ascii=False)[:200]}")
+
+        repair_extraction_prompt = f"""The accounting task failed. Re-extract values from the prompt, fixing the errors.
+
+Errors encountered:
+{chr(10).join(error_context)}
+
+{f"Verification mismatches: {json.dumps(verification_errors, ensure_ascii=False)}" if verification_errors else ""}
+
+Fields to extract: {json.dumps(template.get("extract_fields", []))}
+
+Original extracted values: {json.dumps(plan.get("extracted_values", {}), ensure_ascii=False)}
+
+IMPORTANT: Only return the extracted values as JSON. Do NOT generate steps.
+Fix any values that caused errors (wrong format, missing fields, wrong references).
+Today's date is {date.today().isoformat()}.
+
+Task prompt:
+{original_prompt}"""
+
+        model = _get_model(MODEL_PRO, repair_extraction_prompt)
+        try:
+            response = await asyncio.wait_for(
+                model.generate_content_async(
+                    repair_extraction_prompt,
+                    generation_config={"temperature": 0.0, "max_output_tokens": 4096},
+                ),
+                timeout=60.0,
+            )
+            raw_text = response.text if hasattr(response, 'text') else ""
+            new_values = _parse_json(raw_text)
+            # Clean meta keys
+            for meta_key in ("task_type", "reasoning", "steps"):
+                new_values.pop(meta_key, None)
+            if "extracted_values" in new_values:
+                new_values = new_values["extracted_values"]
+
+            # Merge with original values (new values override)
+            merged = dict(plan.get("extracted_values", {}))
+            merged.update(new_values)
+
+            # Re-resolve template steps with updated values
+            steps = _resolve_conditional_steps(template, merged)
+
+            logger.info(f"Template-based repair: re-extracted {len(new_values)} values for {task_type}")
+            return {
+                "task_type": task_type,
+                "reasoning": f"Template-based repair for {task_type}",
+                "steps": steps,
+                "extracted_values": merged,
+            }
+        except Exception as e:
+            logger.error(f"Template-based repair failed: {e}, falling back to full LLM repair")
+
+    # Fallback: full LLM repair for unknown types or if template repair failed
     repair_prompt = build_self_repair_prompt(
         task_type, original_prompt, plan, results, failed,
         verification_errors=verification_errors,

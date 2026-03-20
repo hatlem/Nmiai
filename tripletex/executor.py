@@ -328,6 +328,11 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
         if "/supplierInvoice" in path and "/orderline" not in path.lower():
             for bad_field in ("orderDate", "deliveryDate", "dueDate", "orderLines"):
                 cleaned.pop(bad_field, None)
+        if "/employee/employment" in path:
+            for bad_field in ("userType", "employmentType", "percentageOfFullTimeEquivalent", "type", "role", "department", "email"):
+                if bad_field in cleaned:
+                    logger.warning(f"Pre-validate: stripping '{bad_field}' from /employee/employment")
+                    cleaned.pop(bad_field, None)
 
     # Smart date defaults for invoice-related fields
     if "orderDate" in cleaned and "deliveryDate" not in cleaned:
