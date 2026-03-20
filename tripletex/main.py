@@ -54,6 +54,11 @@ TOOL_AGENT_SIGNALS = [
     ("grunnlønn",), ("grunnløn",),
 ]
 
+def _has_product_numbers(prompt: str) -> bool:
+    """Detect if prompt has product numbers in parentheses like 'Opplæring (7579)'."""
+    import re
+    return bool(re.search(r'\w+\s*\(\d{3,5}\)', prompt))
+
 # ── In-memory stats ──
 STATS = {
     "started": datetime.now(timezone.utc).isoformat(),
@@ -276,7 +281,7 @@ async def solve(request: Request):
         await _ensure_bank_account(client)
 
         # ── Router: compiled template > tool agent > template engine ──
-        use_tool_agent = _should_use_tool_agent(prompt)
+        use_tool_agent = _should_use_tool_agent(prompt) or _has_product_numbers(prompt)
         handled = False
 
         # 1. Try compiled template first (fastest — no LLM calls for routing)

@@ -1512,7 +1512,7 @@ TEMPLATES: dict[str, dict] = {
                 "method": "POST",
                 "path": "/ledger/accountingDimensionName",
                 "body": {
-                    "name": "{{dimension_name}}",
+                    "dimensionName": "{{dimension_name}}",
                 },
             },
             {
@@ -1520,14 +1520,20 @@ TEMPLATES: dict[str, dict] = {
                 "method": "POST",
                 "path": "/ledger/accountingDimensionValue",
                 "body": {
-                    "dimension": {"id": "$step_0.id"},
-                    "name": "{{first_dimension_value}}",
+                    "displayName": "{{first_dimension_value}}",
+                    "dimensionIndex": 1,
                 },
             },
             {
                 "method": "GET",
                 "path": "/ledger/account",
                 "params": {"number": "{{account_number}}", "fields": "id,number,name"},
+            },
+            {
+                "method": "GET",
+                "path": "/ledger/account",
+                "params": {"number": "1920", "fields": "id,number,name"},
+                "note": "Bank account for credit side of voucher posting",
             },
             {
                 "method": "POST",
@@ -1542,10 +1548,11 @@ TEMPLATES: dict[str, dict] = {
                             "amountGross": "{{amount}}",
                             "amountGrossCurrency": "{{amount}}",
                             "vatType": {"id": 0},
+                            "freeAccountingDimension1": {"id": "$step_1.id"},
                         },
                         {
                             "row": 2,
-                            "account": {"id": "$step_2.values[0].id"},
+                            "account": {"id": "$step_3.values[0].id"},
                             "amountGross": "{{neg_amount}}",
                             "amountGrossCurrency": "{{neg_amount}}",
                             "vatType": {"id": 0},

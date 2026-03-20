@@ -512,10 +512,12 @@ def _expand_dimension_steps(steps: list[dict], values: dict) -> list[dict]:
     if not dim_values or not isinstance(dim_values, list) or len(dim_values) <= 1:
         return steps
 
-    # Find the POST /ledger/customDimensionValue step
+    # Find the POST dimension value step (accountingDimensionValue or customDimensionValue)
     dimval_idx = None
     for i, step in enumerate(steps):
-        if step.get("path", "") == "/ledger/customDimensionValue" and step.get("method") == "POST":
+        path = step.get("path", "")
+        if (path in ("/ledger/customDimensionValue", "/ledger/accountingDimensionValue")
+                and step.get("method") == "POST"):
             dimval_idx = i
             break
 
@@ -528,10 +530,10 @@ def _expand_dimension_steps(steps: list[dict], values: dict) -> list[dict]:
         name = dv if isinstance(dv, str) else str(dv)
         new_steps.append({
             "method": "POST",
-            "path": "/ledger/customDimensionValue",
+            "path": "/ledger/accountingDimensionValue",
             "body": {
-                "dimension": {"id": "$step_0.id"},
-                "name": name,
+                "displayName": name,
+                "dimensionIndex": 1,
             },
         })
 
