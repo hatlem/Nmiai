@@ -411,13 +411,19 @@ def _pre_validate_params(params: dict | None) -> dict | None:
             if v not in ("EMAIL", "SMS", "OWN_PRINTER", "NETS_PRINT", "SFTP", "API", "LETTER"):
                 v = "EMAIL"
         cleaned[k] = v
-    # Fix wrong param names for reminders
-    for wrong in ("sendType", "sendTypes", "sendMethod", "selectedReminderSendTypes"):
-        if wrong in cleaned and "dispatchType" not in cleaned:
-            cleaned["dispatchType"] = cleaned.pop(wrong)
-            logger.info(f"Pre-validate params: renamed '{wrong}' -> 'dispatchType'")
-        elif wrong in cleaned:
-            del cleaned[wrong]
+    # Normalize sendType for /:send endpoints (must be UPPERCASE)
+    if "sendType" in cleaned and isinstance(cleaned["sendType"], str):
+        cleaned["sendType"] = cleaned["sendType"].upper()
+        if cleaned["sendType"] not in ("EMAIL", "EHF", "EFAKTURA", "AVTALEGIRO", "VIPPS", "PAPER", "MANUAL"):
+            cleaned["sendType"] = "EMAIL"
+
+    # Fix wrong param names for reminders (but NOT for /:send which uses sendType)
+    if "dispatchType" not in cleaned and "sendType" not in cleaned:
+        for wrong in ("sendTypes", "sendMethod", "selectedReminderSendTypes"):
+            if wrong in cleaned:
+                cleaned["dispatchType"] = cleaned.pop(wrong)
+                logger.info(f"Pre-validate params: renamed '{wrong}' -> 'dispatchType'")
+                break
     return cleaned
 
 
@@ -520,6 +526,26 @@ async def _execute_step(
     except Exception as e:
         logger.error(f"Step {idx} exception: {e}")
         response = {"status_code": 0, "ok": False, "data": {"error": str(e)}}
+
+    # Handle "bankkontonummer" error — register bank account and retry invoice creation
+    if response.get("status_code") == 422 and "/:invoice" in str(path):
+        validation_msgs = response.get("data", {}).get("validationMessages", [])
+        needs_bank = any("bankkontonummer" in (m.get("message", "") or "").lower() for m in validation_msgs)
+        if needs_bank:
+            logger.warning(f"Step {idx}: sandbox has no bank account — registering one")
+            try:
+                # Register a dummy bank account for the company
+                bank_resp = await client.request("POST", "/bank", body={
+                    "accountNumber": "86011117947",
+                    "name": "Driftskonto",
+                })
+                if bank_resp.get("ok"):
+                    logger.info(f"Step {idx}: registered bank account, retrying invoice")
+                    response = await client.request(method, path, body=body, params=params)
+                else:
+                    logger.warning(f"Step {idx}: bank registration failed: {bank_resp.get('status_code')}")
+            except Exception as e2:
+                logger.warning(f"Step {idx}: bank registration exception: {e2}")
 
     # Handle "already exists" 422 errors by searching for the existing entity
     if method == "POST" and response.get("status_code") == 422:

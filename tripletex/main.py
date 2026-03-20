@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from agent import create_plan, classify_task, re_extract_values, get_tier
 from executor import execute_plan
 from template_engine import build_concrete_plan
+from react_agent import react_solve
 from tripletex_client import TripletexClient
 
 import sys
@@ -209,23 +210,48 @@ async def solve(request: Request):
         task_type = plan.get("task_type", task_type)
         logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
 
-        # 2. Pre-flight: ensure bank account for invoice tasks
-        if "invoice" in task_type and "supplier" not in task_type:
-            await _ensure_bank_account(client)
+        # 1b. Unknown tasks → go straight to ReAct agent
+        if task_type == "unknown" or not plan.get("steps"):
+            logger.info(f"Unknown/empty plan → ReAct agent")
+            react_deadline = start + 280
+            react_ok = await react_solve(prompt, files, client, react_deadline)
+            result = {"success": react_ok, "failed": [], "results": {}}
+        else:
+            # 2. Pre-flight: ensure bank account for invoice tasks
+            if "invoice" in task_type and "supplier" not in task_type:
+                await _ensure_bank_account(client)
 
-        # 3. Execute
-        result = await execute_plan(plan, client, start)
+            # 3. Execute
+            result = await execute_plan(plan, client, start)
 
-        # 4. If failed and time permits, re-extract and retry (up to 2 retries)
-        max_retries = 2
-        while not result["success"] and retry_count < max_retries and time.monotonic() - start < 220:
+        # 4. If failed and time permits, re-extract and retry ONCE
+        if not result["success"] and time.monotonic() - start < 150:
             retry_count += 1
             raw_errors = result.get("failed", [])
             errors = [{"step": idx, "status_code": res.get("status_code", 0), "error": res.get("data", {})} for idx, res in raw_errors]
-            logger.info(f"Retry {retry_count}/{max_retries} for {task_type} | errors: {errors}")
+            logger.info(f"Template retry for {task_type} | errors: {errors}")
             new_values = await re_extract_values(prompt, task_type, errors, files, original_values=plan.get("extracted_values", {}))
             new_plan = build_concrete_plan(task_type, new_values)
             result = await execute_plan(new_plan, client, start)
+
+        # 5. If STILL failed, fall back to ReAct agent (dynamic tool-use)
+        if not result["success"] and time.monotonic() - start < 200:
+            logger.info(f"Template failed, falling back to ReAct agent for {task_type}")
+            react_deadline = start + 280  # leave 20s buffer
+            react_client = TripletexClient(base_url, session_token)
+            try:
+                react_ok = await react_solve(prompt, files, react_client, react_deadline)
+                if react_ok:
+                    result = {"success": True, "failed": [], "results": {}}
+                    logger.info(f"ReAct agent succeeded for {task_type}")
+                else:
+                    logger.warning(f"ReAct agent also failed for {task_type}")
+            except Exception as e:
+                logger.error(f"ReAct agent error: {e}")
+            finally:
+                client.call_count += react_client.call_count
+                client.error_count += react_client.error_count
+                await react_client.close()
 
         elapsed = time.monotonic() - start
         success = result["success"]

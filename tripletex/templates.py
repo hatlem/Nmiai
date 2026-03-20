@@ -274,7 +274,11 @@ TEMPLATES: dict[str, dict] = {
     },
 
     "send_invoice": {
-        "description": "Send an invoice to the customer",
+        "description": (
+            "Send an invoice to the customer. The /:send endpoint requires sendType as a QUERY parameter.\n"
+            "Valid sendType values: EMAIL, EHF, EFAKTURA, AVTALEGIRO, VIPPS, PAPER, MANUAL.\n"
+            "Default to EMAIL if not specified. Must be UPPERCASE."
+        ),
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "sendType", "email"],
         "optimal_calls": 1,
@@ -790,10 +794,8 @@ TEMPLATES: dict[str, dict] = {
     "create_supplier_invoice": {
         "description": (
             "Create a supplier invoice (incoming invoice from a supplier).\n"
-            "WORKAROUND: POST /supplierInvoice returns 500 in ALL cases in the sandbox.\n"
-            "Instead, create a regular voucher via POST /ledger/voucher with supplier reference in postings.\n"
-            "Steps: 1) Create supplier, 2) GET expense account, 3) GET AP account (2400), 4) POST /ledger/voucher.\n"
-            "The voucher description should reference the invoice number and supplier name."
+            "Use POST /supplierInvoice with supplier, invoiceNumber, invoiceDate, and voucher with postings.\n"
+            "FORBIDDEN FIELDS: dueDate, orderDate, orderNumber — cause 422."
         ),
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
         "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
@@ -829,16 +831,20 @@ TEMPLATES: dict[str, dict] = {
             },
             {
                 "method": "POST",
-                "path": "/ledger/voucher",
+                "path": "/supplierInvoice",
                 "body": {
-                    "date": "{{invoiceDate}}",
-                    "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
-                    "postings": [
-                        {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
-                        {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
-                    ],
+                    "invoiceNumber": "{{invoiceNumber}}",
+                    "invoiceDate": "{{invoiceDate}}",
+                    "supplier": {"id": "$step_0.id"},
+                    "voucher": {
+                        "date": "{{invoiceDate}}",
+                        "description": "{{description}}",
+                        "postings": [
+                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}},
+                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}},
+                        ],
+                    },
                 },
-                "note": "Workaround: POST /supplierInvoice returns 500 in sandbox. Using POST /ledger/voucher instead.",
             },
         ],
     },
@@ -1370,42 +1376,42 @@ TEMPLATES: dict[str, dict] = {
 
 # Map keywords to task types for fast classification (multilingual)
 KEYWORD_HINTS: dict[str, list[str]] = {
-    "create_employee": ["ansatt", "employee", "empleado", "empregado", "mitarbeiter", "employe", "tilsett", "tilsatt", "opprett ansatt", "ny ansatt", "create employee", "new employee"],
+    "create_employee": ["ansatt", "employee", "empleado", "empregado", "mitarbeiter", "employe", "tilsett", "tilsatt", "opprett ansatt", "ny ansatt", "create employee", "new employee", "crear empleado", "nuevo empleado", "criar empregado", "novo empregado", "mitarbeiter erstellen", "neuer mitarbeiter", "creer employe", "nouvel employe", "ajouter un employe"],
     "update_employee": ["oppdater ansatt", "endre ansatt", "update employee", "endre telefon", "endre epost", "mitarbeiter aktualisieren", "actualizar empleado", "atualizar empregado", "mettre a jour employe", "oppdater tilsett", "oppdater tilsatt"],
-    "create_customer": ["kunde", "customer", "cliente", "client", "Kunde", "opprett kunde", "ny kunde", "registrer kunde"],
+    "create_customer": ["kunde", "customer", "cliente", "client", "Kunde", "opprett kunde", "ny kunde", "registrer kunde", "crear cliente", "nuevo cliente", "criar cliente", "novo cliente", "kunde erstellen", "neuer kunde", "creer client", "nouveau client", "ajouter un client", "verksemd"],
     "update_customer": ["oppdater kunde", "endre kunde", "update customer", "kunde aktualisieren", "actualizar cliente", "atualizar cliente", "mettre a jour client"],
-    "create_product": ["produkt", "product", "producto", "produto", "Produkt", "produit", "opprett produkt", "nytt produkt", "vare"],
-    "create_invoice": ["faktura", "invoice", "factura", "fatura", "Rechnung", "facture", "opprett faktura", "ny faktura"],
-    "create_invoice_with_payment": ["faktura med betaling", "invoice with payment", "faktura og betaling"],
-    "register_payment": ["innbetaling", "betaling", "payment", "pago", "pagamento", "Zahlung", "paiement", "registrer betaling", "registrer innbetaling", "zahlung registrieren", "registrar pago", "enregistrer paiement", "registrar pagamento"],
+    "create_product": ["produkt", "product", "producto", "produto", "Produkt", "produit", "opprett produkt", "nytt produkt", "vare", "crear producto", "nuevo producto", "criar produto", "novo produto", "produkt erstellen", "neues produkt", "creer produit", "nouveau produit", "ajouter un produit"],
+    "create_invoice": ["faktura", "invoice", "factura", "fatura", "Rechnung", "facture", "opprett faktura", "ny faktura", "crear factura", "nueva factura", "criar fatura", "nova fatura", "rechnung erstellen", "neue rechnung", "creer facture", "nouvelle facture", "ajouter une facture"],
+    "create_invoice_with_payment": ["faktura med betaling", "invoice with payment", "faktura og betaling", "factura con pago", "rechnung mit zahlung", "facture avec paiement", "fatura com pagamento"],
+    "register_payment": ["innbetaling", "betaling", "payment", "pago", "pagamento", "Zahlung", "paiement", "registrer betaling", "registrer innbetaling", "zahlung registrieren", "registrar pago", "enregistrer paiement", "registrar pagamento", "pagar factura", "pagar fatura", "rechnung bezahlen", "payer facture"],
     "register_payment_by_search": ["betal faktura nummer", "registrer betaling pa faktura", "payment on invoice number", "betal faktura nr", "betaling for faktura", "pay invoice number", "payment for invoice", "betaling på faktura"],
-    "create_credit_note": ["kreditnota", "credit note", "nota de credito", "Gutschrift", "avoir", "note de credit"],
-    "create_travel_expense": ["reiseregning", "travel expense", "gastos de viaje", "despesas de viagem", "Reisekosten", "note de frais", "reiserekning", "registrer reiseregning", "registrer reiserekning", "ny reiserekning", "reisekosten erstellen"],
-    "delete_travel_expense": ["slett reiseregning", "delete travel", "slett reiserekning", "reisekosten loschen", "reisekosten löschen", "eliminar gasto de viaje", "supprimer note de frais"],
-    "deliver_travel_expense": ["lever reiseregning", "deliver travel expense", "send inn reiseregning", "lever reiserekning"],
-    "approve_travel_expense": ["godkjenn reiseregning", "approve travel expense", "godkjenn reiserekning"],
-    "create_project": ["prosjekt", "project", "proyecto", "projeto", "Projekt", "projet", "opprett prosjekt", "nytt prosjekt"],
-    "create_project_existing_customer": ["prosjekt for eksisterende kunde", "project for existing customer", "prosjekt eksisterende"],
-    "create_internal_project": ["internt prosjekt", "internal project", "proyecto interno", "internes Projekt", "innvendig prosjekt"],
-    "update_project": ["oppdater prosjekt", "endre prosjekt", "update project"],
-    "create_department": ["avdeling", "department", "departamento", "Abteilung", "departement", "opprett avdeling", "ny avdeling"],
-    "create_supplier": ["leverandør", "leverandor", "supplier", "proveedor", "fornecedor", "Lieferant", "fournisseur", "opprett leverandør", "registrer leverandør", "ny leverandør"],
+    "create_credit_note": ["kreditnota", "credit note", "nota de credito", "Gutschrift", "avoir", "note de credit", "nota de credito"],
+    "create_travel_expense": ["reiseregning", "travel expense", "gastos de viaje", "gasto de viaje", "despesas de viagem", "despesa de viagem", "Reisekosten", "reisekostenabrechnung", "note de frais", "reiserekning", "registrer reiseregning", "registrer reiserekning", "ny reiserekning", "reisekosten erstellen"],
+    "delete_travel_expense": ["slett reiseregning", "delete travel", "slett reiserekning", "reisekosten loschen", "reisekosten löschen", "reisekostenabrechnung loschen", "eliminar gasto de viaje", "eliminar despesa de viagem", "supprimer note de frais"],
+    "deliver_travel_expense": ["lever reiseregning", "deliver travel expense", "send inn reiseregning", "lever reiserekning", "entregar gasto de viaje", "entregar despesa de viagem", "soumettre note de frais", "reisekostenabrechnung einreichen"],
+    "approve_travel_expense": ["godkjenn reiseregning", "approve travel expense", "godkjenn reiserekning", "aprobar gasto de viaje", "aprovar despesa de viagem", "approuver note de frais", "reisekostenabrechnung genehmigen"],
+    "create_project": ["prosjekt", "project", "proyecto", "projeto", "Projekt", "projet", "opprett prosjekt", "nytt prosjekt", "crear proyecto", "nuevo proyecto", "criar projeto", "novo projeto", "projekt erstellen", "neues projekt", "creer projet", "nouveau projet", "ajouter un projet"],
+    "create_project_existing_customer": ["prosjekt for eksisterende kunde", "project for existing customer", "prosjekt eksisterende", "proyecto para cliente existente", "projeto para cliente existente", "projekt fur bestehenden kunden", "projet pour client existant"],
+    "create_internal_project": ["internt prosjekt", "internal project", "proyecto interno", "internes Projekt", "innvendig prosjekt", "projeto interno", "projet interne"],
+    "update_project": ["oppdater prosjekt", "endre prosjekt", "update project", "actualizar proyecto", "atualizar projeto", "projekt aktualisieren", "mettre a jour projet"],
+    "create_department": ["avdeling", "department", "departamento", "Abteilung", "departement", "opprett avdeling", "ny avdeling", "crear departamento", "nuevo departamento", "criar departamento", "novo departamento", "abteilung erstellen", "neue abteilung", "creer departement", "nouveau departement", "ajouter un departement"],
+    "create_supplier": ["leverandør", "leverandor", "supplier", "proveedor", "fornecedor", "Lieferant", "fournisseur", "opprett leverandør", "registrer leverandør", "ny leverandør", "crear proveedor", "nuevo proveedor", "criar fornecedor", "novo fornecedor", "lieferant erstellen", "neuer lieferant", "creer fournisseur", "nouveau fournisseur", "ajouter un fournisseur"],
     "update_supplier": ["oppdater leverandor", "oppdater leverandør", "endre leverandor", "endre leverandør", "update supplier", "lieferant aktualisieren", "actualizar proveedor", "atualizar fornecedor", "mettre a jour fournisseur"],
-    "update_department": ["oppdater avdeling", "endre avdeling", "update department"],
-    "update_product": ["oppdater produkt", "endre produkt", "update product"],
-    "create_contact": ["kontaktperson", "contact person", "persona de contacto", "Kontaktperson", "kontakt"],
-    "create_voucher": ["bilag", "voucher", "Beleg", "piece comptable", "postering", "bokfør", "bokfor"],
-    "reverse_voucher": ["reverser", "reverse", "tilbakefor"],
-    "send_invoice": ["send faktura", "send invoice"],
-    "create_supplier_invoice": ["leverandorfaktura", "leverandørfaktura", "supplier invoice", "inngaende faktura", "incoming invoice", "factura proveedor", "Lieferantenrechnung"],
-    "create_purchase_order": ["innkjopsordre", "purchase order", "bestilling", "orden de compra", "Bestellung", "bon de commande"],
-    "bank_reconciliation": ["bankavstemming", "bank reconciliation", "kontoutskrift", "bank statement", "conciliacion bancaria", "Bankabstimmung"],
-    "create_timesheet_entry": ["timeregistrering", "timeforing", "timesheet", "timer", "hours", "horas", "Stunden", "heures"],
-    "create_opening_balance": ["apningsbalanse", "opening balance", "inngaende balanse", "balance inicial", "Eroeffnungsbilanz", "eröffnungsbilanz", "balance de apertura", "bilan d'ouverture", "åpningsbalansen"],
-    "create_asset": ["anleggsmiddel", "eiendel", "fixed asset", "activo fijo", "Anlagevermoegen"],
-    "create_salary_payment": ["lonn", "salary", "loenning", "salario", "Gehalt", "salaire"],
-    "create_customer_supplier": ["kunde og leverandor", "kunde og leverandør", "customer and supplier", "both customer and supplier"],
-    "create_reminder": ["purring", "reminder", "betalingspaaminnelse", "Zahlungserinnerung", "rappel"],
-    "create_employment": ["ansettelse", "employment", "arbeidsforhold", "empleo", "Beschaeftigung"],
+    "update_department": ["oppdater avdeling", "endre avdeling", "update department", "actualizar departamento", "atualizar departamento", "abteilung aktualisieren", "mettre a jour departement"],
+    "update_product": ["oppdater produkt", "endre produkt", "update product", "actualizar producto", "atualizar produto", "produkt aktualisieren", "mettre a jour produit"],
+    "create_contact": ["kontaktperson", "contact person", "persona de contacto", "Kontaktperson", "kontakt", "pessoa de contato", "personne de contact", "ansprechpartner"],
+    "create_voucher": ["bilag", "voucher", "Beleg", "piece comptable", "postering", "bokfør", "bokfor", "comprobante", "asiento contable", "reknskap"],
+    "reverse_voucher": ["reverser", "reverse", "tilbakefor", "beleg stornieren", "stornierung", "contrepasser", "annuler piece comptable"],
+    "send_invoice": ["send faktura", "send invoice", "enviar factura", "enviar fatura", "rechnung senden", "envoyer facture"],
+    "create_supplier_invoice": ["leverandorfaktura", "leverandørfaktura", "supplier invoice", "inngaende faktura", "incoming invoice", "factura proveedor", "factura del proveedor", "Lieferantenrechnung", "eingangsrechnung", "facture fournisseur", "facture d'achat", "fatura do fornecedor"],
+    "create_purchase_order": ["innkjopsordre", "purchase order", "bestilling", "orden de compra", "Bestellung", "bon de commande", "pedido de compra"],
+    "bank_reconciliation": ["bankavstemming", "bank reconciliation", "kontoutskrift", "bank statement", "conciliacion bancaria", "Bankabstimmung", "rapprochement bancaire", "reconciliacao bancaria"],
+    "create_timesheet_entry": ["timeregistrering", "timeforing", "timesheet", "timer", "hours", "horas", "Stunden", "heures", "zeiterfassung", "stunden erfassen", "registrar horas", "saisie de temps", "enregistrer heures"],
+    "create_opening_balance": ["apningsbalanse", "opening balance", "inngaende balanse", "balance inicial", "Eroeffnungsbilanz", "eröffnungsbilanz", "balance de apertura", "bilan d'ouverture", "åpningsbalansen", "saldo inicial"],
+    "create_asset": ["anleggsmiddel", "eiendel", "fixed asset", "activo fijo", "Anlagevermoegen", "ativo fixo", "immobilisation", "actif immobilise"],
+    "create_salary_payment": ["lonn", "salary", "loenning", "salario", "Gehalt", "salaire", "gehaltszahlung", "pago de salario", "pagamento de salario", "paiement de salaire", "versement de salaire"],
+    "create_customer_supplier": ["kunde og leverandor", "kunde og leverandør", "customer and supplier", "both customer and supplier", "cliente y proveedor", "cliente e fornecedor", "kunde und lieferant", "client et fournisseur"],
+    "create_reminder": ["purring", "reminder", "betalingspaaminnelse", "Zahlungserinnerung", "rappel", "recordatorio de pago", "lembrete de pagamento", "mahnung", "rappel de paiement"],
+    "create_employment": ["ansettelse", "employment", "arbeidsforhold", "empleo", "Beschaeftigung", "contrato de trabajo", "contrat de travail", "arbeitsvertrag"],
     "enable_modules": ["aktiver modul", "enable module", "aktivere", "modul", "module"],
 }

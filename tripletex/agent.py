@@ -151,22 +151,22 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
     prompt_lower = prompt.lower()
 
     # Detect "payment on invoice NUMBER" -> register_payment_by_search
-    _has_payment = bool(re.search(r'\b(betal|betaling|innbetaling|payment|paiement|zahlung|pago)\b', prompt_lower))
+    _has_payment = bool(re.search(r'\b(betal|betaling|innbetaling|payment|paiement|zahlung|pago|pagamento)\b', prompt_lower))
     _has_invoice_number = bool(re.search(
-        r'(faktura\s*(nr|nummer|#)\s*\d+|invoice\s*(nr|number|#|no\.?)\s*\d+|factura\s*(nr|numero|#)\s*\d+|rechnung\s*(nr|nummer|#)\s*\d+)',
+        r'(faktura\s*(nr|nummer|#)\s*\d+|invoice\s*(nr|number|#|no\.?)\s*\d+|factura\s*(nr|numero|#)\s*\d+|rechnung\s*(nr|nummer|#)\s*\d+|fatura\s*(nr|numero|#)\s*\d+|facture\s*(nr|numero|#)\s*\d+)',
         prompt_lower,
     ))
     if _has_payment and _has_invoice_number:
         return "register_payment_by_search", 0.92
 
     # Detect timesheet patterns (must come before "prosjekt" match)
-    if re.search(r'\d+[\.,]?\d*\s*timer\b', prompt_lower):
+    if re.search(r'\d+[\.,]?\d*\s*(timer|hours|horas|stunden|heures)\b', prompt_lower):
         if not re.search(r'\b(faktura|invoice|factura|rechnung|facture|ordre|order)\b', prompt_lower):
             return "create_timesheet_entry", 0.90
 
-    # Delete verbs → delete_entity (unless travel expense which has its own type)
-    if re.match(r'(slett|delete|eliminar|supprimer|löschen)\b', prompt_lower):
-        if 'reiseregning' in prompt_lower or 'reiserekning' in prompt_lower or 'travel' in prompt_lower or 'note de frais' in prompt_lower or 'gasto de viaje' in prompt_lower:
+    # Delete verbs -> delete_entity (unless travel expense which has its own type)
+    if re.match(r'(slett|delete|eliminar|supprimer|löschen|loschen)\b', prompt_lower):
+        if 'reiseregning' in prompt_lower or 'reiserekning' in prompt_lower or 'travel' in prompt_lower or 'note de frais' in prompt_lower or 'gasto de viaje' in prompt_lower or 'despesa de viagem' in prompt_lower or 'reisekosten' in prompt_lower:
             return "delete_travel_expense", 0.95
         return "delete_entity", 0.90
 
@@ -433,6 +433,146 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "ajouter un produit": ("create_product", 0.90),
         "ajouter une facture": ("create_invoice", 0.90),
         "ajouter un projet": ("create_project", 0.90),
+        "ajouter un departement": ("create_department", 0.90),
+        "ajouter une note de frais": ("create_travel_expense", 0.90),
+        # --- Spanish: create/new/register ---
+        "crear departamento": ("create_department", 0.90),
+        "nuevo departamento": ("create_department", 0.88),
+        "nuevo empleado": ("create_employee", 0.88),
+        "nuevo cliente": ("create_customer", 0.88),
+        "nueva factura": ("create_invoice", 0.88),
+        "nuevo proveedor": ("create_supplier", 0.88),
+        "nuevo producto": ("create_product", 0.88),
+        "nuevo proyecto": ("create_project", 0.88),
+        "crear gasto de viaje": ("create_travel_expense", 0.90),
+        "registrar gasto de viaje": ("create_travel_expense", 0.90),
+        "nuevo gasto de viaje": ("create_travel_expense", 0.88),
+        "aprobar gasto de viaje": ("approve_travel_expense", 0.90),
+        "entregar gasto de viaje": ("deliver_travel_expense", 0.90),
+        "registrar horas": ("create_timesheet_entry", 0.88),
+        "horas en proyecto": ("create_timesheet_entry", 0.90),
+        "pagar factura": ("register_payment", 0.88),
+        "crear recordatorio": ("create_reminder", 0.88),
+        "recordatorio de pago": ("create_reminder", 0.88),
+        "pago de salario": ("create_salary_payment", 0.88),
+        "proyecto interno": ("create_internal_project", 0.90),
+        "persona de contacto": ("create_contact", 0.88),
+        "cliente y proveedor": ("create_customer_supplier", 0.90),
+        "balance inicial": ("create_opening_balance", 0.90),
+        "conciliacion bancaria": ("bank_reconciliation", 0.90),
+        "activo fijo": ("create_asset", 0.88),
+        "activar modulo": ("enable_modules", 0.88),
+        "comprobante": ("create_voucher", 0.85),
+        "asiento contable": ("create_voucher", 0.88),
+        "contrato de trabajo": ("create_employment", 0.88),
+        "actualizar departamento": ("update_department", 0.88),
+        "actualizar proyecto": ("update_project", 0.88),
+        "orden de compra": ("create_purchase_order", 0.88),
+        # --- Portuguese: create/new/register ---
+        "criar departamento": ("create_department", 0.90),
+        "novo empregado": ("create_employee", 0.88),
+        "novo cliente": ("create_customer", 0.88),
+        "nova fatura": ("create_invoice", 0.88),
+        "novo fornecedor": ("create_supplier", 0.88),
+        "novo produto": ("create_product", 0.88),
+        "novo projeto": ("create_project", 0.88),
+        "novo departamento": ("create_department", 0.88),
+        "criar despesa de viagem": ("create_travel_expense", 0.90),
+        "registrar despesa de viagem": ("create_travel_expense", 0.90),
+        "nova despesa de viagem": ("create_travel_expense", 0.88),
+        "eliminar despesa de viagem": ("delete_travel_expense", 0.90),
+        "aprovar despesa de viagem": ("approve_travel_expense", 0.90),
+        "entregar despesa de viagem": ("deliver_travel_expense", 0.90),
+        "horas no projeto": ("create_timesheet_entry", 0.90),
+        "pagar fatura": ("register_payment", 0.88),
+        "criar lembrete": ("create_reminder", 0.88),
+        "lembrete de pagamento": ("create_reminder", 0.88),
+        "pagamento de salario": ("create_salary_payment", 0.88),
+        "projeto interno": ("create_internal_project", 0.90),
+        "pessoa de contato": ("create_contact", 0.88),
+        "cliente e fornecedor": ("create_customer_supplier", 0.90),
+        "fatura do fornecedor": ("create_supplier_invoice", 0.90),
+        "saldo inicial": ("create_opening_balance", 0.90),
+        "reconciliacao bancaria": ("bank_reconciliation", 0.90),
+        "ativo fixo": ("create_asset", 0.88),
+        "ativar modulo": ("enable_modules", 0.88),
+        "atualizar departamento": ("update_department", 0.88),
+        "atualizar projeto": ("update_project", 0.88),
+        "atualizar produto": ("update_product", 0.88),
+        "nota de credito": ("create_credit_note", 0.88),
+        # --- German: more verbs ---
+        "neue abteilung": ("create_department", 0.88),
+        "neuer mitarbeiter": ("create_employee", 0.88),
+        "neuer kunde": ("create_customer", 0.88),
+        "neue rechnung": ("create_invoice", 0.88),
+        "neuer lieferant": ("create_supplier", 0.88),
+        "neues produkt": ("create_product", 0.88),
+        "neues projekt": ("create_project", 0.88),
+        "reisekostenabrechnung erstellen": ("create_travel_expense", 0.90),
+        "reisekostenabrechnung": ("create_travel_expense", 0.88),
+        "neue reisekostenabrechnung": ("create_travel_expense", 0.88),
+        "reisekostenabrechnung loschen": ("delete_travel_expense", 0.90),
+        "reisekostenabrechnung genehmigen": ("approve_travel_expense", 0.90),
+        "reisekostenabrechnung einreichen": ("deliver_travel_expense", 0.90),
+        "stunden erfassen": ("create_timesheet_entry", 0.88),
+        "stunden auf projekt": ("create_timesheet_entry", 0.90),
+        "zeiterfassung": ("create_timesheet_entry", 0.88),
+        "rechnung bezahlen": ("register_payment", 0.88),
+        "zahlungserinnerung": ("create_reminder", 0.88),
+        "mahnung": ("create_reminder", 0.85),
+        "gehaltszahlung": ("create_salary_payment", 0.88),
+        "internes projekt": ("create_internal_project", 0.90),
+        "kontaktperson erstellen": ("create_contact", 0.90),
+        "ansprechpartner": ("create_contact", 0.85),
+        "kunde und lieferant": ("create_customer_supplier", 0.90),
+        "lieferantenrechnung erstellen": ("create_supplier_invoice", 0.92),
+        "eingangsrechnung": ("create_supplier_invoice", 0.90),
+        "bankabstimmung": ("bank_reconciliation", 0.90),
+        "anlagevermoegen": ("create_asset", 0.88),
+        "modul aktivieren": ("enable_modules", 0.88),
+        "arbeitsvertrag": ("create_employment", 0.88),
+        "beleg stornieren": ("reverse_voucher", 0.90),
+        "stornierung": ("reverse_voucher", 0.85),
+        # --- French: more verbs ---
+        "nouveau departement": ("create_department", 0.88),
+        "nouvel employe": ("create_employee", 0.88),
+        "nouveau client": ("create_customer", 0.88),
+        "nouvelle facture": ("create_invoice", 0.88),
+        "nouveau fournisseur": ("create_supplier", 0.88),
+        "nouveau produit": ("create_product", 0.88),
+        "nouveau projet": ("create_project", 0.88),
+        "creer note de frais": ("create_travel_expense", 0.90),
+        "nouvelle note de frais": ("create_travel_expense", 0.88),
+        "approuver note de frais": ("approve_travel_expense", 0.90),
+        "soumettre note de frais": ("deliver_travel_expense", 0.90),
+        "heures sur projet": ("create_timesheet_entry", 0.90),
+        "enregistrer heures": ("create_timesheet_entry", 0.88),
+        "saisie de temps": ("create_timesheet_entry", 0.88),
+        "payer facture": ("register_payment", 0.88),
+        "rappel de paiement": ("create_reminder", 0.88),
+        "paiement de salaire": ("create_salary_payment", 0.88),
+        "versement de salaire": ("create_salary_payment", 0.88),
+        "projet interne": ("create_internal_project", 0.90),
+        "personne de contact": ("create_contact", 0.88),
+        "client et fournisseur": ("create_customer_supplier", 0.90),
+        "facture fournisseur": ("create_supplier_invoice", 0.90),
+        "facture d'achat": ("create_supplier_invoice", 0.88),
+        "rapprochement bancaire": ("bank_reconciliation", 0.90),
+        "actif immobilise": ("create_asset", 0.88),
+        "activer module": ("enable_modules", 0.88),
+        "contrat de travail": ("create_employment", 0.88),
+        "annuler piece comptable": ("reverse_voucher", 0.90),
+        "contrepasser": ("reverse_voucher", 0.88),
+        "mettre a jour departement": ("update_department", 0.88),
+        "mettre a jour projet": ("update_project", 0.88),
+        "piece comptable": ("create_voucher", 0.88),
+        # --- Nynorsk ---
+        "opprette tilsett": ("create_employee", 0.90),
+        "lag tilsett": ("create_employee", 0.88),
+        "ny tilsatt": ("create_employee", 0.88),
+        "opprett reiserekning": ("create_travel_expense", 0.90),
+        "lag reiserekning": ("create_travel_expense", 0.88),
+        "ny kontaktperson": ("create_contact", 0.88),
     }
     # Sort by phrase length descending so longer (more specific) matches win
     for phrase, (task_type, conf) in sorted(high_conf_keywords.items(), key=lambda x: len(x[0]), reverse=True):
@@ -780,9 +920,22 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     task_type, confidence = await classify_task(prompt)
     tier = get_tier(task_type)
 
-    # Unknown or missing template -> full LLM planning
-    if task_type == "unknown" or task_type not in TEMPLATES:
-        logger.info(f"{'Unknown' if task_type == 'unknown' else 'No template for ' + task_type} — full LLM planning")
+    # Unknown, missing template, or low confidence -> full LLM planning
+    # Low confidence means the classifier is unsure, so the template path may
+    # use a wrong template and score 0%.  LLM-generated plans are better than
+    # nothing for these cases.
+    use_llm_planning = (
+        task_type == "unknown"
+        or task_type not in TEMPLATES
+        or confidence < CONFIDENCE_THRESHOLD
+    )
+    if use_llm_planning:
+        reason = (
+            "unknown task type" if task_type == "unknown"
+            else f"no template for {task_type}" if task_type not in TEMPLATES
+            else f"low confidence ({confidence:.2f} < {CONFIDENCE_THRESHOLD})"
+        )
+        logger.info(f"{reason} — full LLM planning")
         plan = await _create_plan_full_llm(prompt, task_type, tier, confidence, files)
         logger.info(f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps")
         return plan
