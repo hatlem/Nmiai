@@ -1,8 +1,6 @@
 # tripletex/main.py
-# Architecture: Gemini 3.1 Pro with function calling (tool_agent.py)
-# The LLM decides which API calls to make, reads responses, and adapts.
-# No templates, no extraction, no step references.
-"""FastAPI agent — Gemini 3.1 Pro with function calling."""
+# Hybrid router: template engine for known tasks, tool agent for complex ones.
+"""FastAPI agent — hybrid router with template engine + Gemini tool agent."""
 import os
 import time
 import logging
@@ -14,6 +12,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from tool_agent import tool_agent_solve
+from agent import create_plan
+from executor import execute_plan
 from tripletex_client import TripletexClient
 
 import sys
@@ -40,6 +40,20 @@ ALLOWED_HOSTS = (
     "tx-proxy.ainm.no", "api.tripletex.dev", "api.tripletex.io",
     "tripletex.no", "tripletex.dev", "a.run.app",
 )
+
+# ── Router signals: if ALL words in a tuple match, route to tool agent ──
+TOOL_AGENT_SIGNALS = [
+    ("timer", "faktura"), ("timar", "faktura"),
+    ("hours", "invoice"), ("horas", "fatura"), ("horas", "factura"),
+    ("heures", "facture"), ("stunden", "rechnung"),
+    ("lønn", "bonus"), ("salary", "bonus"), ("løn", "bonus"),
+    ("salario", "bonus"), ("gehalt", "bonus"),
+    ("grunnlønn",), ("grunnløn",),
+    ("reverser", "betaling"), ("reverse", "payment"),
+    ("stornieren", "zahlung"), ("stornieren", "zurückgebucht"),
+    ("annulez", "paiement"), ("revierta", "pago"),
+    ("returnert", "banken"), ("zurückgebucht",), ("retourné",), ("devuelto",),
+]
 
 # ── In-memory stats ──
 STATS = {
@@ -108,14 +122,10 @@ def _record(task_type: str, success: bool, elapsed: float, api_calls: int,
     bt["total_time"] += elapsed
     bt["success" if success else "failed"] += 1
 
-    optimal = 0  # Templates removed — tool_agent handles everything dynamically
-    efficiency = None
-
     entry = {
         "time": datetime.now(timezone.utc).isoformat(),
         "type": task_type, "ok": success, "verified": verified,
         "elapsed": round(elapsed, 1), "api_calls": api_calls,
-        "optimal_calls": optimal, "efficiency": efficiency,
         "errors": errors, "repairs": repairs, "prompt": prompt[:500],
         "tier": tier, "confidence": round(confidence, 2),
         "extracted_keys": extracted_keys or [],
@@ -221,6 +231,15 @@ async def _ensure_bank_account(client: TripletexClient):
         logger.warning(f"Pre-flight bank account failed (non-fatal): {e}")
 
 
+def _should_use_tool_agent(prompt: str) -> bool:
+    """Keyword-based router. Returns True if the prompt needs the tool agent."""
+    prompt_lower = prompt.lower()
+    return any(
+        all(word in prompt_lower for word in signal)
+        for signal in TOOL_AGENT_SIGNALS
+    )
+
+
 @app.post("/solve")
 async def solve(request: Request):
     # Auth check
@@ -255,20 +274,56 @@ async def solve(request: Request):
     test_id = report_test("tripletex", prompt[:80], status="running")
 
     client = TripletexClient(base_url, session_token)
-    task_type = "tool_agent"
 
     try:
         # Pre-flight: ensure bank account exists (prevents invoice 422 errors)
         await _ensure_bank_account(client)
 
-        # Single approach: let Gemini 3.1 Pro solve it with function calling.
-        # No templates. No extraction. No step references. Just an LLM with API access.
-        agent_deadline = start + 280  # 280s = 300 - 20s buffer
-        success = await tool_agent_solve(prompt, files, client, agent_deadline)
+        # ── Router decision (keyword matching, no LLM call) ──
+        use_tool_agent = _should_use_tool_agent(prompt)
+
+        if use_tool_agent:
+            # ── TOOL AGENT PATH ──
+            logger.info("Router: TOOL AGENT path")
+            task_type = "tool_agent"
+            agent_deadline = start + 280  # 280s = 300 - 20s buffer
+            success = await tool_agent_solve(prompt, files, client, agent_deadline)
+
+        else:
+            # ── TEMPLATE PATH ──
+            task_type = "template"
+            try:
+                plan = await create_plan(prompt, files)
+                plan_task_type = plan.get("task_type", "unknown")
+                task_type = plan_task_type
+                logger.info(f"Router: TEMPLATE path -> {task_type}")
+
+                result = await execute_plan(plan, client, start)
+                success = result.get("success", False)
+
+                # Retry once if failed and we have time
+                if not success and (time.monotonic() - start) < 150:
+                    logger.warning(f"Template path failed for {task_type}, retrying with re-extraction")
+                    STATS["repairs"] += 1
+                    plan2 = await create_plan(prompt, files)
+                    result2 = await execute_plan(plan2, client, start, prior_results=result.get("results"))
+                    success = result2.get("success", False)
+
+            except Exception as tmpl_err:
+                logger.error(f"Template path error: {tmpl_err}", exc_info=True)
+                # Fallback to tool agent if template path crashes and we have time
+                remaining = 280 - (time.monotonic() - start)
+                if remaining > 60:
+                    logger.info(f"Router: TEMPLATE crashed, falling back to TOOL AGENT ({remaining:.0f}s left)")
+                    task_type = f"template_fallback_tool_agent"
+                    agent_deadline = start + 280
+                    success = await tool_agent_solve(prompt, files, client, agent_deadline)
+                else:
+                    raise
 
         elapsed = time.monotonic() - start
         logger.info(
-            f"Done in {elapsed:.1f}s | "
+            f"Done in {elapsed:.1f}s | path={task_type} | "
             f"success={success} | "
             f"api_calls={client.call_count} | errors={client.error_count}"
         )
@@ -278,8 +333,8 @@ async def solve(request: Request):
         update_test(
             test_id,
             status="passed" if success else "failed",
-            details=f"elapsed={elapsed:.1f}s calls={client.call_count}",
-            metadata={"api_calls": client.call_count, "errors": client.error_count},
+            details=f"path={task_type} elapsed={elapsed:.1f}s calls={client.call_count}",
+            metadata={"api_calls": client.call_count, "errors": client.error_count, "path": task_type},
         )
 
     except Exception as e:
@@ -293,4 +348,3 @@ async def solve(request: Request):
         await client.close()
 
     return JSONResponse({"status": "completed"})
-
