@@ -117,6 +117,30 @@ def resolve_refs(obj: Any, results: dict[int, dict]) -> Any:
     return obj
 
 
+def _fill_placeholders(obj: Any, extracted_values: dict) -> Any:
+    """Replace {{placeholder}} strings with values from extracted_values."""
+    if not extracted_values:
+        return obj
+    if isinstance(obj, str):
+        # Full match: "{{name}}" -> extracted_values["name"]
+        m = re.fullmatch(r'\{\{(\w+)\}\}', obj)
+        if m:
+            key = m.group(1)
+            if key in extracted_values:
+                return extracted_values[key]
+        # Partial match: "prefix {{name}} suffix" -> string interpolation
+        def _replacer(match):
+            key = match.group(1)
+            return str(extracted_values.get(key, match.group(0)))
+        result = re.sub(r'\{\{(\w+)\}\}', _replacer, obj)
+        return result
+    if isinstance(obj, dict):
+        return {k: _fill_placeholders(v, extracted_values) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_fill_placeholders(item, extracted_values) for item in obj]
+    return obj
+
+
 def _strip_unresolved_placeholders(obj: Any) -> Any:
     """Remove fields that still contain {{placeholder}}, unresolved $step_N values,
     or None values from resolved references (e.g. empty search results)."""
@@ -302,6 +326,7 @@ async def _execute_step(
     step: dict,
     results: dict[int, dict],
     client: TripletexClient,
+    extracted_values: dict | None = None,
 ) -> tuple[int, dict, bool]:
     """Execute a single step. Returns (index, response, ok)."""
     method = step.get("method", "GET").upper()
@@ -314,6 +339,13 @@ async def _execute_step(
 
     body = resolve_refs(step.get("body"), results) if step.get("body") else None
     params = resolve_refs(step.get("params"), results) if step.get("params") else None
+
+    # Fill {{placeholders}} with extracted values from the prompt
+    if extracted_values:
+        if body:
+            body = _fill_placeholders(body, extracted_values)
+        if params:
+            params = _fill_placeholders(params, extracted_values)
 
     if body:
         body = _strip_unresolved_placeholders(body)
@@ -440,6 +472,7 @@ async def execute_plan(
     DEADLINE = 280
 
     steps = plan.get("steps", [])
+    extracted_values = plan.get("extracted_values", {})
     results: dict[int, dict] = {}
     failed: list[tuple[int, dict]] = []
     skipped: list[tuple[int, str]] = []
@@ -497,7 +530,7 @@ async def execute_plan(
 
         if len(runnable) == 1:
             idx = runnable[0]
-            step_idx, response, ok = await _execute_step(idx, steps[idx], results, client)
+            step_idx, response, ok = await _execute_step(idx, steps[idx], results, client, extracted_values)
             results[step_idx] = response
             if not ok:
                 failed.append((step_idx, response))
@@ -505,7 +538,7 @@ async def execute_plan(
                 logger.error(f"Step {step_idx} failed: {response['status_code']}")
         else:
             logger.info(f"Executing steps {runnable} in parallel")
-            tasks = [_execute_step(idx, steps[idx], results, client) for idx in runnable]
+            tasks = [_execute_step(idx, steps[idx], results, client, extracted_values) for idx in runnable]
             step_results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for result_item in step_results:
