@@ -220,19 +220,23 @@ def _apply_defaults(steps: list[dict], values: dict, task_type: str) -> list[dic
         body = step.get("body")
         params = step.get("params")
 
-        if method != "POST" or body is None or not isinstance(body, dict):
+        if method not in ("POST", "PUT") or body is None or not isinstance(body, dict):
             continue
 
         # Employee defaults
-        if "/employee" in path and "/employment" not in path:
+        if "/employee" in path and "/employment" not in path and method == "POST":
             body.setdefault("userType", "STANDARD")
 
         # Customer defaults
-        if path.rstrip("/") == "/customer":
+        if path.rstrip("/") == "/customer" and method == "POST":
             body.setdefault("isCustomer", True)
 
+        # Project defaults — startDate is REQUIRED (422 without it)
+        if "/project" in path and method == "POST":
+            body.setdefault("startDate", values.get("startDate", today))
+
         # Order date defaults
-        if "/order" in path and "/orderline" not in path.lower():
+        if "/order" in path and "/orderline" not in path.lower() and method == "POST":
             body.setdefault("orderDate", values.get("orderDate", today))
             body.setdefault("deliveryDate", body.get("orderDate", today))
 
@@ -599,6 +603,17 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
     values = _clean_extracted_values(extracted_values)
 
     # Derive missing fields from available data
+    # Timesheet: ensure date >= project startDate (API rejects earlier dates)
+    if task_type == "create_timesheet_entry":
+        from datetime import date as _date
+        ts_date = values.get("date", _date.today().isoformat())
+        start_date = values.get("startDate") or values.get("project_startDate")
+        if start_date and ts_date < start_date:
+            values["date"] = start_date
+            logger.info(f"Timesheet: adjusted date to project startDate {start_date}")
+        elif not values.get("date"):
+            values["date"] = _date.today().isoformat()
+
     if "cost_amount" not in values:
         # Try to get from costs list or amount field
         costs = values.get("costs", [])

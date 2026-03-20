@@ -328,7 +328,7 @@ TEMPLATES: dict[str, dict] = {
         ),
         "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost"],
         "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel", "title", "cost_amount", "cost_description_if_any"],
-        "optimal_calls": 7,
+        "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
@@ -352,46 +352,29 @@ TEMPLATES: dict[str, dict] = {
                     "title": "{{title}}",
                 },
             },
-            {
-                "method": "GET",
-                "path": "/travelExpense/costCategory",
-                "params": {"fields": "id,description"},
-                "note": "Only include if costs are mentioned. Match category to cost type (e.g. 'Taxi' for taxi).",
-            },
-            {
-                "method": "GET",
-                "path": "/travelExpense/paymentType",
-                "params": {"fields": "id,description"},
-                "note": "Only include if costs are mentioned.",
-            },
-            {
-                "method": "GET",
-                "path": "/ledger/vatType",
-                "params": {"fields": "id,name,number"},
-                "note": "REQUIRED for costs. Get VAT types to find correct vatType ID. Use VAT type 0 (exempt) if unsure.",
-            },
-            {
-                "method": "GET",
-                "path": "/currency",
-                "params": {"code": "NOK", "fields": "id,code"},
-                "note": "Only include if costs are mentioned.",
-            },
-            {
-                "method": "POST",
-                "path": "/travelExpense/cost",
-                "body": {
-                    "travelExpense": {"id": "$step_1.id"},
-                    "vatType": {"id": "$step_4.values[0].id"},
-                    "paymentType": {"id": "$step_3.values[0].id"},
-                    "currency": {"id": "$step_5.values[0].id"},
-                    "costCategory": {"id": "{{matched_category_id_from_step_2}}"},
-                    "amountCurrencyIncVat": "{{cost_amount}}",
-                    "date": "{{departureDate}}",
-                    "comments": "{{cost_description_if_any}}",
-                },
-                "note": "One POST per cost item. REQUIRED: travelExpense, vatType, paymentType, amountCurrencyIncVat, date. FORBIDDEN: amount, title, description, name, rateCurrency, count.",
-            },
         ],
+        "conditional_steps": {
+            "if_cost_amount": [
+                {
+                    "method": "GET",
+                    "path": "/travelExpense/paymentType",
+                    "params": {"fields": "id,description"},
+                },
+                {
+                    "method": "POST",
+                    "path": "/travelExpense/cost",
+                    "body": {
+                        "travelExpense": {"id": "$step_1.id"},
+                        "vatType": {"id": 0},
+                        "paymentType": {"id": "$step_2.values[0].id"},
+                        "amountCurrencyIncVat": "{{cost_amount}}",
+                        "date": "{{departureDate}}",
+                        "comments": "{{cost_description_if_any}}",
+                    },
+                    "note": "vatType 0 = exempt (safe default, avoids VAT_NOT_REGISTERED). currency omitted (defaults to NOK).",
+                },
+            ],
+        },
     },
 
     "delete_travel_expense": {
@@ -871,9 +854,15 @@ TEMPLATES: dict[str, dict] = {
             "Create a purchase order to a supplier. IMPORTANT:\n"
             "- ourContact (employee ref) is REQUIRED on the purchase order.\n"
             "- orderLines CANNOT be included in the POST /purchaseOrder body (they need a purchaseOrder reference).\n"
-            "- Solution: Create the purchase order first WITHOUT orderLines, then POST each orderLine separately.\n"
-            "- FORBIDDEN FIELDS on POST /purchaseOrder: status, currency, transportType, orderLineSorting — these are read-only and cause 'Oppdatering av dette feltet er ikke tillatt' (422).\n"
-            "- The POST /purchaseOrder body must be MINIMAL: only supplier.id, ourContact.id, and deliveryDate. Nothing else.\n"
+            "- Solution: Create the purchase order first WITHOUT orderLines, then POST each orderLine separately via POST /purchaseOrder/orderline.\n"
+            "VALID POST /purchaseOrder body fields: supplier.id (required), ourContact.id (required), deliveryDate (required). NOTHING ELSE.\n"
+            "FORBIDDEN FIELDS that cause 422 'Oppdatering av dette feltet er ikke tillatt':\n"
+            "  - status (read-only)\n"
+            "  - currency (read-only)\n"
+            "  - transportType (read-only)\n"
+            "  - orderLineSorting (read-only)\n"
+            "  - orderLines (must be added via separate POST /purchaseOrder/orderline)\n"
+            "  - receiverEmail, orderDate, reference, comment, number (all forbidden)\n"
             "- NOTE: POST /purchaseOrder requires moduleOrderOut to be enabled. If you get 'Oppdatering av dette feltet er ikke tillatt' on ALL fields, the module is not active.\n"
             "  Competition sandboxes have this module enabled."
         ),
@@ -979,7 +968,9 @@ TEMPLATES: dict[str, dict] = {
             "Register hours/timesheet entry for an employee on a project/activity.\n"
             "IMPORTANT: The timesheet date MUST be on or after the project's startDate. "
             "If the prompt doesn't specify a date, use today's date but ensure it falls within the project's date range.\n"
-            "Use an activity where isProjectActivity=true (e.g. 'Fakturerbart arbeid' or 'Prosjektadministrasjon')."
+            "Use an activity where isProjectActivity=true (e.g. 'Fakturerbart arbeid' or 'Prosjektadministrasjon').\n"
+            "VALID POST /timesheet/entry body fields: employee, project, activity, date, hours, comment.\n"
+            "FORBIDDEN fields that cause 422: description, title, name, type. Use 'comment' for any text, NOT 'description'."
         ),
         "relevant_schemas": ["Employee", "Project", "Activity"],
         "extract_fields": ["employee_name", "project_name", "activity_name", "date", "hours", "comment"],
@@ -993,13 +984,23 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "GET",
                 "path": "/project",
-                "params": {"name": "{{project_name}}", "fields": "id,name,startDate,endDate"},
+                "params": {"name": "{{project_name}}", "fields": "id,name,startDate,endDate,version"},
             },
             {
                 "method": "GET",
                 "path": "/activity",
                 "params": {"fields": "id,name,isProjectActivity"},
                 "note": "Pick an activity where isProjectActivity=true",
+            },
+            {
+                "method": "PUT",
+                "path": "/project/$step_1.values[0].id",
+                "body": {
+                    "id": "$step_1.values[0].id",
+                    "version": "$step_1.values[0].version",
+                    "startDate": "{{date}}",
+                },
+                "note": "Ensure project startDate <= timesheet date. If already OK, this is a no-op update.",
             },
             {
                 "method": "POST",
@@ -1153,12 +1154,14 @@ TEMPLATES: dict[str, dict] = {
         "description": (
             "Create a payment reminder (purring) for an overdue invoice.\n"
             "STEP 1: GET the invoice to check amountOutstanding > 0 (cannot remind on paid invoices).\n"
-            "STEP 2: PUT /:createReminder with REQUIRED params: type, date, dispatchType.\n"
-            "The param name is 'dispatchType' (NOT sendMethod, NOT sendType).\n"
-            "Valid dispatchTypes: EMAIL, OWN_PRINTER, NETS_PRINT, SMS, SFTP, API.\n"
+            "STEP 2: PUT /:createReminder with REQUIRED query params: type, date, dispatchType.\n"
+            "CRITICAL: The param name is 'dispatchType' — NOT 'sendMethod', NOT 'sendType', NOT 'sendTypes'.\n"
+            "Using wrong param names (sendType etc.) causes 'Minst en sendetype ma oppgis' error.\n"
+            "Valid dispatchTypes: EMAIL, SMS, LETTER.\n"
             "Valid types: SOFT_REMINDER, REMINDER, NOTICE_OF_DEBT_COLLECTION.\n"
             "NOTE: date must be >= invoice due date, otherwise you get 422.\n"
-            "NOTE: Cannot create reminder for a paid invoice (amountOutstanding == 0)."
+            "NOTE: Cannot create reminder for a paid invoice (amountOutstanding == 0).\n"
+            "All params go in query string, NOT in the request body."
         ),
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "date", "comment"],
@@ -1188,9 +1191,14 @@ TEMPLATES: dict[str, dict] = {
     "create_employment": {
         "description": (
             "Create or update employment details for an employee (ansettelsesforhold).\n"
-            "POST /employee/employment body ONLY accepts: employee.id and startDate.\n"
-            "FORBIDDEN FIELDS on /employee/employment that cause 422 'Feltet eksisterer ikke': "
-            "employmentType, percentageOfFullTimeEquivalent, userType, type. Do NOT include ANY of these.\n"
+            "VALID POST /employee/employment body fields: employee (required), startDate (required), endDate (optional), division (optional), employmentDetails (optional).\n"
+            "FORBIDDEN FIELDS that cause 422 'Feltet eksisterer ikke':\n"
+            "  - employmentType (DOES NOT EXIST)\n"
+            "  - percentageOfFullTimeEquivalent (DOES NOT EXIST)\n"
+            "  - userType (DOES NOT EXIST — this is an Employee field, NOT an Employment field)\n"
+            "  - type (DOES NOT EXIST)\n"
+            "  - jobTitle (DOES NOT EXIST)\n"
+            "Do NOT include ANY of these fields. The body must contain ONLY the valid fields listed above.\n"
             "Employee MUST have dateOfBirth set before employment can be created. If dateOfBirth is null, "
             "PUT /employee to set it (use date from prompt or default 1990-01-01) BEFORE creating employment."
         ),
@@ -1272,8 +1280,11 @@ TEMPLATES: dict[str, dict] = {
     "create_invoice_with_payment": {
         "description": (
             "Create an invoice and immediately register full payment on it.\n"
-            "CRITICAL: paidAmount MUST equal the total invoice amount (quantity × unit price for all lines). "
-            "If the prompt says '1 stk á 5000 kr', paidAmount = 5000. For '2 stk á 3000 kr', paidAmount = 6000.\n"
+            "CRITICAL: The POST /order body MUST include 'orderLines' as an array. An order without orderLines\n"
+            "produces a 0 kr invoice and payment will fail. Always include at least one orderLine:\n"
+            "[{\"description\": \"...\", \"count\": N, \"unitPriceExcludingVatCurrency\": X}]\n"
+            "CRITICAL: paidAmount MUST equal the total invoice amount (quantity x unit price for all lines). "
+            "If the prompt says '1 stk a 5000 kr', paidAmount = 5000. For '2 stk a 3000 kr', paidAmount = 6000.\n"
             "The /:invoice action returns the invoice. Use $step_3.id for the /:payment path."
         ),
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
@@ -1308,7 +1319,7 @@ TEMPLATES: dict[str, dict] = {
                     "deliveryDate": "{{deliveryDate}}",
                     "orderLines": "{{orderLines}}",
                 },
-                "note": "Include orderLines as array in order body: [{description, count, unitPriceExcludingVatCurrency}]",
+                "note": "MANDATORY: orderLines MUST be included in this body. Without orderLines the invoice will be 0 kr. Format: [{\"description\": \"...\", \"count\": N, \"unitPriceExcludingVatCurrency\": X}]. NEVER omit orderLines.",
             },
             {
                 "method": "PUT",
