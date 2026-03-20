@@ -15,7 +15,7 @@ TEMPLATES: dict[str, dict] = {
     "create_employee": {
         "description": "Create an employee, optionally assign a role/entitlement. If departments exist, include department in body.",
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["firstName", "lastName", "email", "dateOfBirth", "phoneNumberMobile", "role"],
+        "extract_fields": ["firstName", "lastName", "email", "dateOfBirth", "phoneNumberMobile", "role", "employeeNumber", "addressLine1", "postalCode", "city"],
         "optimal_calls": 2,
         "steps": [
             {
@@ -32,8 +32,14 @@ TEMPLATES: dict[str, dict] = {
                     "email": "{{email}}",
                     "dateOfBirth": "{{dateOfBirth}}",
                     "phoneNumberMobile": "{{phoneNumberMobile}}",
+                    "employeeNumber": "{{employeeNumber}}",
                     "userType": "STANDARD",
                     "department": {"id": "$step_0.values[0].id"},
+                    "address": {
+                        "addressLine1": "{{addressLine1}}",
+                        "postalCode": "{{postalCode}}",
+                        "city": "{{city}}",
+                    },
                 },
             },
         ],
@@ -70,7 +76,7 @@ TEMPLATES: dict[str, dict] = {
     "create_customer": {
         "description": "Create a customer with contact details and optional address",
         "relevant_schemas": ["Customer"],
-        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "isSupplier", "postalAddress"],
+        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "phoneNumberMobile", "description", "website", "isPrivateIndividual", "isSupplier", "addressLine1", "postalCode", "city"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -81,6 +87,10 @@ TEMPLATES: dict[str, dict] = {
                     "isCustomer": True,
                     "email": "{{email}}",
                     "phoneNumber": "{{phoneNumber}}",
+                    "phoneNumberMobile": "{{phoneNumberMobile}}",
+                    "description": "{{description}}",
+                    "website": "{{website}}",
+                    "isPrivateIndividual": "{{isPrivateIndividual}}",
                     "organizationNumber": "{{organizationNumber}}",
                     "postalAddress": {
                         "addressLine1": "{{addressLine1}}",
@@ -119,7 +129,7 @@ TEMPLATES: dict[str, dict] = {
     "create_invoice": {
         "description": "Create an invoice: customer -> order with orderLines -> invoice. NOTE: Company must have bankAccountNumber registered. If 422 about 'bankkontonummer', the sandbox is not properly set up.",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
-        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "orderDate", "deliveryDate"],
+        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "customer_phoneNumberMobile", "customer_description", "customer_website", "customer_isPrivateIndividual", "customer_addressLine1", "customer_postalCode", "customer_city", "orderDate", "deliveryDate"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -131,6 +141,15 @@ TEMPLATES: dict[str, dict] = {
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
                     "phoneNumber": "{{customer_phoneNumber}}",
+                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
+                    "description": "{{customer_description}}",
+                    "website": "{{customer_website}}",
+                    "isPrivateIndividual": "{{customer_isPrivateIndividual}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
                 },
             },
             {
@@ -424,7 +443,7 @@ TEMPLATES: dict[str, dict] = {
             "Steps 1 (POST /customer) and 2 (PUT entitlement) can run in parallel since they have no dependency on each other."
         ),
         "relevant_schemas": ["Project", "Customer"],
-        "extract_fields": ["project_name", "customer_name", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "startDate", "endDate", "isInternal", "projectManager", "project_description"],
+        "extract_fields": ["project_name", "customer_name", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "customer_phoneNumberMobile", "customer_description", "customer_website", "customer_isPrivateIndividual", "customer_addressLine1", "customer_postalCode", "customer_city", "startDate", "endDate", "isInternal", "projectManager", "project_description"],
         "optimal_calls": 4,
         "steps": [
             {
@@ -442,6 +461,15 @@ TEMPLATES: dict[str, dict] = {
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
                     "phoneNumber": "{{customer_phoneNumber}}",
+                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
+                    "description": "{{customer_description}}",
+                    "website": "{{customer_website}}",
+                    "isPrivateIndividual": "{{customer_isPrivateIndividual}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
                 },
                 "note": "Can run in parallel with step 2 (entitlement grant).",
             },
@@ -586,7 +614,7 @@ TEMPLATES: dict[str, dict] = {
     "create_supplier": {
         "description": "Create a supplier with optional address",
         "relevant_schemas": ["Supplier"],
-        "extract_fields": ["name", "organizationNumber", "email", "phoneNumber", "postalAddress"],
+        "extract_fields": ["name", "organizationNumber", "email", "phoneNumber", "phoneNumberMobile", "description", "addressLine1", "postalCode", "city"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -596,6 +624,8 @@ TEMPLATES: dict[str, dict] = {
                     "name": "{{name}}",
                     "email": "{{email}}",
                     "phoneNumber": "{{phoneNumber}}",
+                    "phoneNumberMobile": "{{phoneNumberMobile}}",
+                    "description": "{{description}}",
                     "organizationNumber": "{{organizationNumber}}",
                     "postalAddress": {
                         "addressLine1": "{{addressLine1}}",
@@ -706,24 +736,32 @@ TEMPLATES: dict[str, dict] = {
             "For vouchers with MORE than 2 accounts, add additional GET /ledger/account steps. "
             "Each posting needs the account ID from the GET response. If parsing a file, "
             "each line in the file becomes a posting — parse EVERY line.\n"
-            "CRITICAL posting format: each posting is {\"account\": {\"id\": <account_id>}, \"amountGross\": <amount>}. "
-            "Positive amountGross = debit, negative = credit. Do NOT include 'row', 'guiRow', or any other fields — "
-            "they are system-generated and will cause a 422 error."
+            "POSTING FORMAT: Each posting MUST have 'row' (starting from 1, NEVER 0), 'account.id', "
+            "'amountGross', and 'amountGrossCurrency' (same value as amountGross).\n"
+            "VATTYPE: Some accounts (e.g. 3000 Salgsinntekt, 3100) are locked to a specific VAT code. "
+            "If you get a 422 about 'vatType' or 'mva-kode', include vatType in the posting. "
+            "For revenue accounts (3xxx): GET /ledger/vatType first, find the one matching the account's requirement."
         ),
         "relevant_schemas": ["Voucher", "Posting", "Account"],
         "extract_fields": ["date", "description", "postings_with_account_numbers", "debit_account_number", "credit_account_number", "debit_amount", "credit_amount"],
-        "optimal_calls": 3,
+        "optimal_calls": 4,
         "steps": [
             {
                 "method": "GET",
-                "path": "/ledger/account",
-                "params": {"number": "{{debit_account_number}}", "fields": "id,number,name"},
-                "note": "Add one GET step per unique account number. For 3+ accounts, add more GET steps.",
+                "path": "/ledger/vatType",
+                "params": {"fields": "id,number,name"},
+                "note": "Get vatType IDs. Key: id for number 0=no VAT, 3=outgoing 25%, 1=incoming 25%. Revenue accts (3xxx) need vatType 3.",
             },
             {
                 "method": "GET",
                 "path": "/ledger/account",
-                "params": {"number": "{{credit_account_number}}", "fields": "id,number,name"},
+                "params": {"number": "{{debit_account_number}}", "fields": "id,number,name,vatType"},
+                "note": "Add one GET step per unique account number. Check vatType field to see if locked.",
+            },
+            {
+                "method": "GET",
+                "path": "/ledger/account",
+                "params": {"number": "{{credit_account_number}}", "fields": "id,number,name,vatType"},
             },
             {
                 "method": "POST",
@@ -732,11 +770,11 @@ TEMPLATES: dict[str, dict] = {
                     "date": "{{date}}",
                     "description": "{{description}}",
                     "postings": [
-                        {"account": {"id": "$step_0.values[0].id"}, "amountGross": "{{debit_amount}}"},
-                        {"account": {"id": "$step_1.values[0].id"}, "amountGross": "-{{credit_amount}}"},
+                        {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{debit_amount}}", "amountGrossCurrency": "{{debit_amount}}", "vatType": {"id": "{{vatType_id_for_debit_account_or_0}}"}},
+                        {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{credit_amount}}", "amountGrossCurrency": "-{{credit_amount}}", "vatType": {"id": "{{vatType_id_for_credit_account_or_0}}"}},
                     ],
                 },
-                "note": "Each posting ONLY has 'account.id' and 'amountGross'. No 'row', 'guiRow', or other fields.",
+                "note": "Row MUST start from 1. Include vatType from step 0 matching account's requirement. Bank (1xxx)->0, Revenue (3xxx)->3.",
             },
         ],
     },
@@ -775,7 +813,7 @@ TEMPLATES: dict[str, dict] = {
     "create_supplier_invoice": {
         "description": "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, due date, and voucher postings.",
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
-        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
+        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
         "optimal_calls": 4,
         "steps": [
             {
@@ -786,6 +824,13 @@ TEMPLATES: dict[str, dict] = {
                     "organizationNumber": "{{supplier_organizationNumber}}",
                     "email": "{{supplier_email}}",
                     "phoneNumber": "{{supplier_phoneNumber}}",
+                    "phoneNumberMobile": "{{supplier_phoneNumberMobile}}",
+                    "description": "{{supplier_description}}",
+                    "postalAddress": {
+                        "addressLine1": "{{supplier_addressLine1}}",
+                        "postalCode": "{{supplier_postalCode}}",
+                        "city": "{{supplier_city}}",
+                    },
                 },
             },
             {
@@ -825,7 +870,7 @@ TEMPLATES: dict[str, dict] = {
     "create_purchase_order": {
         "description": "Create a purchase order to a supplier",
         "relevant_schemas": ["Supplier"],
-        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "deliveryDate", "orderLines", "ourContact"],
+        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "deliveryDate", "orderLines", "ourContact"],
         "optimal_calls": 2,
         "steps": [
             {
@@ -836,6 +881,13 @@ TEMPLATES: dict[str, dict] = {
                     "organizationNumber": "{{supplier_organizationNumber}}",
                     "email": "{{supplier_email}}",
                     "phoneNumber": "{{supplier_phoneNumber}}",
+                    "phoneNumberMobile": "{{supplier_phoneNumberMobile}}",
+                    "description": "{{supplier_description}}",
+                    "postalAddress": {
+                        "addressLine1": "{{supplier_addressLine1}}",
+                        "postalCode": "{{supplier_postalCode}}",
+                        "city": "{{supplier_city}}",
+                    },
                 },
             },
             {
@@ -1020,7 +1072,7 @@ TEMPLATES: dict[str, dict] = {
     "create_customer_supplier": {
         "description": "Create an entity that is both customer and supplier, with optional address",
         "relevant_schemas": ["Customer", "Supplier"],
-        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "postalAddress"],
+        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "phoneNumberMobile", "description", "website", "isPrivateIndividual", "addressLine1", "postalCode", "city"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -1032,6 +1084,10 @@ TEMPLATES: dict[str, dict] = {
                     "isSupplier": True,
                     "email": "{{email}}",
                     "phoneNumber": "{{phoneNumber}}",
+                    "phoneNumberMobile": "{{phoneNumberMobile}}",
+                    "description": "{{description}}",
+                    "website": "{{website}}",
+                    "isPrivateIndividual": "{{isPrivateIndividual}}",
                     "organizationNumber": "{{organizationNumber}}",
                     "postalAddress": {
                         "addressLine1": "{{addressLine1}}",
@@ -1138,6 +1194,8 @@ TEMPLATES: dict[str, dict] = {
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": [
             "customer_name", "customer_email", "customer_organizationNumber", "customer_phoneNumber",
+            "customer_phoneNumberMobile", "customer_description", "customer_website", "customer_isPrivateIndividual",
+            "customer_addressLine1", "customer_postalCode", "customer_city",
             "orderLines", "invoiceDate", "invoiceDueDate",
             "paymentDate", "paymentAmount", "orderDate", "deliveryDate",
         ],
@@ -1157,6 +1215,15 @@ TEMPLATES: dict[str, dict] = {
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
                     "phoneNumber": "{{customer_phoneNumber}}",
+                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
+                    "description": "{{customer_description}}",
+                    "website": "{{customer_website}}",
+                    "isPrivateIndividual": "{{customer_isPrivateIndividual}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
                 },
             },
             {
