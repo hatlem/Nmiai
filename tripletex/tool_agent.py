@@ -161,7 +161,7 @@ STRATEGY:
 ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
 - /orderline (orderLines go IN POST /order body, NOT as separate endpoint)
-- POST /supplierInvoice (returns 500 — use POST /ledger/voucher with supplier ref instead)
+- POST /supplierInvoice (ALWAYS returns 500 on ALL sandboxes — use POST /ledger/voucher with supplier ref instead. NEVER try /supplierInvoice)
 - PUT /company/modules (returns 405)
 - PUT /salary/payslip/ID (returns 405 — payslips are READ-ONLY after creation)
 - PUT /salary/transaction/ID (returns 405 — transactions are READ-ONLY)
@@ -432,15 +432,29 @@ Each posting needs:
 
     "supplier_invoice": """\
 ## Supplier Invoice (leverandørfaktura)
-1. POST /supplier (create supplier if needed)
-2. GET /ledger/account?number=X&fields=id for each account
-3. POST /supplierInvoice {"invoiceNumber":"X", "invoiceDate":"YYYY-MM-DD", "supplier":{"id":X},
-     "voucher":{"date":"YYYY-MM-DD", "description":"X", "postings":[
-       {"row":1, "account":{"id":EXPENSE_ACCT_ID}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{"id":1}},
-       {"row":2, "account":{"id":SUPPLIER_ACCT_ID}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{"id":0}}
-     ]}}
-- DO NOT include: orderDate, deliveryDate, dueDate (cause 422)
-- Voucher postings follow same rules as regular vouchers (sum to zero, row from 1)
+IMPORTANT: POST /supplierInvoice ALWAYS returns 500. Use POST /ledger/voucher instead!
+
+Steps:
+1. POST /supplier {"name":"X", "organizationNumber":"X"} — create supplier
+2. GET /ledger/account?number=EXPENSE_ACCT&fields=id — get expense account (e.g. 6500, 6700, 7100)
+3. GET /ledger/account?number=2400&fields=id — get accounts payable (leverandørgjeld)
+4. POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"Leverandørfaktura INV-XXX fra SupplierName",
+     "postings":[
+       {"row":1, "account":{"id":EXPENSE_ACCT_ID}, "amountGross":NET_AMOUNT, "amountGrossCurrency":NET_AMOUNT, "vatType":{"id":1}, "supplier":{"id":SUPPLIER_ID}},
+       {"row":2, "account":{"id":2400_ACCT_ID}, "amountGross":-GROSS_AMOUNT, "amountGrossCurrency":-GROSS_AMOUNT, "vatType":{"id":0}, "supplier":{"id":SUPPLIER_ID}}
+     ]}
+
+TTC/inkl MVA amounts:
+- If amount is TTC (inkl mva/including VAT): expense posting amountGross = amount / 1.25 (net)
+- AP posting (2400) amountGross = -amount (full gross, negative)
+- Tripletex adds 25% VAT automatically on vatType:1 postings
+- Example: 61200 TTC → expense: 48960 (61200/1.25), AP: -61200
+
+vatType mapping:
+- Expense accounts 4xxx,6xxx,7xxx → vatType:1 (incoming VAT 25%)
+- AP account 2400 → vatType:0 (no VAT)
+
+NEVER use POST /supplierInvoice — it returns 500!
 """,
 
     "purchase_order": """\
