@@ -171,10 +171,12 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         return "delete_entity", 0.90
 
     # Combined: customer + invoice = invoice task (customer created as part of it)
+    # But NOT if the prompt is primarily about a project (prosjekt/proyecto/projekt/projet/projeto)
     if re.search(r'\b(faktura|invoice|factura|rechnung|facture)\b', prompt_lower) and re.search(r'\b(kunde|customer|client|cliente)\b', prompt_lower):
-        if 'eksisterende' in prompt_lower or 'existing' in prompt_lower or 'existente' in prompt_lower or 'bestehenden' in prompt_lower:
-            return "create_invoice_existing_customer", 0.88
-        return "create_invoice", 0.88
+        if not re.search(r'\b(prosjekt|proyecto|projekt|projet|projeto|project)\b', prompt_lower):
+            if 'eksisterende' in prompt_lower or 'existing' in prompt_lower or 'existente' in prompt_lower or 'bestehenden' in prompt_lower:
+                return "create_invoice_existing_customer", 0.88
+            return "create_invoice", 0.88
 
     high_conf_keywords = {
         "faktura for eksisterende": ("create_invoice_existing_customer", 0.95),

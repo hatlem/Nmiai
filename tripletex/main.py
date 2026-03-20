@@ -135,6 +135,37 @@ async def root():
     return {"status": "ok", "dashboard": "http://localhost:8090", "endpoints": ["/health", "/stats", "/history", "/solve"]}
 
 
+async def _ensure_bank_account(client: TripletexClient):
+    """Set bankAccountNumber on account 1920 if not already set.
+    Competition sandboxes don't have this pre-configured, causing invoice 422."""
+    try:
+        resp = await client.get("/ledger/account", params={"number": "1920", "fields": "id,bankAccountNumber,version"})
+        if not resp.get("ok"):
+            return
+        data = resp.get("data", {})
+        values = data.get("values", [])
+        if not values:
+            inner = data.get("value", {})
+            if isinstance(inner, dict):
+                values = inner.get("values", [])
+        if not values:
+            return
+        acct = values[0]
+        if acct.get("bankAccountNumber"):
+            return  # Already set
+        logger.info("Pre-flight: setting bankAccountNumber on account 1920")
+        await client.put(
+            f"/ledger/account/{acct['id']}",
+            body={
+                "id": acct["id"],
+                "version": acct.get("version", 0),
+                "bankAccountNumber": "12345678903",
+            },
+        )
+    except Exception as e:
+        logger.warning(f"Pre-flight bank account failed (non-fatal): {e}")
+
+
 @app.post("/solve")
 async def solve(request: Request):
     # Auth check
@@ -163,7 +194,7 @@ async def solve(request: Request):
 
     files = body.get("files", [])
     STATS["last_proxy"] = urlparse(base_url).hostname or ""
-    logger.info(f"Task [{urlparse(base_url).hostname}]: {prompt[:120]}...")
+    logger.info(f"Task [{urlparse(base_url).hostname}]: {prompt}")
 
     # Report test start to dashboard
     test_id = report_test("tripletex", prompt[:80], status="running")
@@ -177,6 +208,10 @@ async def solve(request: Request):
         plan = await create_plan(prompt, files)
         task_type = plan.get("task_type", task_type)
         logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
+
+        # 2. Pre-flight: ensure bank account for invoice tasks
+        if "invoice" in task_type and "supplier" not in task_type:
+            await _ensure_bank_account(client)
 
         # 3. Execute
         result = await execute_plan(plan, client, start)
