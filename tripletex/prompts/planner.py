@@ -55,17 +55,49 @@ Rules:
 - "ekskl. mva" -> use amount as priceExcludingVatCurrency. "inkl. mva" -> priceIncludingVatCurrency.
 - Booleans as true/false.
 - Preserve special chars exactly: Ø, Æ, Å, ñ, ü, etc.
-- Phone numbers: preserve as-is from prompt.
+- Phone numbers: preserve as-is from prompt. "telefon"/"tlf"/"mobil" -> phoneNumberMobile for employees, phoneNumber for customers.
 - Addresses: extract addressLine1, postalCode, city as separate keys.
 - For update tasks: put changed fields in a "fields_to_update" dict.
 - For orderLines: array of {{"description": "...", "count": N, "unitPriceExcludingVatCurrency": N}}.
 - For voucher/opening balance: "accounts" list of {{"number": "1920", "amount": 100000}} (positive=debit, negative=credit).
 - If files attached, extract ALL data from them (every line, amount, account).
-- Omit fields not mentioned in the prompt.
+- Omit fields not mentioned in the prompt. But NEVER omit fields that ARE mentioned — every data point in the prompt MUST appear in the output.
+- CRITICAL: Every field mentioned in the prompt MUST be extracted. Missing fields = lost points.
+  A prompt like "org.nr 912345678" -> organizationNumber: "912345678"
+  A prompt like "telefon 55112233" -> phoneNumber: "55112233" (customer) or phoneNumberMobile: "55112233" (employee)
+  A prompt like "født 1990-05-15" -> dateOfBirth: "1990-05-15"
+  A prompt like "adresse Strandgata 12, 6800 Førde" -> addressLine1: "Strandgata 12", postalCode: "6800", city: "Førde"
 
 Example:
-Task: "Opprett ansatt Kari Nordmann, kari@test.no, tlf 99887766, født 1990-05-15"
-Output: {{"firstName": "Kari", "lastName": "Nordmann", "email": "kari@test.no", "phoneNumberMobile": "99887766", "dateOfBirth": "1990-05-15"}}"""
+Task: "Opprett ansatt Kari Nordmann, kari@test.no, tlf 99887766, født 1990-05-15, Storgata 1, 0123 Oslo"
+Output: {{"firstName": "Kari", "lastName": "Nordmann", "email": "kari@test.no", "phoneNumberMobile": "99887766", "dateOfBirth": "1990-05-15", "addressLine1": "Storgata 1", "postalCode": "0123", "city": "Oslo"}}
+
+SCORING: Every field in the prompt that you miss = lost points. The scorer checks EVERY mentioned detail.
+
+FIELD EXTRACTION CHECKLIST — scan the prompt for ALL of these:
+- Name/company name: ALWAYS extract (name, firstName+lastName)
+- organizationNumber / org.nr / org.nº / Organisationsnummer: 9-digit number
+- email / e-post / epost / E-Mail / correo: email address
+- phoneNumber / telefon / tlf / mobil / Telefon / teléfono: phone number
+- dateOfBirth / født / geboren / nacido: birth date
+- addressLine1 + postalCode + city: ANY address mentioned → extract ALL 3 parts
+- description / beskrivelse: ANY description or note text
+- departmentNumber / avdelingsnummer: department number
+- number / produktnummer / number: product/item number
+- startDate + endDate: project dates
+- role: ALL_PRIVILEGES/ACCOUNTANT/INVOICING_MANAGER/PERSONELL_MANAGER/AUDITOR/DEPARTMENT_LEADER
+- invoiceDueDate / forfallsdato: if not given, calculate as invoiceDate + 14 days
+- deliveryDate / leveringsdato: if not given, use orderDate
+- departureFrom / fra / from: departure city for travel
+- title: travel expense title (use purpose if not explicit)
+
+COMMON EXTRACTION MISTAKES TO AVOID:
+- "org.nr 912345678" → organizationNumber: "912345678" (NOT "org.nr 912345678")
+- "tlf 55112233" → phoneNumber: "55112233" or phoneNumberMobile: "55112233"
+- "Strandgata 12, 6800 Førde" → addressLine1: "Strandgata 12", postalCode: "6800", city: "Førde"
+- "avdelingsnummer 200" → departmentNumber: "200" (string, not int)
+- "kontoadministrator" → role: "ALL_PRIVILEGES"
+- "pris 4999 kr eks mva" → priceExcludingVatCurrency: 4999"""
 
 
 def build_repair_extraction_prompt(task_type: str, original_prompt: str, errors: list[dict]) -> str:
