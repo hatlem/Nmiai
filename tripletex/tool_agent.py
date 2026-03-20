@@ -170,9 +170,9 @@ ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - GET /salary/payslip/ID/line (returns 404)
 
 MANDATORY FIELD RULES (violating these = instant 422):
-- POST /employee: MUST include userType:"STANDARD" AND department:{"id":X} (GET /department first!)
+- POST /employee: MUST include userType:"STANDARD" AND department:{{"id":X}} (GET /department first!)
 - POST /travelExpense: isDayTrip and isForeignTravel go INSIDE travelDetails (NOT top-level body)
-- POST /travelExpense/cost: amountCurrencyIncVat is REQUIRED. costCategory must be {"id":X} object (NOT string)
+- POST /travelExpense/cost: amountCurrencyIncVat is REQUIRED. costCategory must be {{"id":X}} object (NOT string)
 - GET /invoice: MUST include invoiceDateFrom AND invoiceDateTo params (both required)
 - PUT /:invoice: MUST include invoiceDueDate param (invoiceDate + 14 days if not specified)
 - PUT /:reverse: date goes as QUERY param (not body)
@@ -200,7 +200,7 @@ POST /customer {"name":"Acme AS", "isCustomer":true, "email":"post@acme.no", "or
 
     "employee": """\
 ## Employee
-POST /employee {"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth":"1990-01-01", "phoneNumberMobile":"99887766", "userType":"STANDARD", "department":{"id":DEPT_ID}}
+POST /employee {"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth":"1990-01-01", "phoneNumberMobile":"99887766", "userType":"STANDARD", "department":{{"id":DEPT_ID}}}
 - MUST GET /department?fields=id,name first and include department.id (required field!)
 - Phone field is phoneNumberMobile (NOT phoneNumber, NOT mobileNumber — these cause 422)
 - email field is immutable after creation
@@ -214,7 +214,7 @@ Role/admin privileges:
 
     "employment": """\
 ## Employment (ansettelse)
-POST /employee/employment {"employee":{"id":X}, "startDate":"2026-01-01"}
+POST /employee/employment {"employee":{{"id":X}}, "startDate":"2026-01-01"}
 - ONLY these 2 fields — NO employmentType, NO percentageOfFullTimeEquivalent, NO userType
 - startDate is required
 - employee.id must reference an existing employee
@@ -223,7 +223,7 @@ POST /employee/employment {"employee":{"id":X}, "startDate":"2026-01-01"}
     "invoice": """\
 ## Invoice (faktura) — Create via Order
 1. POST /customer (if new) — see get_api_guide("customer")
-2. POST /order {"customer":{"id":X}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"Item", "count":1, "unitPriceExcludingVatCurrency":1000}]}
+2. POST /order {"customer":{{"id":X}}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"Item", "count":1, "unitPriceExcludingVatCurrency":1000}]}
    - BOTH orderDate AND deliveryDate are REQUIRED
    - deliveryDate defaults to orderDate if not specified in task
 3. PUT /order/ORDER_ID/:invoice?sendToCustomer=false&invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD
@@ -260,14 +260,14 @@ TTC/inkl mva amounts: for postings with vatType 1 or 3, amountGross should be th
     "travel_expense": """\
 ## Travel Expense (reiseregning)
 1. GET /employee or POST /employee (need employee.id)
-2. POST /travelExpense {"title":"X", "employee":{"id":X}, "travelDetails":{"departureDate":"YYYY-MM-DD", "returnDate":"YYYY-MM-DD", "departureFrom":"Oslo", "destination":"Bergen", "purpose":"X", "isDayTrip":false, "isForeignTravel":false}}
+2. POST /travelExpense {"title":"X", "employee":{{"id":X}}, "travelDetails":{"departureDate":"YYYY-MM-DD", "returnDate":"YYYY-MM-DD", "departureFrom":"Oslo", "destination":"Bergen", "purpose":"X", "isDayTrip":false, "isForeignTravel":false}}
    - isDayTrip and isForeignTravel go INSIDE travelDetails (NOT top-level!)
    - departureFrom, destination, purpose also go inside travelDetails
 3. GET /travelExpense/costCategory?fields=id,description — find cost category IDs
 4. GET /travelExpense/paymentType?fields=id,description — find payment type ID
 5. For EACH cost: POST /travelExpense/cost {"travelExpense":{"id":TE_ID}, "date":"YYYY-MM-DD", "amountCurrencyIncVat":AMOUNT, "vatType":{"id":0}, "paymentType":{"id":PT_ID}, "costCategory":{"id":CAT_ID}}
    - amountCurrencyIncVat is the REQUIRED amount field (NOT costCurrency, NOT amount)
-   - costCategory MUST be an object {"id":X} (NOT a string! "category":"Flight" causes 422)
+   - costCategory MUST be an object {{"id":X}} (NOT a string! "category":"Flight" causes 422)
    - Match category by description from GET /travelExpense/costCategory (e.g. find "Flyreise" for flights)
    - For per diem: use POST /travelExpense/cost with amountCurrencyIncVat = daily_rate * days (NOT /travelExpense/perDiemCompensation)
 
@@ -302,7 +302,7 @@ PUT /project/hourlyRates/ID {"id":X, "version":V, "fixedRate":1600, "hourlyRateM
 ## Project Invoicing (fakturering basert på timer)
 To invoice logged hours:
 1. Register timesheet entries first (see get_api_guide("timesheet"))
-2. POST /order {"customer":{"id":X}, "project":{"id":PROJ_ID}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"X", "count":HOURS, "unitPriceExcludingVatCurrency":HOURLY_RATE}]}
+2. POST /order {"customer":{{"id":X}}, "project":{"id":PROJ_ID}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"X", "count":HOURS, "unitPriceExcludingVatCurrency":HOURLY_RATE}]}
 3. PUT /order/ORDER_ID/:invoice?invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD&sendToCustomer=false
 
 For fixed-price partial invoicing (e.g. "75% av fastpris"):
@@ -345,7 +345,7 @@ POST /department {"name":"X", "departmentNumber":123}
 
     "contact": """\
 ## Contact Person (kontaktperson)
-POST /contact {"firstName":"X", "lastName":"Y", "email":"x@y.no", "customer":{"id":X}}
+POST /contact {"firstName":"X", "lastName":"Y", "email":"x@y.no", "customer":{{"id":X}}}
 - Phone field is phoneNumberMobile (NOT phoneNumber — that field doesn't exist on contact)
 - Must link to a customer via customer.id
 """,
@@ -395,7 +395,7 @@ PUT /invoice/ID/:send?sendType=EMAIL
 2. GET /project?name=X&fields=id,name,startDate,version
 3. GET /activity?isProjectActivity=true&fields=id,name (MUST use project activity, not general)
 4. If timesheet date < project startDate: PUT /project to adjust startDate first
-5. POST /timesheet/entry {"employee":{"id":X}, "project":{"id":X}, "activity":{"id":X}, "date":"YYYY-MM-DD", "hours":N, "comment":"X"}
+5. POST /timesheet/entry {"employee":{{"id":X}}, "project":{{"id":X}}, "activity":{{"id":X}}, "date":"YYYY-MM-DD", "hours":N, "comment":"X"}
    - FORBIDDEN fields: description, title, name, type (cause 422)
    - Use "comment" for any text description
 """,
@@ -404,7 +404,7 @@ PUT /invoice/ID/:send?sendType=EMAIL
 ## Salary (lønn)
 Steps to run payroll:
 1. POST /employee (create the employee if needed, with dateOfBirth!)
-2. POST /employee/employment {"employee":{"id":X}, "startDate":"YYYY-MM-DD"} (employment required for salary)
+2. POST /employee/employment {"employee":{{"id":X}}, "startDate":"YYYY-MM-DD"} (employment required for salary)
 3. GET /salary/type?fields=id,number,name — find salary type IDs
    - Common types: number "2000" = Fastlønn (base salary), number "2001" = Timelønn
 4. POST /salary/transaction {"date":"YYYY-MM-DD", "year":2026, "month":3, "payslips":[{"employee":{"id":EMP_ID}}]}
@@ -462,7 +462,7 @@ NEVER use POST /supplierInvoice — it returns 500!
 ## Purchase Order (innkjøpsordre)
 1. POST /supplier (if needed)
 2. GET /employee?count=1&fields=id (for ourContact)
-3. POST /purchaseOrder {"supplier":{"id":X}, "ourContact":{"id":X}, "deliveryDate":"YYYY-MM-DD"}
+3. POST /purchaseOrder {"supplier":{{"id":X}}, "ourContact":{{"id":X}}, "deliveryDate":"YYYY-MM-DD"}
 4. POST /purchaseOrder/orderline {"purchaseOrder":{"id":PO_ID}, "description":"X", "count":N, "unitPriceExcludingVatCurrency":AMOUNT}
    - orderLines CANNOT be included in POST /purchaseOrder body (causes "purchaseOrder: Kan ikke være null")
    - Must POST each orderline separately AFTER creating the purchase order
@@ -475,7 +475,7 @@ POST /asset {"name":"X", "dateOfAcquisition":"YYYY-MM-DD", "acquisitionCost":AMO
 
     "bank_reconciliation": """\
 ## Bank Reconciliation (bankavstemming)
-POST /bank/reconciliation {"account":{"id":X}, "type":"MANUAL", "dateFrom":"YYYY-MM-DD"}
+POST /bank/reconciliation {"account":{{"id":X}}, "type":"MANUAL", "dateFrom":"YYYY-MM-DD"}
 - account.id is the ledger account ID (GET /ledger/account?number=1920&fields=id)
 """,
 
