@@ -175,7 +175,7 @@ MANDATORY FIELD RULES (violating these = instant 422):
 - GET /invoice: MUST include invoiceDateFrom AND invoiceDateTo params (both required)
 - PUT /:invoice: MUST include invoiceDueDate param (invoiceDate + 14 days if not specified)
 - PUT /:reverse: date goes as QUERY param (not body)
-- GET /ledger/voucher: MUST include dateFrom AND dateTo params (both required)
+- GET /ledger/voucher: MUST include dateFrom AND dateTo params (both required). dateTo must be AFTER dateFrom (not same day! use dateFrom=2026-03-20&dateTo=2026-03-21)
 - Voucher postings: row starts from 1, MUST include amountGrossCurrency AND vatType
 - ProjectHourlyRate: rate field is "fixedRate" (NOT hourlyRate). hourlyRateModel is a string like "TYPE_FIXED_HOURLY_RATE"
 """
