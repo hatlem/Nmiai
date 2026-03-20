@@ -37,8 +37,9 @@ from tripletex_client import TripletexClient
 
 logger = logging.getLogger(__name__)
 
-# Gemini 2.5 works in europe-north1 (lowest latency from Cloud Run).
-vertexai.init(project="ainm26osl-710", location="europe-north1")
+# NOTE: vertexai.init() is called in agent.py with location="global".
+# Do NOT re-init here — it overrides the global location and breaks 3.1 models.
+# tool_agent uses its own init when called directly (see tool_agent_solve).
 
 MAX_TURNS = 20
 DEADLINE_BUFFER = 25  # stop 25s before timeout
@@ -208,8 +209,8 @@ async def tool_agent_solve(
 ) -> bool:
     """Run the tool-use agent. Returns True if task completed without errors."""
 
-    # Use Gemini 2.5 Pro for function calling (works reliably in europe-north1)
-    # Gemini 3.1 Pro function calling returns 404 from "global" location
+    # Use Gemini 2.5 Pro for function calling (3.1 function calling not supported)
+    # Must init europe-north1 for 2.5, then restore global for 3.1 in agent.py
     vertexai.init(project="ainm26osl-710", location="europe-north1")
     model = GenerativeModel(
         "gemini-2.5-pro",

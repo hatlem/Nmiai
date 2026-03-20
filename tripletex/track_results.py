@@ -24,14 +24,15 @@ RESULTS_FILE = Path(__file__).parent / "results.jsonl"
 
 # Heuristic task type detection from prompt text
 TASK_PATTERNS = [
-    (r"(faktura|invoice)", "invoice"),
+    # More specific patterns FIRST (before generic "invoice"/"faktura")
+    (r"(leverand.r.*faktura|supplier.?invoice)", "supplier_invoice"),
     (r"(kreditnota|credit.?note)", "credit_note"),
     (r"(purring|reminder)", "reminder"),
     (r"(bilag|voucher|bokf)", "voucher"),
-    (r"(leverand.r.*faktura|supplier.?invoice)", "supplier_invoice"),
     (r"(innkj.psordre|purchase.?order)", "purchase_order"),
     (r"(reiseregning|travel.?expense)", "travel_expense"),
     (r"(l.nn|salary|payslip)", "salary"),
+    (r"(faktura|invoice)", "invoice"),  # After supplier_invoice, credit_note
     (r"(ansatt|employee|ansettelse|employment)", "employee"),
     (r"(kunde|customer)", "customer"),
     (r"(leverand.r|supplier)", "supplier"),

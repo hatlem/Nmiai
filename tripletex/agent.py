@@ -25,17 +25,16 @@ from templates import TEMPLATES, KEYWORD_HINTS
 
 logger = logging.getLogger(__name__)
 
-vertexai.init(project="ainm26osl-710", location="europe-north1")
+vertexai.init(project="ainm26osl-710", location="global")
 
 import warnings
 warnings.filterwarnings("ignore", message=".*REST async clients.*")
 warnings.filterwarnings("ignore", message=".*deprecated.*")
 
 # ---------- Model IDs ----------
-# Primary: Gemini 3.1 (requires location="global")
-# Fallback: Gemini 2.5 (works in europe-north1)
-MODEL_PRO = "gemini-2.5-pro"
-MODEL_FLASH_LITE = "gemini-2.5-flash"
+# Gemini 3.1 requires location="global"
+MODEL_PRO = "gemini-3.1-pro-preview"
+MODEL_FLASH_LITE = "gemini-3.1-flash-lite-preview"
 
 # ---------- Tier mapping ----------
 TIER_MAP: dict[str, int] = {
@@ -86,6 +85,8 @@ CONFIDENCE_THRESHOLD = 0.55
 
 
 def _get_model(model_id: str, system_instruction: str) -> GenerativeModel:
+    # Re-init to ensure location="global" (tool_agent may have changed it)
+    vertexai.init(project="ainm26osl-710", location="global")
     return GenerativeModel(model_id, system_instruction=system_instruction)
 
 
