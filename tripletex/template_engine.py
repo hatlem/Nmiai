@@ -5,6 +5,7 @@ for the executor to resolve at runtime.
 """
 
 import copy
+import json
 import logging
 import re
 from datetime import date, datetime, timedelta
@@ -323,6 +324,107 @@ def _apply_posting_defaults(body: dict, values: dict | None = None):
 # ---------------------------------------------------------------------------
 # Dynamic step generation for tier 3 tasks
 # ---------------------------------------------------------------------------
+
+def _expand_order_lines_with_products(order_lines: list, values: dict, task_type: str) -> list:
+    """If orderLines contain product numbers, prepare product creation steps.
+    Stores _product_steps in values for later injection."""
+    product_steps = []
+    updated_lines = []
+
+    for line in order_lines:
+        if not isinstance(line, dict):
+            updated_lines.append(line)
+            continue
+
+        product_number = line.get("productNumber") or line.get("product_number") or line.get("number")
+        if product_number:
+            # This line references a product by number — create it
+            step_idx_placeholder = f"__product_{len(product_steps)}__"
+            product_steps.append({
+                "method": "POST",
+                "path": "/product",
+                "body": {
+                    "name": line.get("description", line.get("name", f"Product {product_number}")),
+                    "number": str(product_number),
+                    "priceExcludingVatCurrency": line.get("unitPriceExcludingVatCurrency", 0),
+                },
+                "_line_index": len(updated_lines),
+            })
+            # Update line to use product reference (placeholder — resolved later)
+            updated_lines.append({
+                "product": {"id": step_idx_placeholder},
+                "count": line.get("count", 1),
+                "unitPriceExcludingVatCurrency": line.get("unitPriceExcludingVatCurrency", 0),
+                "description": line.get("description", ""),
+            })
+        else:
+            updated_lines.append(line)
+
+    if product_steps:
+        values["_product_steps"] = product_steps
+        logger.info(f"Expanding {len(product_steps)} products from orderLines")
+
+    return updated_lines
+
+
+def _inject_product_steps(steps: list[dict], values: dict) -> list[dict]:
+    """Inject POST /product steps before the POST /order step.
+    Updates orderLines product references with correct $step_N.id."""
+    product_steps = values.pop("_product_steps", [])
+    if not product_steps:
+        return steps
+
+    # Find the POST /order step
+    order_idx = None
+    for i, step in enumerate(steps):
+        if step.get("method") == "POST" and "/order" in step.get("path", "") and "/orderline" not in step.get("path", ""):
+            order_idx = i
+            break
+
+    if order_idx is None:
+        return steps
+
+    # Insert product steps before the order step
+    new_steps = steps[:order_idx]
+    product_base_idx = len(new_steps)
+
+    for i, ps in enumerate(product_steps):
+        ps.pop("_line_index", None)
+        new_steps.append(ps)
+
+    # Update the order step's orderLines with correct $step references
+    order_step = copy.deepcopy(steps[order_idx])
+    order_body = order_step.get("body", {})
+    order_lines = order_body.get("orderLines", [])
+
+    if isinstance(order_lines, list):
+        for j, line in enumerate(order_lines):
+            if isinstance(line, dict):
+                product = line.get("product", {})
+                if isinstance(product, dict):
+                    pid = product.get("id", "")
+                    if isinstance(pid, str) and pid.startswith("__product_"):
+                        # Replace placeholder with actual step reference
+                        prod_idx = int(pid.replace("__product_", "").replace("__", ""))
+                        actual_step_idx = product_base_idx + prod_idx
+                        line["product"] = {"id": f"$step_{actual_step_idx}.id"}
+
+    order_body["orderLines"] = order_lines
+    order_step["body"] = order_body
+    new_steps.append(order_step)
+
+    # Append remaining steps, adjusting $step references
+    # Replace in REVERSE order to avoid double-replacement ($step_2 -> $step_4 -> $step_6)
+    offset = len(product_steps)
+    for step in steps[order_idx + 1:]:
+        step_str = json.dumps(step)
+        for old_idx in range(len(steps) - 1, order_idx - 1, -1):
+            step_str = step_str.replace(f"$step_{old_idx}.", f"$step_{old_idx + offset}.")
+        new_steps.append(json.loads(step_str))
+
+    logger.info(f"Injected {len(product_steps)} product steps before order (new total: {len(new_steps)} steps)")
+    return new_steps
+
 
 def _expand_voucher_steps(steps: list[dict], values: dict) -> list[dict]:
     """Expand voucher/opening-balance templates when postings_data has multiple accounts."""
@@ -647,8 +749,15 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
         elif "amount" in values:
             values["cost_amount"] = values["amount"]
 
+    # Expand orderLines with product creation when product numbers are present
+    if "orderLines" in values and isinstance(values["orderLines"], list):
+        values["orderLines"] = _expand_order_lines_with_products(values["orderLines"], values, task_type)
+
     # Deep copy steps to avoid mutating the template
     steps = copy.deepcopy(template.get("steps", []))
+
+    # NOTE: Product injection happens AFTER _fill_placeholders (below)
+    # because orderLines with __product_N__ refs are filled from values at that point
 
     # Handle dynamic expansion for complex task types
     if task_type in ("create_voucher",) and "postings_data" in values:
@@ -670,6 +779,10 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
 
     # Fill {{placeholders}} with extracted values
     steps = _fill_placeholders(steps, values)
+
+    # Inject product creation steps AFTER fill (orderLines now have __product_N__ refs)
+    if values.get("_product_steps"):
+        steps = _inject_product_steps(steps, values)
 
     # Inject id + version into PUT bodies for update tasks
     # The template uses "body": "{{fields_to_update}}" which only contains changed fields,

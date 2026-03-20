@@ -647,6 +647,73 @@ def _should_skip_step(
 # Main executor
 # ---------------------------------------------------------------------------
 
+async def _verify_results(
+    steps: list[dict],
+    results: dict[int, dict],
+    extracted_values: dict,
+    client: TripletexClient,
+):
+    """Read back created entities and log field mismatches for debugging."""
+    for idx, step in enumerate(steps):
+        method = step.get("method", "").upper()
+        if method not in ("POST", "PUT"):
+            continue
+
+        response = results.get(idx, {})
+        if not response.get("ok"):
+            continue
+
+        # Get the entity ID
+        data = response.get("data", {})
+        value = data.get("value", {})
+        entity_id = value.get("id")
+        if not entity_id:
+            continue
+
+        # Determine the entity path
+        path = step.get("path", "")
+        # Strip any action suffixes like /:invoice, /:payment
+        base_path = re.sub(r'/:\w+$', '', path)
+        # Strip any path IDs for PUT
+        base_path = re.sub(r'/\d+$', '', base_path)
+
+        try:
+            # Read back the entity
+            verify_resp = await client.request("GET", f"{base_path}/{entity_id}")
+            if not verify_resp.get("ok"):
+                logger.warning(f"Verify step {idx}: GET {base_path}/{entity_id} failed")
+                continue
+
+            actual = verify_resp.get("data", {}).get("value", verify_resp.get("data", {}))
+
+            # Compare against what we tried to set
+            body = step.get("body", {})
+            if body:
+                mismatches = []
+                for key, expected in body.items():
+                    if key in ("id", "version"):
+                        continue
+                    actual_val = actual.get(key)
+                    if actual_val is None:
+                        continue  # Field not returned in GET
+                    if isinstance(expected, dict) and isinstance(actual_val, dict):
+                        # Compare nested (e.g. customer.id)
+                        for k2, v2 in expected.items():
+                            a2 = actual_val.get(k2)
+                            if a2 is not None and str(a2) != str(v2):
+                                mismatches.append(f"{key}.{k2}: sent={v2} got={a2}")
+                    elif str(actual_val) != str(expected):
+                        mismatches.append(f"{key}: sent={expected} got={actual_val}")
+
+                if mismatches:
+                    logger.warning(f"Verify step {idx} ({base_path}/{entity_id}): MISMATCHES: {'; '.join(mismatches[:10])}")
+                else:
+                    logger.info(f"Verify step {idx} ({base_path}/{entity_id}): all fields match")
+
+        except Exception as e:
+            logger.warning(f"Verify step {idx}: exception: {e}")
+
+
 VALID_METHODS = {"GET", "POST", "PUT", "DELETE"}
 
 
@@ -769,6 +836,10 @@ async def execute_plan(
                     logger.error(f"Step {step_idx} failed: {response['status_code']}")
 
     error_skips = len(skipped_set) - len(intentionally_skipped)
+
+    if len(failed) == 0:
+        await _verify_results(steps, results, extracted_values, client)
+
     return {
         "success": len(failed) == 0 and error_skips == 0,
         "results": results,

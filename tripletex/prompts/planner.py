@@ -58,7 +58,9 @@ Rules:
 - Phone numbers: preserve as-is from prompt. "telefon"/"tlf"/"mobil" -> phoneNumberMobile for employees, phoneNumber for customers.
 - Addresses: extract addressLine1, postalCode, city as separate keys.
 - For update tasks: put changed fields in a "fields_to_update" dict.
-- For orderLines: array of {{"description": "...", "count": N, "unitPriceExcludingVatCurrency": N}}.
+- For orderLines: array of {{"description": "...", "count": N, "unitPriceExcludingVatCurrency": N, "productNumber": "..." (if mentioned)}}.
+  IMPORTANT: If the prompt mentions a product number (e.g. "Konsulenttimar (1874)"), include "productNumber": "1874" in that orderLine.
+  The number in parentheses IS the product number. Example: "produkta Webdesign (5678) til 3000 kr" -> {{"description": "Webdesign", "productNumber": "5678", "count": 1, "unitPriceExcludingVatCurrency": 3000}}
 - For voucher/opening balance: "accounts" list of {{"number": "1920", "amount": 100000}} (positive=debit, negative=credit).
 - If files attached, extract ALL data from them (every line, amount, account).
 - Omit fields not mentioned in the prompt. But NEVER omit fields that ARE mentioned — every data point in the prompt MUST appear in the output.
