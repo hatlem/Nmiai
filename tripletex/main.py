@@ -108,6 +108,35 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             continue
         original_step = steps[fail_idx]
 
+        # 422 with "Feltet eksisterer ikke" - field doesn't exist on endpoint, strip it and retry
+        if status == 422 and "feltet eksisterer ikke" in error_msg:
+            # Extract the bad field name from the error
+            import re as _re
+            field_match = _re.search(r"'field':\s*'(\w+)'", str(data))
+            if field_match:
+                bad_field = field_match.group(1)
+                fixed_step = dict(original_step)
+                fixed_body = dict(fixed_step.get("body", {}))
+                if bad_field in fixed_body:
+                    del fixed_body[bad_field]
+                    fixed_step["body"] = fixed_body
+                    new_steps.append(fixed_step)
+                    logger.info(f"Quick-fix: stripped non-existent field '{bad_field}' from body")
+                    continue
+
+        # 422 with "sendetype" on reminder - add dispatchType param
+        if status == 422 and ("sendetype" in error_msg or "dispatch" in error_msg):
+            fixed_step = dict(original_step)
+            fixed_params = dict(fixed_step.get("params", {}))
+            # Remove wrong param names, add correct one
+            for wrong in ("sendMethod", "sendType", "sendTypes", "send_method", "send_type", "selectedReminderSendTypes"):
+                fixed_params.pop(wrong, None)
+            fixed_params["dispatchType"] = "EMAIL"
+            fixed_step["params"] = fixed_params
+            new_steps.append(fixed_step)
+            logger.info("Quick-fix: added dispatchType=EMAIL to reminder (replaced sendMethod)")
+            continue
+
         # 422 with "department.id" - need to GET department first then retry with it
         if status == 422 and "department" in error_msg and "id" in error_msg:
             fixed_step = dict(original_step)

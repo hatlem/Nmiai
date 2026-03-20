@@ -236,11 +236,26 @@ def _topological_layers(graph: dict[int, set[int]], num_steps: int) -> list[list
 # Pre-validation helpers
 # ---------------------------------------------------------------------------
 
+_ENDPOINT_INVALID_FIELDS: dict[str, set[str]] = {
+    "/employee/employment": {"userType", "employmentType", "percentageOfFullTimeEquivalent", "type", "role", "department"},
+    "/contact": {"phoneNumber"},  # Use phoneNumberMobile or phoneNumberWork
+    "/supplier": {"isSupplier"},  # Never set on supplier endpoint
+}
+
+
 def _pre_validate_body(method: str, path: str, body: dict | None, params: dict | None) -> dict | None:
     """Pre-validate and clean request body/params to prevent 4xx errors.
     Returns cleaned body (or None if no body)."""
     if body is None:
         return None
+
+    # Strip known-invalid fields for specific endpoints
+    for endpoint_pattern, bad_fields in _ENDPOINT_INVALID_FIELDS.items():
+        if endpoint_pattern in path:
+            for bf in bad_fields:
+                if bf in body:
+                    logger.warning(f"Pre-validate: stripping invalid field '{bf}' from {path}")
+                    body = {k: v for k, v in body.items() if k != bf}
 
     cleaned = {}
     for k, v in body.items():

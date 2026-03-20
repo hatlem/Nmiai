@@ -1152,19 +1152,24 @@ TEMPLATES: dict[str, dict] = {
     "create_reminder": {
         "description": (
             "Create a payment reminder (purring) for an overdue invoice.\n"
-            "REQUIRED params: type, date, dispatchType.\n"
+            "STEP 1: GET the invoice to check amountOutstanding > 0 (cannot remind on paid invoices).\n"
+            "STEP 2: PUT /:createReminder with REQUIRED params: type, date, dispatchType.\n"
             "The param name is 'dispatchType' (NOT sendMethod, NOT sendType).\n"
             "Valid dispatchTypes: EMAIL, OWN_PRINTER, NETS_PRINT, SMS, SFTP, API.\n"
             "Valid types: SOFT_REMINDER, REMINDER, NOTICE_OF_DEBT_COLLECTION.\n"
             "NOTE: date must be >= invoice due date, otherwise you get 422.\n"
-            "NOTE: The reminder endpoint may require specific company configuration (e.g. email settings).\n"
-            "If 'Minst én sendetype må oppgis' persists despite correct params, the sandbox may lack required config.\n"
-            "Competition sandboxes should have this configured."
+            "NOTE: Cannot create reminder for a paid invoice (amountOutstanding == 0)."
         ),
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "date", "comment"],
-        "optimal_calls": 1,
+        "optimal_calls": 2,
         "steps": [
+            {
+                "method": "GET",
+                "path": "/invoice/{{invoice_id}}",
+                "params": {"fields": "id,amountOutstanding,invoiceNumber,invoiceDueDate"},
+                "note": "Check invoice is unpaid (amountOutstanding > 0) before creating reminder.",
+            },
             {
                 "method": "PUT",
                 "path": "/invoice/{{invoice_id}}/:createReminder",
@@ -1173,7 +1178,7 @@ TEMPLATES: dict[str, dict] = {
                     "date": "{{date}}",
                     "dispatchType": "EMAIL",
                 },
-                "note": "dispatchType is REQUIRED. Use EMAIL as default. Date must be >= invoice dueDate.",
+                "note": "dispatchType is REQUIRED (NOT sendMethod/sendType). Use EMAIL as default. Date must be >= invoice dueDate.",
             },
         ],
     },
@@ -1183,13 +1188,14 @@ TEMPLATES: dict[str, dict] = {
     "create_employment": {
         "description": (
             "Create or update employment details for an employee (ansettelsesforhold).\n"
-            "POST /employee/employment body ONLY accepts: employee.id, startDate, employmentType, percentageOfFullTimeEquivalent.\n"
-            "FORBIDDEN FIELDS on /employee/employment: userType — userType is an EMPLOYEE field, NOT an employment field. Including it causes 422.\n"
+            "POST /employee/employment body ONLY accepts: employee.id and startDate.\n"
+            "FORBIDDEN FIELDS on /employee/employment that cause 422 'Feltet eksisterer ikke': "
+            "employmentType, percentageOfFullTimeEquivalent, userType, type. Do NOT include ANY of these.\n"
             "Employee MUST have dateOfBirth set before employment can be created. If dateOfBirth is null, "
             "PUT /employee to set it (use date from prompt or default 1990-01-01) BEFORE creating employment."
         ),
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["search_firstName", "search_lastName", "startDate", "dateOfBirth", "employmentType", "percentageOfFullTimeEquivalent"],
+        "extract_fields": ["search_firstName", "search_lastName", "startDate", "dateOfBirth"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -1213,10 +1219,8 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "employee": {"id": "$step_0.values[0].id"},
                     "startDate": "{{startDate}}",
-                    "employmentType": "{{employmentType}}",
-                    "percentageOfFullTimeEquivalent": "{{percentageOfFullTimeEquivalent}}",
                 },
-                "note": "ONLY these fields are valid. Do NOT add userType — it belongs on /employee, not /employee/employment.",
+                "note": "ONLY employee.id and startDate are valid. Do NOT add employmentType, percentageOfFullTimeEquivalent, userType, or type — they cause 422.",
             },
         ],
     },

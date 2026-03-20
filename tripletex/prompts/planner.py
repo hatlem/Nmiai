@@ -53,7 +53,7 @@ ACTION_ENDPOINTS = """## Key Action Endpoints (use query params, NOT body)
 - PUT /invoice/{{id}}/:payment — paymentDate, paymentTypeId, paidAmount (ALL REQUIRED)
 - PUT /invoice/{{id}}/:createCreditNote — date (REQUIRED), comment (optional)
 - PUT /invoice/{{id}}/:send — sendType (REQUIRED: EMAIL, EHF, EFAKTURA, LETTER, MANUAL)
-- PUT /invoice/{{id}}/:createReminder — type (REQUIRED), date (REQUIRED), sendMethod (REQUIRED: EMAIL), comment (optional)
+- PUT /invoice/{{id}}/:createReminder — type (REQUIRED), date (REQUIRED), dispatchType (REQUIRED: EMAIL, NOT sendMethod/sendType), comment (optional)
 - PUT /employee/entitlement/:grantEntitlementsByTemplate — employeeId, template (REQUIRED)
 - PUT /travelExpense/:deliver — id (REQUIRED)
 - PUT /travelExpense/:approve — id (REQUIRED)
@@ -176,8 +176,8 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 23. Bank reconciliation dateTo: The field "dateTo" does NOT exist on POST /bank/reconciliation.
     Instead, GET /ledger/accountingPeriod with periodEnd={{date_to}} to find the period ID,
     then use "accountingPeriod": {{"id": <period_id>}} in the POST body.
-23. Employment fields: POST /employee/employment does NOT accept "employmentType" or
-    "percentageOfFullTimeEquivalent". The minimal body is just employee and startDate.
+23. Employment fields: POST /employee/employment does NOT accept "employmentType",
+    "percentageOfFullTimeEquivalent", "userType", or "type". The ONLY valid body fields are employee.id and startDate.
 24. Contact phoneNumber: The field "phoneNumber" does NOT exist on /contact. Use "phoneNumberMobile"
     or "phoneNumberWork" instead.
 14. Bank reconciliation — accounting period must be open: The reconciliation date range must fall within
@@ -194,6 +194,8 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 28. Purchase order module: POST /purchaseOrder requires moduleOrderOut to be enabled. If you get 'Oppdatering av dette feltet er ikke tillatt', the module may not be active. The competition sandboxes have it enabled.
 29. Salary module: POST /salary/transaction returns 403 'You do not have permission' when the salary module is disabled. Competition sandboxes have it enabled.
 30. Supplier invoice workaround: POST /supplierInvoice returns 500 in sandbox. Use POST /ledger/voucher instead with supplier reference in postings.
+31. Reminder dispatchType: The /:createReminder endpoint uses 'dispatchType' (NOT sendMethod, NOT sendType). Valid values: EMAIL, SMS, LETTER. Always use dispatchType=EMAIL. Also: ALWAYS GET the invoice first to check amountOutstanding > 0 — cannot create reminder on a paid invoice.
+32. Employment minimal body: POST /employee/employment ONLY accepts employee.id and startDate. Fields that cause 422 'Feltet eksisterer ikke': employmentType, percentageOfFullTimeEquivalent, userType, type. NEVER include these.
 """
 
 
@@ -481,7 +483,7 @@ To fix field mismatches:
 13. 422 "Feltet eksisterer ikke" on /travelExpense/cost -> You used WRONG field names. CORRECT fields: travelExpense({{\"id\":ID}}), vatType({{\"id\":ID}}), paymentType({{\"id\":ID}}), amountCurrencyIncVat(number), date(string). WRONG: "amount"→use "amountCurrencyIncVat", "description"→use "comments", "title"→remove it, "name"→remove it. Must also GET /ledger/vatType for vatType ID.
 14. 422 on /contact with "phoneNumber" -> Field does NOT exist. Use "phoneNumberMobile" instead.
 15. 422 on /bank/reconciliation with "dateTo" -> Field does NOT exist. Use "accountingPeriod": {{"id": X}} instead. GET /ledger/accountingPeriod?periodEnd=DATE first.
-16. 422 on /employee/employment with "employmentType" or "percentageOfFullTimeEquivalent" -> These fields do NOT exist. Only use employee and startDate.
+16. 422 on /employee/employment with "employmentType", "percentageOfFullTimeEquivalent", "userType", or "type" -> These fields do NOT exist. Only use employee.id and startDate in the body.
 17. 422 on /purchaseOrder missing "ourContact" -> ourContact is REQUIRED. Add GET /employee first, then "ourContact": {{"id": <employee_id>}}.
 18. 422 on /asset with "acquisitionDate" -> Field is "dateOfAcquisition", NOT "acquisitionDate". Also requires moduleFixedAssetRegister to be enabled.
 19. 500 on /supplierInvoice -> The /supplierInvoice endpoint returns 500 in ALL cases in sandbox. WORKAROUND: Use POST /ledger/voucher instead. Create a voucher with description "Leverandørfaktura <invoiceNumber> fra <supplier_name>" and postings with supplier reference: {{"row": 1, "account": {{"id": <expense_acct_id>}}, "amountGross": <amount>, "amountGrossCurrency": <amount>, "vatType": {{"id": 1}}, "supplier": {{"id": <supplier_id>}}}}, {{"row": 2, "account": {{"id": <ap_acct_id>}}, "amountGross": -<amount>, "amountGrossCurrency": -<amount>, "vatType": {{"id": 0}}, "supplier": {{"id": <supplier_id>}}}}.
