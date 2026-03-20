@@ -236,9 +236,10 @@ def _apply_defaults(steps: list[dict], values: dict, task_type: str) -> list[dic
             body.setdefault("orderDate", values.get("orderDate", today))
             body.setdefault("deliveryDate", body.get("orderDate", today))
 
-        # Supplier invoice voucher description
+        # Voucher defaults — description is REQUIRED (422 without it)
         if "/ledger/voucher" in path:
-            _apply_posting_defaults(body)
+            body.setdefault("description", values.get("description") or "Bilag")
+            _apply_posting_defaults(body, values)
 
     # Date derivation in values (for params that reference these)
     if "orderDate" in values and "deliveryDate" not in values:
@@ -259,22 +260,40 @@ def _apply_defaults(steps: list[dict], values: dict, task_type: str) -> list[dic
     return steps
 
 
-def _apply_posting_defaults(body: dict):
-    """Ensure voucher postings have correct row numbers, amountGrossCurrency, and vatType."""
+def _apply_posting_defaults(body: dict, values: dict | None = None):
+    """Ensure voucher postings have correct row numbers, amountGrossCurrency, and vatType.
+    vatType is inferred from account numbers — LLM-set vatType is overridden because
+    Tripletex locks accounts to specific VAT codes and mismatches cause 422."""
     postings = body.get("postings")
     if not isinstance(postings, list):
         return
+    if values is None:
+        values = {}
+
+    # Map posting index to account number for vatType inference
+    # Template postings use $step_0 (debit) and $step_1 (credit)
+    posting_account_numbers = []
+    debit_acct = str(values.get("debit_account_number", ""))
+    credit_acct = str(values.get("credit_account_number", ""))
+    if debit_acct and credit_acct:
+        posting_account_numbers = [debit_acct, credit_acct]
+
     for i, posting in enumerate(postings):
         if not isinstance(posting, dict):
             continue
         posting["row"] = i + 1
-        # amountGrossCurrency mirrors amountGross
-        if "amountGross" in posting and "amountGrossCurrency" not in posting:
-            posting["amountGrossCurrency"] = posting["amountGross"]
-        # Default vatType
-        if "vatType" not in posting:
-            # Try to infer from account number if we have it
-            posting["vatType"] = {"id": 0}
+        # amountGrossCurrency must equal amountGross and both must be numeric
+        if "amountGross" in posting:
+            amt = _clean_amount(posting["amountGross"])
+            if amt is not None:
+                posting["amountGross"] = amt
+                posting["amountGrossCurrency"] = amt
+        # vatType: infer from account number, OVERRIDE whatever LLM set
+        if i < len(posting_account_numbers):
+            vat_id = _infer_vat_type(posting_account_numbers[i])
+        else:
+            vat_id = 0  # Safe default: no VAT
+        posting["vatType"] = {"id": vat_id}
 
 
 # ---------------------------------------------------------------------------
@@ -486,9 +505,9 @@ def _expand_purchase_order_lines(steps: list[dict], values: dict) -> list[dict]:
 
 
 def _expand_travel_costs(steps: list[dict], values: dict) -> list[dict]:
-    """Expand travel expense template when multiple costs are provided."""
+    """Expand travel expense template when costs are provided."""
     costs = values.get("costs")
-    if not costs or not isinstance(costs, list) or len(costs) <= 1:
+    if not costs or not isinstance(costs, list) or len(costs) == 0:
         return steps
 
     # Find the POST /travelExpense/cost step
@@ -539,10 +558,16 @@ def _apply_conditional_steps(steps: list[dict], values: dict, template: dict) ->
     if not conditional:
         return steps
 
-    # if_role: add entitlement step when role is specified
-    if "if_role" in conditional and values.get("role"):
-        role_step = copy.deepcopy(conditional["if_role"])
-        steps.append(role_step)
+    for trigger_key, step_or_steps in conditional.items():
+        # trigger_key is like "if_role" or "if_cost_amount"
+        field = trigger_key.removeprefix("if_")
+        if field in values and values[field]:
+            if isinstance(step_or_steps, list):
+                # Array of steps (e.g. travel expense costs)
+                steps.extend(copy.deepcopy(step_or_steps))
+            else:
+                # Single step (e.g. role entitlement)
+                steps.append(copy.deepcopy(step_or_steps))
 
     return steps
 
@@ -572,6 +597,16 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
 
     # Clean and type-coerce extracted values
     values = _clean_extracted_values(extracted_values)
+
+    # Derive missing fields from available data
+    if "cost_amount" not in values:
+        # Try to get from costs list or amount field
+        costs = values.get("costs", [])
+        if isinstance(costs, list) and costs:
+            first = costs[0] if isinstance(costs[0], dict) else {"amount": costs[0]}
+            values["cost_amount"] = first.get("amountCurrencyIncVat") or first.get("amount")
+        elif "amount" in values:
+            values["cost_amount"] = values["amount"]
 
     # Deep copy steps to avoid mutating the template
     steps = copy.deepcopy(template.get("steps", []))
