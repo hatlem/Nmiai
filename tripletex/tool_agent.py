@@ -160,7 +160,15 @@ STRATEGY:
 
 ENDPOINTS THAT DO NOT EXIST (cause 404 — never use):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
+- /orderline (use order body with orderLines array, NOT separate endpoint)
+- POST /supplierInvoice (returns 500 — use POST /ledger/voucher with supplier ref instead)
 - PUT /company/modules (returns 405)
+
+COMMON MISTAKES TO AVOID:
+- POST /employee MUST include userType:"STANDARD" (not 0, not empty)
+- POST /employee MUST include department.id (GET /department first)
+- Order lines go IN the POST /order body as orderLines array, NOT as separate POST /orderline
+- Account numbers are integers like 6700 — never send "67%" or strings with special chars
 """
 
 # ── API Guides (on-demand knowledge) ────────────────────────────────
