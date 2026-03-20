@@ -36,9 +36,29 @@ class TripletexClient:
             "error": error_snippet[:200] if error_snippet else "",
         })
 
+    @staticmethod
+    def _fix_body(body: dict | None, path: str) -> dict | None:
+        """Auto-fix common LLM body mistakes before sending."""
+        if body is None:
+            return None
+        # costCategory/category must be {"id": X}, not a string
+        for field in ("costCategory", "category"):
+            val = body.get(field)
+            if isinstance(val, str):
+                body.pop(field)  # Remove invalid string — API will use default
+            elif isinstance(val, (int, float)):
+                body[field] = {"id": int(val)}
+        # paymentType must be {"id": X}
+        val = body.get("paymentType")
+        if isinstance(val, (int, float)):
+            body["paymentType"] = {"id": int(val)}
+        return body
+
     async def request(
         self, method: str, path: str, body: dict | None = None, params: dict | None = None
     ) -> dict:
+        if body and method in ("POST", "PUT"):
+            body = self._fix_body(body, path)
         url = f"{self.base_url}{path}"
         self.call_count += 1
 
