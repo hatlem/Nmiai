@@ -37,7 +37,7 @@ API_KEY = os.environ.get("API_KEY", "")
 
 ALLOWED_HOSTS = (
     "tx-proxy.ainm.no", "api.tripletex.dev", "api.tripletex.io",
-    "tripletex.no", "tripletex.dev",
+    "tripletex.no", "tripletex.dev", "a.run.app",
 )
 
 # ── In-memory stats ──
