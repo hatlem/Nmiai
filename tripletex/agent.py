@@ -167,8 +167,10 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         return "register_payment_by_search", 0.92
 
     # Detect timesheet patterns: "N timer" or "N.N timer" (must come before "prosjekt" match)
+    # But NOT if this is an invoice/order prompt that mentions hours as line items
     if re.search(r'\d+[\.,]?\d*\s*timer\b', prompt_lower):
-        return "create_timesheet_entry", 0.90
+        if not re.search(r'\b(faktura|invoice|factura|rechnung|facture|ordre|order)\b', prompt_lower):
+            return "create_timesheet_entry", 0.90
 
     high_conf_keywords = {
         # Existing entity detection - must come BEFORE generic patterns
@@ -700,8 +702,11 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
         return plan
 
     # Build extraction-only prompt
+    # Use Flash-Lite for simple tier 1 tasks (faster), Pro for complex ones
     extraction_prompt = build_extraction_prompt(task_type, tier)
-    model = _get_model(MODEL_PRO, extraction_prompt)
+    extraction_model_id = MODEL_FLASH_LITE if tier <= 1 else MODEL_PRO
+    model = _get_model(extraction_model_id, extraction_prompt)
+    logger.info(f"Extraction model: {'Flash-Lite' if tier <= 1 else 'Pro'} for tier {tier}")
 
     parts = []
     if files:
@@ -719,9 +724,9 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     task_text += f"Extract values from this accounting task:\n\n{prompt}"
     parts.append(Part.from_text(task_text))
 
-    # Extraction is simpler — smaller output, shorter timeout
-    max_tokens = 2048
-    plan_timeout = 45.0 if tier < 3 else 60.0
+    # Extraction timeout: we have 5 min total, can afford generous LLM time
+    max_tokens = 4096
+    plan_timeout = 90.0 if tier < 3 else 120.0
     logger.info(f"Extracting values for {task_type} (tier={tier}, timeout={plan_timeout}s): {prompt[:80]}...")
 
     extracted_values = {}
@@ -809,10 +814,10 @@ async def self_repair(
                 parts,
                 generation_config={"temperature": 0.0, "max_output_tokens": 8192},
             ),
-            timeout=45.0,
+            timeout=60.0,
         )
     except asyncio.TimeoutError:
-        logger.error("Self-repair LLM timed out (45s)")
+        logger.error("Self-repair LLM timed out (60s)")
         return {
             "task_type": task_type,
             "reasoning": "Self-repair: LLM timeout",
