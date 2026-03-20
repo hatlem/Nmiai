@@ -45,6 +45,7 @@ STATS = {
     "started": datetime.now(timezone.utc).isoformat(),
     "total": 0, "success": 0, "failed": 0, "repairs": 0,
     "total_api_calls": 0, "total_errors": 0, "by_type": {},
+    "last_proxy": "",
 }
 HISTORY: deque = deque(maxlen=100)
 
@@ -133,7 +134,8 @@ async def solve(request: Request):
         return JSONResponse({"error": "invalid base_url"}, status_code=400)
 
     files = body.get("files", [])
-    logger.info(f"Task: {prompt[:120]}...")
+    STATS["last_proxy"] = urlparse(base_url).hostname or ""
+    logger.info(f"Task [{urlparse(base_url).hostname}]: {prompt[:120]}...")
 
     # Report test start to dashboard
     test_id = report_test("tripletex", prompt[:80], status="running")
@@ -249,9 +251,11 @@ tr:hover td{background:#14141f}
 </style>
 </head>
 <body>
-<div id="live"><span class="pulse"></span> Live</div>
-<h1>Tripletex AI Agent</h1>
-<p class="sub">NM i AI 2026</p>
+<div id="live"><span class="pulse"></span> Live — auto-refresh 3s</div>
+<h1>NM i AI 2026 — Tripletex Agent</h1>
+<p class="sub" id="uptime">Revision: loading...</p>
+<div id="alert" style="display:none;background:#2d0a0a;border:1px solid #ef4444;border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#ef4444;font-size:.85rem"></div>
+<div id="proxy-info" style="background:#14141f;border:1px solid #222;border-radius:8px;padding:8px 16px;margin-bottom:16px;font-size:.8rem;color:#888"></div>
 
 <div class="grid">
   <div class="card"><div class="num" id="c-total">0</div><div class="label">Tasks</div></div>
@@ -265,8 +269,30 @@ tr:hover td{background:#14141f}
   <div class="card ok"><div class="num" id="c-perfect">0</div><div class="label">100% Types</div></div>
 </div>
 
+<div class="section" style="background:#14141f;border:1px solid #222;border-radius:10px;padding:16px;margin-bottom:24px">
+  <h2 style="margin-bottom:8px">Competition Overview</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;font-size:.85rem">
+    <div>
+      <div style="color:#888;font-size:.7rem;text-transform:uppercase;margin-bottom:4px">Tripletex (33%)</div>
+      <div>Agent: <span style="color:#22c55e">LIVE</span></div>
+      <div>Tier 1: <span style="color:#22c55e">open</span> | Tier 2: <span style="color:#22c55e">open</span> | Tier 3: <span style="color:#f59e0b">opens Sat</span></div>
+      <div>Daily limit: 5/task/day (verified)</div>
+    </div>
+    <div>
+      <div style="color:#888;font-size:.7rem;text-transform:uppercase;margin-bottom:4px">NorgesGruppen (33%)</div>
+      <div>Best score: <span style="color:#f59e0b">0.6740</span></div>
+      <div>Submissions today: 2/3</div>
+      <div id="ng-training" style="color:#818cf8">Training: checking...</div>
+    </div>
+    <div>
+      <div style="color:#888;font-size:.7rem;text-transform:uppercase;margin-bottom:4px">Astar Island (33%)</div>
+      <div>Status: <span style="color:#888">TBD</span></div>
+    </div>
+  </div>
+</div>
+
 <div class="section">
-  <h2>Task Types</h2>
+  <h2>Task Types <span style="color:#888;font-size:.8rem;font-weight:400">(sorted: worst first)</span></h2>
   <div id="types"><div class="empty">No tasks yet</div></div>
 </div>
 
@@ -295,6 +321,16 @@ async function r(){
     document.getElementById('c-types').textContent=btEntries.length;
     const perfect=btEntries.filter(([,d])=>d.failed===0&&d.success>0).length;
     document.getElementById('c-perfect').textContent=perfect+'/'+btEntries.length;
+    // Proxy info
+    const proxy=s.last_proxy||'none yet';
+    const isCompetition=proxy.includes('tx-proxy')||proxy.includes('a.run.app');
+    const isDev=proxy.includes('kkpqfuj');
+    document.getElementById('proxy-info').innerHTML='API Proxy: <strong style="color:'+(isCompetition?'#22c55e':isDev?'#f59e0b':'#888')+'">'+esc(proxy)+'</strong>'+(isCompetition?' (COMPETITION)':isDev?' (DEV SANDBOX)':'')+' &mdash; '+btEntries.length+'/30 types seen, '+perfect+' perfect';
+    // Alert for critical issues
+    const alert=document.getElementById('alert');
+    if(s.total>0&&s.success===0){alert.style.display='block';alert.textContent='ALL TASKS FAILING — check logs!';}
+    else if(isDev&&s.total>3){alert.style.display='block';alert.textContent='Using DEV sandbox, not competition proxy. Results may not count.';}
+    else{alert.style.display='none';}
     const t=btEntries.sort((a,b)=>{const ar=a[1].success/(a[1].total||1),br=b[1].success/(b[1].total||1);return ar!==br?ar-br:b[1].total-a[1].total});
     const mx=t.length?Math.max(...t.map(x=>x[1].total)):1;
     document.getElementById('types').innerHTML=t.length?t.map(([n,d])=>{
@@ -335,6 +371,15 @@ async function r(){
   }catch(e){}
 }
 r();setInterval(r,3000);
+// Uptime
+fetch('/stats').then(r=>r.json()).then(s=>{
+  const started=new Date(s.started);
+  const now=new Date();
+  const mins=Math.floor((now-started)/60000);
+  const h=Math.floor(mins/60);
+  const m=mins%60;
+  document.getElementById('uptime').textContent=`Started: ${started.toLocaleTimeString()} (${h}h ${m}m ago) | Deadline: Sun 15:00 CET`;
+});
 </script>
 </body>
 </html>"""
