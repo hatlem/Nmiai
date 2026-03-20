@@ -1,6 +1,8 @@
 # tripletex/agent.py
-"""Two-stage agent with model routing, confidence-based classification,
-and extracted_values output for downstream verification."""
+"""Two-stage agent: classify -> extract values -> template engine builds plan.
+
+LLM never generates API steps for known task types. Only extracts field values.
+"""
 
 import asyncio
 import json
@@ -13,14 +15,18 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 
 from prompts.classifier import CLASSIFIER_PROMPT, CLASSIFIER_PROMPT_PRO
-from prompts.planner import build_planner_prompt, build_self_repair_prompt, build_extraction_prompt
+from prompts.planner import (
+    build_extraction_prompt,
+    build_repair_extraction_prompt,
+    build_planner_prompt,
+)
+from template_engine import build_concrete_plan
 from templates import TEMPLATES, KEYWORD_HINTS
 
 logger = logging.getLogger(__name__)
 
 vertexai.init(project="ainm26osl-710", location="global")
 
-# Suppress async REST credential warnings and ensure async works
 import warnings
 warnings.filterwarnings("ignore", message=".*REST async clients.*")
 warnings.filterwarnings("ignore", message=".*deprecated.*")
@@ -88,7 +94,6 @@ def get_tier(task_type: str) -> int:
 def _parse_json(text: str) -> dict:
     """Parse LLM response, handling various markdown/fence formats."""
     text = text.strip()
-    # Remove all markdown code fences (possibly multiple)
     text = re.sub(r'```\w*\s*', '', text)
     text = text.strip()
 
@@ -97,7 +102,6 @@ def _parse_json(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Find the outermost { ... } using rfind for the closing brace
     start = text.find("{")
     end = text.rfind("}") + 1
     if start >= 0 and end > start:
@@ -106,7 +110,6 @@ def _parse_json(text: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # Try fixing common LLM issues: trailing commas
     if start >= 0 and end > start:
         candidate = text[start:end]
         candidate = re.sub(r',\s*([}\]])', r'\1', candidate)
@@ -115,27 +118,18 @@ def _parse_json(text: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-        # Try replacing single quotes with double quotes
         candidate2 = candidate.replace("'", '"')
         try:
             return json.loads(candidate2)
         except json.JSONDecodeError:
             pass
 
-    # Try to recover truncated JSON by closing open braces/brackets
     if start >= 0:
         candidate = text[start:]
-        # Count unmatched braces
         open_braces = candidate.count("{") - candidate.count("}")
         open_brackets = candidate.count("[") - candidate.count("]")
         if open_braces > 0 or open_brackets > 0:
-            # Truncate at last complete value (after last comma or colon+value)
-            # Then close all open structures
-            suffix = "]" * max(0, open_brackets) + "}" * max(0, open_braces)
-            # Try removing partial trailing content after last complete entry
-            # Look for last , or { or [ followed by incomplete content
             truncated = candidate.rstrip()
-            # Remove trailing partial key-value pair
             truncated = re.sub(r',\s*"[^"]*"?\s*:?\s*"?[^"]*$', '', truncated)
             truncated = re.sub(r',\s*\{[^}]*$', '', truncated)
             truncated = truncated.rstrip().rstrip(",")
@@ -156,8 +150,7 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
     """Try keyword-based classification before calling LLM."""
     prompt_lower = prompt.lower()
 
-    # Detect "payment on invoice NUMBER" pattern -> register_payment_by_search
-    # This must come before high_conf_keywords since "betaling"/"payment" would match register_payment
+    # Detect "payment on invoice NUMBER" -> register_payment_by_search
     _has_payment = bool(re.search(r'\b(betal|betaling|innbetaling|payment|paiement|zahlung|pago)\b', prompt_lower))
     _has_invoice_number = bool(re.search(
         r'(faktura\s*(nr|nummer|#)\s*\d+|invoice\s*(nr|number|#|no\.?)\s*\d+|factura\s*(nr|numero|#)\s*\d+|rechnung\s*(nr|nummer|#)\s*\d+)',
@@ -166,14 +159,12 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
     if _has_payment and _has_invoice_number:
         return "register_payment_by_search", 0.92
 
-    # Detect timesheet patterns: "N timer" or "N.N timer" (must come before "prosjekt" match)
-    # But NOT if this is an invoice/order prompt that mentions hours as line items
+    # Detect timesheet patterns (must come before "prosjekt" match)
     if re.search(r'\d+[\.,]?\d*\s*timer\b', prompt_lower):
         if not re.search(r'\b(faktura|invoice|factura|rechnung|facture|ordre|order)\b', prompt_lower):
             return "create_timesheet_entry", 0.90
 
     high_conf_keywords = {
-        # Existing entity detection - must come BEFORE generic patterns
         "faktura for eksisterende": ("create_invoice_existing_customer", 0.95),
         "invoice for existing": ("create_invoice_existing_customer", 0.95),
         "faktura til eksisterende": ("create_invoice_existing_customer", 0.95),
@@ -185,7 +176,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "project for existing": ("create_project_existing_customer", 0.95),
         "prosjekt til eksisterende": ("create_project_existing_customer", 0.95),
         "proyecto para cliente existente": ("create_project_existing_customer", 0.90),
-        # Standard patterns
         "slett reiseregning": ("delete_travel_expense", 0.95),
         "delete travel": ("delete_travel_expense", 0.95),
         "lever reiseregning": ("deliver_travel_expense", 0.95),
@@ -242,7 +232,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "betalingspåminnelse": ("create_reminder", 0.90),
         "ansettelse": ("create_employment", 0.85),
         "employment": ("create_employment", 0.85),
-        # Nynorsk patterns
         "opprett tilsett": ("create_employee", 0.90),
         "ny tilsett": ("create_employee", 0.90),
         "registrer tilsett": ("create_employee", 0.90),
@@ -258,7 +247,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "innvendig prosjekt": ("create_internal_project", 0.85),
         "ny reiserekning": ("create_travel_expense", 0.90),
         "registrer reiserekning": ("create_travel_expense", 0.90),
-        # German patterns
         "mitarbeiter erstellen": ("create_employee", 0.90),
         "kunde erstellen": ("create_customer", 0.90),
         "rechnung erstellen": ("create_invoice", 0.90),
@@ -279,7 +267,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "gehalt auszahlen": ("create_salary_payment", 0.88),
         "beleg erstellen": ("create_voucher", 0.90),
         "eröffnungsbilanz": ("create_opening_balance", 0.90),
-        # French patterns
         "creer employe": ("create_employee", 0.90),
         "creer client": ("create_customer", 0.90),
         "creer facture": ("create_invoice", 0.90),
@@ -294,7 +281,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "note de credit": ("create_credit_note", 0.88),
         "bon de commande": ("create_purchase_order", 0.88),
         "bilan d'ouverture": ("create_opening_balance", 0.88),
-        # Spanish patterns
         "crear empleado": ("create_employee", 0.90),
         "crear cliente": ("create_customer", 0.90),
         "crear factura": ("create_invoice", 0.90),
@@ -309,7 +295,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "nota de credito": ("create_credit_note", 0.88),
         "orden de compra": ("create_purchase_order", 0.88),
         "balance de apertura": ("create_opening_balance", 0.88),
-        # Portuguese patterns
         "criar empregado": ("create_employee", 0.90),
         "criar cliente": ("create_customer", 0.90),
         "criar fatura": ("create_invoice", 0.90),
@@ -317,38 +302,29 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "atualizar cliente": ("update_customer", 0.88),
         "atualizar fornecedor": ("update_supplier", 0.88),
         "registrar pagamento": ("register_payment", 0.88),
-        # Invoice with payment
         "faktura med betaling": ("create_invoice_with_payment", 0.95),
         "invoice with payment": ("create_invoice_with_payment", 0.95),
         "faktura og registrer betaling": ("create_invoice_with_payment", 0.92),
         "faktura og betal": ("create_invoice_with_payment", 0.90),
-        # Opening balance
         "apningsbalanse": ("create_opening_balance", 0.95),
         "åpningsbalanse": ("create_opening_balance", 0.95),
         "opening balance": ("create_opening_balance", 0.95),
         "inngaende balanse": ("create_opening_balance", 0.90),
         "inngående balanse": ("create_opening_balance", 0.90),
-        # Bank reconciliation
         "bankavstemming": ("bank_reconciliation", 0.95),
         "bank reconciliation": ("bank_reconciliation", 0.95),
-        # Asset
         "anleggsmiddel": ("create_asset", 0.90),
         "fixed asset": ("create_asset", 0.90),
-        # Salary
         "lønnsutbetaling": ("create_salary_payment", 0.90),
         "lonnsutbetaling": ("create_salary_payment", 0.90),
         "salary payment": ("create_salary_payment", 0.90),
-        # Timesheet
         "timeregistrering": ("create_timesheet_entry", 0.90),
         "timesheet entry": ("create_timesheet_entry", 0.90),
         "registrer timer": ("create_timesheet_entry", 0.90),
-        # Supplier invoice
         "inngående faktura": ("create_supplier_invoice", 0.90),
-        # Purchase order
         "innkjøpsordre": ("create_purchase_order", 0.90),
         "bestilling fra leverandor": ("create_purchase_order", 0.88),
         "bestilling fra leverandør": ("create_purchase_order", 0.88),
-        # Supplier invoice extras
         "opprett leverandorfaktura": ("create_supplier_invoice", 0.95),
         "opprett leverandørfaktura": ("create_supplier_invoice", 0.95),
         "registrer leverandørfaktura": ("create_supplier_invoice", 0.95),
@@ -357,14 +333,11 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "incoming invoice": ("create_supplier_invoice", 0.90),
         "factura del proveedor": ("create_supplier_invoice", 0.90),
         "lieferantenrechnung": ("create_supplier_invoice", 0.90),
-        # Update supplier with ø
         "oppdater leverandør": ("update_supplier", 0.90),
         "endre leverandør": ("update_supplier", 0.90),
-        # Travel expense extras
         "registrer reiseregning": ("create_travel_expense", 0.90),
         "ny reiseregning": ("create_travel_expense", 0.90),
         "create travel expense": ("create_travel_expense", 0.90),
-        # Timesheet extras
         "timeforing": ("create_timesheet_entry", 0.85),
         "timeføring": ("create_timesheet_entry", 0.85),
         "register hours": ("create_timesheet_entry", 0.85),
@@ -373,16 +346,13 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "hours on project": ("create_timesheet_entry", 0.92),
         "timer på": ("create_timesheet_entry", 0.88),
         "timer pa": ("create_timesheet_entry", 0.88),
-        # Salary extras — require longer phrases to avoid matching "lonnansvarlig" etc.
         "utbetal lonn": ("create_salary_payment", 0.88),
         "utbetal lønn": ("create_salary_payment", 0.88),
         "registrer lonn": ("create_salary_payment", 0.88),
         "registrer lønn": ("create_salary_payment", 0.88),
-        # Invoice with payment (multilingual)
         "factura con pago": ("create_invoice_with_payment", 0.90),
         "rechnung mit zahlung": ("create_invoice_with_payment", 0.90),
         "facture avec paiement": ("create_invoice_with_payment", 0.90),
-        # "opprette" (create) + entity patterns
         "opprette kunde": ("create_customer", 0.90),
         "opprette faktura": ("create_invoice", 0.90),
         "opprette ansatt": ("create_employee", 0.90),
@@ -392,7 +362,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "opprette prosjekt": ("create_project", 0.90),
         "opprette avdeling": ("create_department", 0.90),
         "opprette kontakt": ("create_contact", 0.90),
-        # "lag" (make) patterns
         "lag faktura": ("create_invoice", 0.88),
         "lag kunde": ("create_customer", 0.88),
         "lag ansatt": ("create_employee", 0.88),
@@ -401,7 +370,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "lag produkt": ("create_product", 0.88),
         "lag prosjekt": ("create_project", 0.88),
         "lag avdeling": ("create_department", 0.88),
-        # "ny" (new) patterns
         "ny kunde": ("create_customer", 0.88),
         "ny faktura": ("create_invoice", 0.88),
         "ny ansatt": ("create_employee", 0.88),
@@ -410,13 +378,11 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "ny produkt": ("create_product", 0.88),
         "nytt prosjekt": ("create_project", 0.88),
         "ny avdeling": ("create_department", 0.88),
-        # "registrer" (register) patterns
         "registrer kunde": ("create_customer", 0.90),
         "registrer ansatt": ("create_employee", 0.90),
         "registrer leverandor": ("create_supplier", 0.90),
         "registrer leverandør": ("create_supplier", 0.90),
         "registrer produkt": ("create_product", 0.88),
-        # "new" patterns (English)
         "new employee": ("create_employee", 0.88),
         "new customer": ("create_customer", 0.88),
         "new supplier": ("create_supplier", 0.88),
@@ -424,7 +390,6 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "new invoice": ("create_invoice", 0.88),
         "new project": ("create_project", 0.88),
         "new department": ("create_department", 0.88),
-        # "create" patterns (English)
         "create employee": ("create_employee", 0.90),
         "create customer": ("create_customer", 0.90),
         "create supplier": ("create_supplier", 0.90),
@@ -432,15 +397,12 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "create invoice": ("create_invoice", 0.90),
         "create project": ("create_project", 0.90),
         "create department": ("create_department", 0.90),
-        # "register" patterns (English)
         "register supplier": ("create_supplier", 0.88),
         "register customer": ("create_customer", 0.88),
         "register employee": ("create_employee", 0.88),
-        # Portuguese patterns
         "criar fornecedor": ("create_supplier", 0.90),
         "criar produto": ("create_product", 0.90),
         "criar projeto": ("create_project", 0.90),
-        # Enable modules
         "aktiver modul": ("enable_modules", 0.90),
         "enable module": ("enable_modules", 0.90),
         "aktivere modul": ("enable_modules", 0.90),
@@ -466,15 +428,18 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
     if best_type and best_len > second_best_len + 2:
         return best_type, 0.75
     if best_type and best_len >= 5:
-        # Longer keyword matches are more trustworthy
         if best_len >= 8:
             return best_type, 0.70
         return best_type, 0.65
     return None
 
 
+# ---------------------------------------------------------------------------
+# Stage 1: Classification
+# ---------------------------------------------------------------------------
+
 async def classify_task(prompt: str) -> tuple[str, float]:
-    """Stage 1: Classify with confidence. Keyword -> Flash-Lite -> Pro escalation."""
+    """Classify with confidence. Keyword -> Flash-Lite -> Pro escalation."""
     quick = _quick_classify(prompt)
     if quick:
         task_type, confidence = quick
@@ -483,7 +448,6 @@ async def classify_task(prompt: str) -> tuple[str, float]:
             return task_type, confidence
         elif confidence >= CONFIDENCE_THRESHOLD:
             logger.info(f"Quick classify (medium conf): {task_type} (conf={confidence:.2f}), validating with LLM")
-            # Fall through to Flash-Lite with the keyword hint
 
     # Flash-Lite classification
     hint_prefix = ""
@@ -511,7 +475,7 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         logger.error(f"Flash-Lite classification failed: {e}")
         task_type, confidence = "unknown", 0.0
 
-    # Only escalate to Pro if Flash-Lite is very uncertain (< 0.45)
+    # Escalate to Pro if Flash-Lite is very uncertain
     if confidence < 0.45:
         logger.info(f"Very low Flash-Lite confidence ({confidence:.2f}), escalating to Pro")
         pro_model = _get_model(MODEL_PRO, CLASSIFIER_PROMPT_PRO)
@@ -536,7 +500,7 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         logger.warning(f"Very low confidence ({confidence:.2f}) -> unknown")
         task_type = "unknown"
 
-    # Remap task types for fresh sandbox (no pre-existing entities)
+    # Remap for fresh sandbox (no pre-existing entities)
     FRESH_SANDBOX_REMAP = {
         "register_payment": "create_invoice_with_payment",
         "register_payment_by_search": "create_invoice_with_payment",
@@ -550,6 +514,10 @@ async def classify_task(prompt: str) -> tuple[str, float]:
 
     return task_type, confidence
 
+
+# ---------------------------------------------------------------------------
+# File handling
+# ---------------------------------------------------------------------------
 
 def _build_file_instructions(files: list[dict] | None) -> str:
     if not files:
@@ -579,11 +547,8 @@ def _build_file_instructions(files: list[dict] | None) -> str:
     return "\n".join(instructions)
 
 
-async def _create_plan_full_llm(prompt: str, task_type: str, tier: int, confidence: float, files: list[dict] | None = None) -> dict:
-    """Full LLM planning for unknown task types — LLM generates steps + extracted_values."""
-    planner_prompt = build_planner_prompt(task_type, tier)
-    model = _get_model(MODEL_PRO, planner_prompt)
-
+def _build_parts(prompt: str, files: list[dict] | None, prefix: str = "Extract values from") -> list[Part]:
+    """Build Vertex AI Parts list from prompt text and optional file attachments."""
     parts = []
     if files:
         for f in files:
@@ -597,28 +562,144 @@ async def _create_plan_full_llm(prompt: str, task_type: str, tier: int, confiden
     task_text = f"Today's date is {today}.\n"
     if file_instructions:
         task_text += f"\n{file_instructions}\n\n"
-    task_text += f"Complete this accounting task:\n\n{prompt}"
+    task_text += f"{prefix} this accounting task:\n\n{prompt}"
     parts.append(Part.from_text(task_text))
+    return parts
 
-    max_tokens = 8192
-    plan_timeout = 120.0 if tier >= 3 else 90.0
-    logger.info(f"Full LLM planning {task_type} (tier={tier}, timeout={plan_timeout}s): {prompt[:80]}...")
+
+def _clean_extraction_result(parsed: dict) -> dict:
+    """Strip meta keys from LLM extraction output, handle wrapped format."""
+    if "extracted_values" in parsed and isinstance(parsed["extracted_values"], dict):
+        values = parsed["extracted_values"]
+    else:
+        values = parsed
+    for meta_key in ("task_type", "reasoning", "steps"):
+        values.pop(meta_key, None)
+    return values
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: Value extraction
+# ---------------------------------------------------------------------------
+
+async def extract_values(prompt: str, task_type: str, files: list[dict] | None = None) -> dict:
+    """Extract field values from prompt using LLM. No step generation.
+
+    Uses Flash-Lite for tier 1, Pro for tier 2-3.
+    """
+    tier = get_tier(task_type)
+    extraction_prompt = build_extraction_prompt(task_type, tier)
+    model_id = MODEL_FLASH_LITE if tier <= 1 else MODEL_PRO
+    model = _get_model(model_id, extraction_prompt)
+    logger.info(f"Extracting values: {'Flash-Lite' if tier <= 1 else 'Pro'} for {task_type} (tier {tier})")
+
+    parts = _build_parts(prompt, files, prefix="Extract values from")
+    timeout = 90.0 if tier < 3 else 120.0
+
     try:
         response = await asyncio.wait_for(
             model.generate_content_async(
                 parts,
-                generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
+                generation_config={"temperature": 0.0, "max_output_tokens": 4096},
             ),
-            timeout=plan_timeout,
+            timeout=timeout,
+        )
+        try:
+            raw_text = response.text
+        except (ValueError, AttributeError):
+            raw_text = ""
+
+        try:
+            parsed = _parse_json(raw_text)
+            return _clean_extraction_result(parsed)
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Failed to parse extraction JSON: {e}. Raw: {raw_text[:300]}")
+            return {}
+
+    except asyncio.TimeoutError:
+        logger.error(f"Extraction LLM timed out ({timeout}s) for {task_type}")
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Stage 2b: Repair extraction
+# ---------------------------------------------------------------------------
+
+async def re_extract_values(
+    prompt: str,
+    task_type: str,
+    errors: list[dict],
+    files: list[dict] | None = None,
+    original_values: dict | None = None,
+) -> dict:
+    """Re-extract values considering execution errors. Always uses Pro."""
+    repair_prompt = build_repair_extraction_prompt(task_type, prompt, errors)
+    model = _get_model(MODEL_PRO, repair_prompt)
+
+    parts = _build_parts(prompt, files, prefix="Re-extract values from")
+    timeout = 90.0 if get_tier(task_type) < 3 else 120.0
+
+    try:
+        response = await asyncio.wait_for(
+            model.generate_content_async(
+                parts,
+                generation_config={"temperature": 0.0, "max_output_tokens": 4096},
+            ),
+            timeout=timeout,
+        )
+        try:
+            raw_text = response.text
+        except (ValueError, AttributeError):
+            raw_text = ""
+
+        try:
+            parsed = _parse_json(raw_text)
+            new_values = _clean_extraction_result(parsed)
+            # Merge: new values override originals
+            if original_values:
+                merged = dict(original_values)
+                merged.update(new_values)
+                return merged
+            return new_values
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Failed to parse repair extraction JSON: {e}. Raw: {raw_text[:300]}")
+            return original_values or {}
+
+    except asyncio.TimeoutError:
+        logger.error(f"Repair extraction timed out ({timeout}s) for {task_type}")
+        return original_values or {}
+
+
+# ---------------------------------------------------------------------------
+# Full LLM planning (unknown tasks only)
+# ---------------------------------------------------------------------------
+
+async def _create_plan_full_llm(
+    prompt: str, task_type: str, tier: int, confidence: float, files: list[dict] | None = None
+) -> dict:
+    """Full LLM planning for unknown task types -- LLM generates steps + extracted_values."""
+    planner_prompt = build_planner_prompt(task_type, tier)
+    model = _get_model(MODEL_PRO, planner_prompt)
+
+    parts = _build_parts(prompt, files, prefix="Complete")
+    timeout = 120.0
+
+    logger.info(f"Full LLM planning {task_type} (tier={tier}, timeout={timeout}s): {prompt[:80]}...")
+    try:
+        response = await asyncio.wait_for(
+            model.generate_content_async(
+                parts,
+                generation_config={"temperature": 0.0, "max_output_tokens": 8192},
+            ),
+            timeout=timeout,
         )
     except asyncio.TimeoutError:
-        logger.error(f"Planner LLM timed out ({plan_timeout}s) for {task_type}")
-        template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+        logger.error(f"Planner LLM timed out ({timeout}s) for {task_type}")
         return {
             "task_type": task_type,
             "tier": tier,
-            "reasoning": "Planner LLM timeout - using template",
-            "steps": template["steps"],
+            "reasoning": "Planner LLM timeout",
+            "steps": [],
             "extracted_values": {},
             "classification_confidence": confidence,
         }
@@ -642,12 +723,11 @@ async def _create_plan_full_llm(prompt: str, task_type: str, tier: int, confiden
             plan = _parse_json(retry_text)
             logger.info("Plan JSON recovered via retry")
         except Exception:
-            logger.error("Plan JSON retry also failed, using template fallback")
-            template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
+            logger.error("Plan JSON retry also failed")
             plan = {
                 "task_type": task_type,
                 "reasoning": "Fallback - LLM JSON parse failed",
-                "steps": template["steps"],
+                "steps": [],
                 "extracted_values": {},
             }
 
@@ -658,259 +738,36 @@ async def _create_plan_full_llm(prompt: str, task_type: str, tier: int, confiden
     return plan
 
 
-def _resolve_conditional_steps(template: dict, extracted_values: dict) -> list[dict]:
-    """Append conditional steps from template if the trigger field is present in extracted_values."""
-    import copy
-    steps = copy.deepcopy(template["steps"])
-    conditional = template.get("conditional_steps", {})
-    for trigger_key, step in conditional.items():
-        # trigger_key is like "if_role" — check if "role" is in extracted_values
-        field = trigger_key.removeprefix("if_")
-        if field in extracted_values and extracted_values[field]:
-            steps.append(copy.deepcopy(step))
-    return steps
-
+# ---------------------------------------------------------------------------
+# Main entry: create_plan
+# ---------------------------------------------------------------------------
 
 async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
-    """Two-stage planning: classify then extract values into FIXED template.
+    """Classify -> extract values -> build concrete plan via template engine.
 
-    For known task types: LLM only extracts values, template steps are used as-is.
+    For known task types: LLM only extracts values, template_engine builds steps.
     For unknown task types: falls back to full LLM planning.
     """
     task_type, confidence = await classify_task(prompt)
     tier = get_tier(task_type)
 
-    # For unknown tasks, fall back to full LLM planning
-    if task_type == "unknown":
-        logger.info("Unknown task type — using full LLM planning")
+    # Unknown or missing template -> full LLM planning
+    if task_type == "unknown" or task_type not in TEMPLATES:
+        logger.info(f"{'Unknown' if task_type == 'unknown' else 'No template for ' + task_type} — full LLM planning")
         plan = await _create_plan_full_llm(prompt, task_type, tier, confidence, files)
-        logger.info(
-            f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps, "
-            f"extracted {len(plan.get('extracted_values', {}))} values"
-        )
+        logger.info(f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps")
         return plan
 
-    template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
-    # If template is the unknown fallback, use full LLM planning
-    if task_type not in TEMPLATES:
-        logger.info(f"No template for {task_type} — using full LLM planning")
-        plan = await _create_plan_full_llm(prompt, task_type, tier, confidence, files)
-        logger.info(
-            f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps, "
-            f"extracted {len(plan.get('extracted_values', {}))} values"
-        )
-        return plan
+    # Known task type: extract values then build from template
+    extracted_values = await extract_values(prompt, task_type, files)
 
-    # Build extraction-only prompt
-    # Use Flash-Lite for simple tier 1 tasks (faster), Pro for complex ones
-    extraction_prompt = build_extraction_prompt(task_type, tier)
-    extraction_model_id = MODEL_FLASH_LITE if tier <= 1 else MODEL_PRO
-    model = _get_model(extraction_model_id, extraction_prompt)
-    logger.info(f"Extraction model: {'Flash-Lite' if tier <= 1 else 'Pro'} for tier {tier}")
-
-    parts = []
-    if files:
-        for f in files:
-            file_data = base64.b64decode(f["content_base64"])
-            parts.append(Part.from_data(data=file_data, mime_type=f["mime_type"]))
-            parts.append(Part.from_text(f"[Attached file: {f['filename']}]"))
-
-    file_instructions = _build_file_instructions(files)
-    today = date.today().isoformat()
-
-    task_text = f"Today's date is {today}.\n"
-    if file_instructions:
-        task_text += f"\n{file_instructions}\n\n"
-    task_text += f"Extract values from this accounting task:\n\n{prompt}"
-    parts.append(Part.from_text(task_text))
-
-    # Extraction timeout: we have 5 min total, can afford generous LLM time
-    max_tokens = 4096
-    plan_timeout = 90.0 if tier < 3 else 120.0
-    logger.info(f"Extracting values for {task_type} (tier={tier}, timeout={plan_timeout}s): {prompt[:80]}...")
-
-    extracted_values = {}
-    try:
-        response = await asyncio.wait_for(
-            model.generate_content_async(
-                parts,
-                generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
-            ),
-            timeout=plan_timeout,
-        )
-        try:
-            raw_text = response.text
-        except (ValueError, AttributeError):
-            raw_text = ""
-
-        try:
-            parsed = _parse_json(raw_text)
-            # The LLM should return {"field": "value", ...} directly
-            # But it might wrap in {"extracted_values": {...}} — handle both
-            if "extracted_values" in parsed and isinstance(parsed["extracted_values"], dict):
-                extracted_values = parsed["extracted_values"]
-            else:
-                extracted_values = parsed
-            # Remove meta keys that aren't actual field values
-            for meta_key in ("task_type", "reasoning", "steps"):
-                extracted_values.pop(meta_key, None)
-        except (json.JSONDecodeError, Exception) as e:
-            logger.error(f"Failed to parse extraction JSON: {e}. Raw: {raw_text[:300]}")
-            # Extraction failed — still use template with empty values
-            extracted_values = {}
-
-    except asyncio.TimeoutError:
-        logger.error(f"Extraction LLM timed out ({plan_timeout}s) for {task_type}")
-        extracted_values = {}
-
-    # Use FIXED template steps (with conditional steps resolved)
-    steps = _resolve_conditional_steps(template, extracted_values)
-
-    plan = {
-        "task_type": task_type,
-        "tier": tier,
-        "reasoning": f"Template-driven extraction for {task_type}",
-        "steps": steps,
-        "extracted_values": extracted_values,
-        "classification_confidence": confidence,
-    }
+    plan = build_concrete_plan(task_type, extracted_values)
+    plan["tier"] = tier
+    plan["classification_confidence"] = confidence
+    plan["reasoning"] = f"Template-driven: {task_type}"
 
     logger.info(
-        f"Plan: {plan['task_type']} with {len(steps)} steps, "
-        f"extracted {len(extracted_values)} values: {list(extracted_values.keys())}"
+        f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps, "
+        f"extracted {len(plan.get('extracted_values', {}))} values: {list(plan.get('extracted_values', {}).keys())}"
     )
     return plan
-
-
-async def self_repair(
-    original_prompt: str,
-    plan: dict,
-    results: dict,
-    failed: list,
-    verification_errors: list[dict] | None = None,
-    files: list[dict] | None = None,
-) -> dict:
-    """Self-repair: for known task types, re-extract values into FIXED template.
-    For unknown types, fall back to full LLM repair."""
-    task_type = plan.get("task_type", "unknown")
-
-    # For known task types: re-extract values, DON'T let LLM generate new steps
-    if task_type in TEMPLATES and task_type != "unknown":
-        template = TEMPLATES[task_type]
-        error_context = []
-        for fail_idx, fail_res in failed:
-            err_data = fail_res.get("data", {})
-            error_context.append(f"Step {fail_idx} failed: {json.dumps(err_data, ensure_ascii=False)[:200]}")
-
-        repair_extraction_prompt = f"""The accounting task failed. Re-extract values from the prompt, fixing the errors.
-
-Errors encountered:
-{chr(10).join(error_context)}
-
-{f"Verification mismatches: {json.dumps(verification_errors, ensure_ascii=False)}" if verification_errors else ""}
-
-Fields to extract: {json.dumps(template.get("extract_fields", []))}
-
-Original extracted values: {json.dumps(plan.get("extracted_values", {}), ensure_ascii=False)}
-
-IMPORTANT: Only return the extracted values as JSON. Do NOT generate steps.
-Fix any values that caused errors (wrong format, missing fields, wrong references).
-Today's date is {date.today().isoformat()}.
-
-Task prompt:
-{original_prompt}"""
-
-        model = _get_model(MODEL_PRO, repair_extraction_prompt)
-        try:
-            response = await asyncio.wait_for(
-                model.generate_content_async(
-                    repair_extraction_prompt,
-                    generation_config={"temperature": 0.0, "max_output_tokens": 4096},
-                ),
-                timeout=60.0,
-            )
-            raw_text = response.text if hasattr(response, 'text') else ""
-            new_values = _parse_json(raw_text)
-            # Clean meta keys
-            for meta_key in ("task_type", "reasoning", "steps"):
-                new_values.pop(meta_key, None)
-            if "extracted_values" in new_values:
-                new_values = new_values["extracted_values"]
-
-            # Merge with original values (new values override)
-            merged = dict(plan.get("extracted_values", {}))
-            merged.update(new_values)
-
-            # Re-resolve template steps with updated values
-            steps = _resolve_conditional_steps(template, merged)
-
-            logger.info(f"Template-based repair: re-extracted {len(new_values)} values for {task_type}")
-            return {
-                "task_type": task_type,
-                "reasoning": f"Template-based repair for {task_type}",
-                "steps": steps,
-                "extracted_values": merged,
-            }
-        except Exception as e:
-            logger.error(f"Template-based repair failed: {e}, falling back to full LLM repair")
-
-    # Fallback: full LLM repair for unknown types or if template repair failed
-    repair_prompt = build_self_repair_prompt(
-        task_type, original_prompt, plan, results, failed,
-        verification_errors=verification_errors,
-    )
-
-    model = _get_model(MODEL_PRO, "You are an expert Tripletex API debugger. Fix the failed plan.")
-
-    parts = []
-    if files:
-        for f in files:
-            file_data = base64.b64decode(f["content_base64"])
-            parts.append(Part.from_data(data=file_data, mime_type=f["mime_type"]))
-            parts.append(Part.from_text(f"[Attached file: {f['filename']}]"))
-    parts.append(Part.from_text(repair_prompt))
-
-    logger.info(f"Self-repair (verification_errors={bool(verification_errors)}, files={len(files or [])})")
-    try:
-        response = await asyncio.wait_for(
-            model.generate_content_async(
-                parts,
-                generation_config={"temperature": 0.0, "max_output_tokens": 8192},
-            ),
-            timeout=90.0,
-        )
-    except asyncio.TimeoutError:
-        logger.error("Self-repair LLM timed out (60s)")
-        return {
-            "task_type": task_type,
-            "reasoning": "Self-repair: LLM timeout",
-            "steps": [],
-            "extracted_values": plan.get("extracted_values", {}),
-        }
-
-    try:
-        raw_text = response.text
-    except (ValueError, AttributeError) as e:
-        logger.error(f"Self-repair: empty response from LLM: {e}")
-        return {
-            "task_type": task_type,
-            "reasoning": "Self-repair: empty LLM response",
-            "steps": [],
-            "extracted_values": plan.get("extracted_values", {}),
-        }
-
-    try:
-        repaired = _parse_json(raw_text)
-    except (json.JSONDecodeError, Exception) as e:
-        logger.error(f"Self-repair JSON parse failed: {e}. Raw ({len(raw_text)} chars): {raw_text[:400]}")
-        # Return empty plan so the repair loop knows to stop
-        return {
-            "task_type": task_type,
-            "reasoning": "Self-repair JSON parse failed",
-            "steps": [],
-            "extracted_values": plan.get("extracted_values", {}),
-        }
-
-    repaired.setdefault("extracted_values", plan.get("extracted_values", {}))
-    logger.info(f"Repaired plan: {len(repaired.get('steps', []))} steps")
-    return repaired

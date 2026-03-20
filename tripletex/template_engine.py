@@ -1,0 +1,629 @@
+"""Template engine: turns task_type + extracted_values into a concrete execution plan.
+
+No LLM involvement. The template is law. $step_N references are preserved
+for the executor to resolve at runtime.
+"""
+
+import copy
+import logging
+import re
+from datetime import date, datetime, timedelta
+
+from templates import TEMPLATES
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# VAT type mapping by account number prefix
+# ---------------------------------------------------------------------------
+
+_VAT_TYPE_BY_PREFIX = {
+    "1": 0,   # Assets — no VAT
+    "2": 0,   # Equity/liabilities — no VAT
+    "3": 3,   # Revenue — outgoing VAT 25%
+    "4": 1,   # Cost of goods — incoming VAT 25%
+    "5": 0,   # Salary costs — no VAT
+    "6": 1,   # Operating expenses — incoming VAT 25%
+    "7": 1,   # Other operating expenses — incoming VAT 25%
+    "8": 0,   # Financial items — no VAT
+    "9": 0,   # Tax — no VAT
+}
+
+
+def _infer_vat_type(account_number: str | int | None) -> int:
+    """Infer vatType ID from account number prefix."""
+    if account_number is None:
+        return 0
+    s = str(account_number).strip()
+    if s and s[0] in _VAT_TYPE_BY_PREFIX:
+        return _VAT_TYPE_BY_PREFIX[s[0]]
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Value cleaning
+# ---------------------------------------------------------------------------
+
+def _clean_date(val: str | None) -> str | None:
+    """Normalize a date value to YYYY-MM-DD. Returns None if unparseable."""
+    if val is None:
+        return None
+    if isinstance(val, (date, datetime)):
+        return val.strftime("%Y-%m-%d")
+    s = str(val).strip()
+    if not s:
+        return None
+    # Already correct format
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    # Common alternatives
+    for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return s  # Return as-is if nothing matched
+
+
+def _clean_amount(val) -> float | int | None:
+    """Convert amount to numeric. Returns None if not parseable."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return int(val) if float(val) == int(float(val)) else val
+    s = str(val).strip().replace(" ", "").replace("\u00a0", "")
+    # Handle Norwegian format: 1.234,56 -> 1234.56
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif "," in s:
+        s = s.replace(",", ".")
+    # Strip currency suffixes
+    s = re.sub(r"\s*(kr|nok|eur|usd|sek|dkk)\.?\s*$", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"^(kr|nok|eur|usd|sek|dkk)\.?\s*", "", s, flags=re.IGNORECASE)
+    try:
+        f = float(s)
+        return int(f) if f == int(f) else f
+    except (ValueError, TypeError):
+        return None
+
+
+def _clean_bool(val) -> bool | None:
+    """Convert to bool. Returns None if not interpretable."""
+    if isinstance(val, bool):
+        return val
+    if val is None:
+        return None
+    s = str(val).strip().lower()
+    if s in ("true", "1", "yes", "ja", "sant", "si", "oui"):
+        return True
+    if s in ("false", "0", "no", "nei", "usant", "non"):
+        return False
+    return None
+
+
+# Fields that should be treated as dates
+_DATE_FIELDS = {
+    "date", "orderDate", "deliveryDate", "invoiceDate", "invoiceDueDate",
+    "paymentDate", "startDate", "endDate", "dateOfBirth", "departureDate",
+    "returnDate", "dateOfAcquisition", "dateFrom", "dateTo", "date_from",
+    "date_to",
+}
+
+# Fields that should be numeric
+_AMOUNT_FIELDS = {
+    "amount", "amountGross", "amountGrossCurrency", "paidAmount",
+    "priceExcludingVatCurrency", "priceIncludingVatCurrency",
+    "amountCurrencyIncVat", "acquisitionCost", "hours", "count",
+    "unitPriceExcludingVatCurrency", "paymentAmount", "cost_amount",
+    "percentageOfFullTimeEquivalent", "closingBalance",
+    "orderLine_count", "orderLine_unitPriceExcludingVatCurrency",
+}
+
+# Fields that should be boolean
+_BOOL_FIELDS = {
+    "isCustomer", "isSupplier", "isInternal", "isDayTrip",
+    "isForeignTravel", "sendToCustomer", "isPrivateIndividual",
+    "isChargeable",
+}
+
+
+def _clean_extracted_values(values: dict) -> dict:
+    """Type-coerce extracted values based on field names."""
+    cleaned = {}
+    for k, v in values.items():
+        if v is None:
+            continue
+        if isinstance(v, str) and v.strip() == "":
+            continue
+        # Skip placeholder-like values
+        if isinstance(v, str) and re.fullmatch(r"\{\{.*?\}\}", v):
+            continue
+
+        if k in _DATE_FIELDS:
+            v = _clean_date(v)
+        elif k in _AMOUNT_FIELDS:
+            v = _clean_amount(v)
+        elif k in _BOOL_FIELDS:
+            v = _clean_bool(v)
+        elif k in ("year", "month", "employeeNumber", "departmentNumber", "number"):
+            if isinstance(v, str) and v.isdigit():
+                v = int(v)
+
+        if v is not None:
+            cleaned[k] = v
+    return cleaned
+
+
+# ---------------------------------------------------------------------------
+# Placeholder filling
+# ---------------------------------------------------------------------------
+
+def _fill_placeholders(obj, values: dict):
+    """Replace {{placeholder}} with values from extracted_values.
+    Preserves $step_N references as-is."""
+    if isinstance(obj, str):
+        # Full match: entire string is a placeholder
+        m = re.fullmatch(r"\{\{(\w+)\}\}", obj)
+        if m:
+            key = m.group(1)
+            return values.get(key)  # Returns None if missing (will be stripped later)
+        # Partial match: interpolate within string
+        def _replacer(match):
+            key = match.group(1)
+            val = values.get(key)
+            if val is not None:
+                return str(val)
+            return match.group(0)  # Keep unresolved
+        return re.sub(r"\{\{(\w+)\}\}", _replacer, obj)
+    if isinstance(obj, dict):
+        return {k: _fill_placeholders(v, values) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_fill_placeholders(item, values) for item in obj]
+    return obj
+
+
+def _strip_none_and_unresolved(obj):
+    """Remove None values and unresolved {{placeholder}} strings recursively."""
+    if isinstance(obj, dict):
+        cleaned = {}
+        for k, v in obj.items():
+            v = _strip_none_and_unresolved(v)
+            if v is None:
+                continue
+            if isinstance(v, str) and re.search(r"\{\{.*?\}\}", v):
+                logger.debug(f"Stripping unresolved placeholder '{k}': {v}")
+                continue
+            # Don't strip empty dicts/lists that might be intentional
+            cleaned[k] = v
+        return cleaned if cleaned else None
+    if isinstance(obj, list):
+        result = []
+        for item in obj:
+            item = _strip_none_and_unresolved(item)
+            if item is not None:
+                result.append(item)
+        return result if result else None
+    return obj
+
+
+# ---------------------------------------------------------------------------
+# Default application
+# ---------------------------------------------------------------------------
+
+def _apply_defaults(steps: list[dict], values: dict, task_type: str) -> list[dict]:
+    """Apply smart defaults based on task type and existing values."""
+    today = date.today().isoformat()
+
+    for step in steps:
+        method = step.get("method", "GET").upper()
+        path = step.get("path", "")
+        body = step.get("body")
+        params = step.get("params")
+
+        if method != "POST" or body is None or not isinstance(body, dict):
+            continue
+
+        # Employee defaults
+        if "/employee" in path and "/employment" not in path:
+            body.setdefault("userType", "STANDARD")
+
+        # Customer defaults
+        if path.rstrip("/") == "/customer":
+            body.setdefault("isCustomer", True)
+
+        # Order date defaults
+        if "/order" in path and "/orderline" not in path.lower():
+            body.setdefault("orderDate", values.get("orderDate", today))
+            body.setdefault("deliveryDate", body.get("orderDate", today))
+
+        # Supplier invoice voucher description
+        if "/ledger/voucher" in path:
+            _apply_posting_defaults(body)
+
+    # Date derivation in values (for params that reference these)
+    if "orderDate" in values and "deliveryDate" not in values:
+        values["deliveryDate"] = values["orderDate"]
+    if "invoiceDate" in values and "invoiceDueDate" not in values:
+        try:
+            inv = datetime.strptime(values["invoiceDate"], "%Y-%m-%d")
+            values["invoiceDueDate"] = (inv + timedelta(days=14)).strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            pass
+    if "invoiceDate" in values and "orderDate" not in values:
+        values["orderDate"] = values["invoiceDate"]
+        if "deliveryDate" not in values:
+            values["deliveryDate"] = values["invoiceDate"]
+    if "departureDate" in values and "returnDate" not in values:
+        values["returnDate"] = values["departureDate"]
+
+    return steps
+
+
+def _apply_posting_defaults(body: dict):
+    """Ensure voucher postings have correct row numbers, amountGrossCurrency, and vatType."""
+    postings = body.get("postings")
+    if not isinstance(postings, list):
+        return
+    for i, posting in enumerate(postings):
+        if not isinstance(posting, dict):
+            continue
+        posting["row"] = i + 1
+        # amountGrossCurrency mirrors amountGross
+        if "amountGross" in posting and "amountGrossCurrency" not in posting:
+            posting["amountGrossCurrency"] = posting["amountGross"]
+        # Default vatType
+        if "vatType" not in posting:
+            # Try to infer from account number if we have it
+            posting["vatType"] = {"id": 0}
+
+
+# ---------------------------------------------------------------------------
+# Dynamic step generation for tier 3 tasks
+# ---------------------------------------------------------------------------
+
+def _expand_voucher_steps(steps: list[dict], values: dict) -> list[dict]:
+    """Expand voucher/opening-balance templates when postings_data has multiple accounts."""
+    postings_data = values.get("postings_data")
+    if not postings_data or not isinstance(postings_data, list):
+        return steps
+
+    # Collect unique account numbers from postings_data
+    account_numbers = []
+    seen = set()
+    for p in postings_data:
+        acct = p.get("account_number") or p.get("accountNumber")
+        if acct and str(acct) not in seen:
+            account_numbers.append(str(acct))
+            seen.add(str(acct))
+
+    if not account_numbers:
+        return steps
+
+    # Build N GET steps for accounts + 1 POST voucher
+    new_steps = []
+    account_step_map = {}  # account_number -> step index
+
+    for i, acct_num in enumerate(account_numbers):
+        new_steps.append({
+            "method": "GET",
+            "path": "/ledger/account",
+            "params": {"number": acct_num, "fields": "id,number,name"},
+        })
+        account_step_map[acct_num] = i
+
+    # Build postings with $step_N references
+    postings = []
+    for row_idx, p in enumerate(postings_data):
+        acct_num = str(p.get("account_number") or p.get("accountNumber", ""))
+        step_idx = account_step_map.get(acct_num, 0)
+        amount = _clean_amount(p.get("amount") or p.get("amountGross"))
+        vat_type = p.get("vatType")
+        if vat_type is None:
+            vat_type = {"id": _infer_vat_type(acct_num)}
+        elif isinstance(vat_type, (int, float)):
+            vat_type = {"id": int(vat_type)}
+
+        posting = {
+            "row": row_idx + 1,
+            "account": {"id": f"$step_{step_idx}.values[0].id"},
+            "amountGross": amount,
+            "amountGrossCurrency": amount,
+            "vatType": vat_type,
+        }
+        # Optional fields
+        if "description" in p:
+            posting["description"] = p["description"]
+        if "supplier" in p:
+            posting["supplier"] = p["supplier"]
+
+        postings.append(posting)
+
+    # Find the POST voucher step in the original template
+    voucher_date = values.get("date", date.today().isoformat())
+    voucher_desc = values.get("description", "Bilag")
+
+    voucher_step = {
+        "method": "POST",
+        "path": "/ledger/voucher",
+        "body": {
+            "date": voucher_date,
+            "description": voucher_desc,
+            "postings": postings,
+        },
+    }
+    new_steps.append(voucher_step)
+
+    return new_steps
+
+
+def _expand_opening_balance_steps(steps: list[dict], values: dict) -> list[dict]:
+    """Expand opening balance when 'accounts' or 'entries' list is provided."""
+    entries = values.get("entries") or values.get("accounts")
+    if not entries or not isinstance(entries, list):
+        return steps
+
+    account_numbers = []
+    seen = set()
+    for entry in entries:
+        acct = entry.get("account_number") or entry.get("accountNumber") or entry.get("number")
+        if acct and str(acct) not in seen:
+            account_numbers.append(str(acct))
+            seen.add(str(acct))
+
+    if not account_numbers:
+        return steps
+
+    # Check if we need a balancing equity account (2050)
+    total = 0
+    for entry in entries:
+        amt = _clean_amount(entry.get("amount") or entry.get("amountGross") or 0)
+        if amt is not None:
+            total += amt
+
+    needs_balancing = abs(total) > 0.01
+    if needs_balancing and "2050" not in seen:
+        account_numbers.append("2050")
+        seen.add("2050")
+
+    # Build GET steps
+    new_steps = []
+    account_step_map = {}
+    for i, acct_num in enumerate(account_numbers):
+        new_steps.append({
+            "method": "GET",
+            "path": "/ledger/account",
+            "params": {"number": acct_num, "fields": "id,number,name"},
+        })
+        account_step_map[acct_num] = i
+
+    # Build postings
+    postings = []
+    row = 1
+    for entry in entries:
+        acct_num = str(entry.get("account_number") or entry.get("accountNumber") or entry.get("number", ""))
+        step_idx = account_step_map.get(acct_num, 0)
+        amount = _clean_amount(entry.get("amount") or entry.get("amountGross") or 0)
+        if amount is None:
+            amount = 0
+
+        postings.append({
+            "row": row,
+            "account": {"id": f"$step_{step_idx}.values[0].id"},
+            "amountGross": amount,
+            "amountGrossCurrency": amount,
+            "vatType": {"id": _infer_vat_type(acct_num)},
+        })
+        row += 1
+
+    # Add balancing entry if needed
+    if needs_balancing:
+        bal_step_idx = account_step_map.get("2050", 0)
+        postings.append({
+            "row": row,
+            "account": {"id": f"$step_{bal_step_idx}.values[0].id"},
+            "amountGross": -total,
+            "amountGrossCurrency": -total,
+            "vatType": {"id": 0},
+        })
+
+    voucher_date = values.get("date", date.today().isoformat())
+    new_steps.append({
+        "method": "POST",
+        "path": "/ledger/voucher",
+        "body": {
+            "date": voucher_date,
+            "description": "Åpningsbalanse",
+            "postings": postings,
+        },
+    })
+
+    return new_steps
+
+
+def _expand_purchase_order_lines(steps: list[dict], values: dict) -> list[dict]:
+    """Expand purchase order template when multiple orderLines are provided."""
+    order_lines = values.get("orderLines")
+    if not order_lines or not isinstance(order_lines, list) or len(order_lines) <= 1:
+        return steps
+
+    # Find the POST /purchaseOrder/orderline step
+    orderline_idx = None
+    for i, step in enumerate(steps):
+        if step.get("path", "").endswith("/purchaseOrder/orderline"):
+            orderline_idx = i
+            break
+
+    if orderline_idx is None:
+        return steps
+
+    # The orderline step references $step_2.id (the purchase order)
+    # We need to find which step creates the purchase order
+    po_step_ref = None
+    original_step = steps[orderline_idx]
+    body = original_step.get("body", {})
+    po_ref = body.get("purchaseOrder", {}).get("id", "")
+    if isinstance(po_ref, str) and po_ref.startswith("$step_"):
+        po_step_ref = po_ref
+
+    # Replace the single orderline step with N steps
+    new_steps = steps[:orderline_idx]
+    for line in order_lines:
+        line_body = {
+            "purchaseOrder": {"id": po_step_ref} if po_step_ref else body.get("purchaseOrder"),
+            "description": line.get("description", ""),
+            "count": _clean_amount(line.get("count", 1)),
+            "unitPriceExcludingVatCurrency": _clean_amount(line.get("unitPriceExcludingVatCurrency", 0)),
+        }
+        new_steps.append({
+            "method": "POST",
+            "path": "/purchaseOrder/orderline",
+            "body": line_body,
+        })
+
+    # Append any steps after the original orderline step
+    new_steps.extend(steps[orderline_idx + 1:])
+    return new_steps
+
+
+def _expand_travel_costs(steps: list[dict], values: dict) -> list[dict]:
+    """Expand travel expense template when multiple costs are provided."""
+    costs = values.get("costs")
+    if not costs or not isinstance(costs, list) or len(costs) <= 1:
+        return steps
+
+    # Find the POST /travelExpense/cost step
+    cost_idx = None
+    for i, step in enumerate(steps):
+        if step.get("path", "") == "/travelExpense/cost" and step.get("method") == "POST":
+            cost_idx = i
+            break
+
+    if cost_idx is None:
+        return steps
+
+    original_step = steps[cost_idx]
+    original_body = original_step.get("body", {})
+
+    new_steps = steps[:cost_idx]
+    for cost_item in costs:
+        cost_body = copy.deepcopy(original_body)
+        # Override with specific cost data
+        if "amount" in cost_item or "amountCurrencyIncVat" in cost_item:
+            cost_body["amountCurrencyIncVat"] = _clean_amount(
+                cost_item.get("amountCurrencyIncVat") or cost_item.get("amount")
+            )
+        if "date" in cost_item:
+            cost_body["date"] = _clean_date(cost_item["date"])
+        if "comments" in cost_item or "description" in cost_item:
+            cost_body["comments"] = cost_item.get("comments") or cost_item.get("description")
+        if "costCategory" in cost_item:
+            cost_body["costCategory"] = cost_item["costCategory"]
+
+        new_steps.append({
+            "method": "POST",
+            "path": "/travelExpense/cost",
+            "body": cost_body,
+        })
+
+    new_steps.extend(steps[cost_idx + 1:])
+    return new_steps
+
+
+# ---------------------------------------------------------------------------
+# Conditional steps
+# ---------------------------------------------------------------------------
+
+def _apply_conditional_steps(steps: list[dict], values: dict, template: dict) -> list[dict]:
+    """Add conditional steps based on extracted values."""
+    conditional = template.get("conditional_steps", {})
+    if not conditional:
+        return steps
+
+    # if_role: add entitlement step when role is specified
+    if "if_role" in conditional and values.get("role"):
+        role_step = copy.deepcopy(conditional["if_role"])
+        steps.append(role_step)
+
+    return steps
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
+    """Build a ready-to-execute plan from a template and extracted values.
+
+    Args:
+        task_type: Key into TEMPLATES (e.g. "create_employee", "create_voucher")
+        extracted_values: Values extracted from the task prompt by the LLM
+
+    Returns:
+        {
+            "task_type": str,
+            "steps": [{"method", "path", "body", "params"}, ...],
+            "extracted_values": dict (cleaned),
+        }
+    """
+    template = TEMPLATES.get(task_type)
+    if template is None:
+        logger.warning(f"No template for task_type '{task_type}', falling back to 'unknown'")
+        template = TEMPLATES.get("unknown", {"steps": []})
+
+    # Clean and type-coerce extracted values
+    values = _clean_extracted_values(extracted_values)
+
+    # Deep copy steps to avoid mutating the template
+    steps = copy.deepcopy(template.get("steps", []))
+
+    # Handle dynamic expansion for complex task types
+    if task_type in ("create_voucher",) and "postings_data" in values:
+        steps = _expand_voucher_steps(steps, values)
+
+    elif task_type in ("create_opening_balance",) and ("entries" in values or "accounts" in values):
+        steps = _expand_opening_balance_steps(steps, values)
+
+    elif task_type == "create_purchase_order" and isinstance(values.get("orderLines"), list):
+        steps = _expand_purchase_order_lines(steps, values)
+
+    elif task_type == "create_travel_expense" and isinstance(values.get("costs"), list):
+        steps = _expand_travel_costs(steps, values)
+
+    # Apply conditional steps (e.g. role entitlement)
+    steps = _apply_conditional_steps(steps, values, template)
+
+    # Fill {{placeholders}} with extracted values
+    steps = _fill_placeholders(steps, values)
+
+    # Apply smart defaults (dates, booleans, etc.)
+    steps = _apply_defaults(steps, values, task_type)
+
+    # Strip None values and unresolved placeholders from bodies and params
+    for step in steps:
+        if "body" in step and isinstance(step["body"], dict):
+            step["body"] = _strip_none_and_unresolved(step["body"])
+        if "params" in step and isinstance(step["params"], dict):
+            step["params"] = _strip_none_and_unresolved(step["params"])
+        # Remove note fields — they're for documentation only
+        step.pop("note", None)
+
+    # Final cleanup: remove steps with no body AND no params for POST/PUT
+    # (but keep GETs and DELETEs as they might just need the path)
+    cleaned_steps = []
+    for step in steps:
+        method = step.get("method", "GET").upper()
+        if method in ("POST", "PUT") and step.get("body") is None and step.get("params") is None:
+            path = step.get("path", "")
+            # Keep action endpoints like /:invoice, /:payment, /:deliver
+            if "/:" in str(path):
+                cleaned_steps.append(step)
+            else:
+                logger.warning(f"Dropping empty {method} {path} (no body or params)")
+        else:
+            cleaned_steps.append(step)
+
+    return {
+        "task_type": task_type,
+        "steps": cleaned_steps,
+        "extracted_values": values,
+    }
