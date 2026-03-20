@@ -181,13 +181,14 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | 5 | 2026-03-20 | 11:52 | submission_20260320_115200.zip | YOLO26-x ONNX + DINOv2 + multi-class YOLO hybrid, score=det_score only | — | Ikke submittet (failed exit code 1) |
 | 6 | 2026-03-20 | 14:16 | submission_20260320_141629.zip | YOLO26-x FP16 ONNX + DINOv2 only, score=det_score, CLAHE on crops only, conf=0.01, no SAHI, no multi-class | KLAR | 257MB, 2/3 weights. Fixes: no timeout, pure det ranking |
 | 7 | 2026-03-21 | 15:30 | submission_20260321_153000.zip | YOLO26-x ONNX + DINOv2-Base v2 (FP16, epoch 26, val=91.5%, Focal+Mixup+EMA) | ? | 250MB, 2/3 weights. V2 classifier |
+| 8 | 2026-03-20 | 18:41 | submission_20260320_182916.zip | 3-modell WBF ensemble (pseudo 0.789 + fold0 0.726 + fold2 0.749) + TTA, 297MB | **0.9139** | 38.2s, +35.6%! Ensemble er game-changer |
 
-### Nåværende status (oppdatert 20. mars ~15:00)
-- **Beste score:** 0.6740 (submission #4)
-- **Rank:** #109 av 166 lag
-- **Daglig kvote:** 1/6 brukt, 5 igjen
-- **Topp 3:** prompt injection 1678 (0.9199), sf (0.9193), 000110 000111 (0.9154)
-- **Gap til topp:** 0.9199 - 0.6740 = **0.2459** (36.4% forbedring nødvendig)
+### Nåværende status (oppdatert 20. mars 18:45)
+- **Beste score: 0.9139** (submission #8, 3-modell ensemble)
+- **Topp 3 leaderboard:** Havvind (0.9200), prompt injection 1678 (0.9199), sf (0.9193)
+- **Oss:** ~4. plass, **gap til topp: 0.006 (0.6 poeng!)**
+- **Daglig kvote:** 2 brukt i dag
+- **Strategi:** K-fold ensemble + WBF + TTA er veien videre
 
 ### Regler for submission-logging
 - **ALLTID** oppdater tabellen over når en ny submission lages
@@ -224,38 +225,45 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | v1 | DINOv2 + CE + label_smoothing | 91.3% | ? | ? | 20 | DEPRECATED |
 | v2 | DINOv2 + FocalLoss + Mixup + EMA | 91.3% (ep19) | 84.1% | 97.5% | 21/50 | DEPRECATED |
 
-### GCP Training Fleet (oppdatert 14:17 20. mars)
+### GCP Training Fleet (oppdatert 20. mars 18:44)
 
-| VM | GPU | Run | Epochs | Best mAP50 | Status |
+| VM | GPU | Oppgave | Epochs | Best mAP50 | Status |
 |---|---|---|---|---|---|
-| yolo26-a100 | A100 40GB | train7 (multi, 300ep) | ~5 | ? | Starter |
-| yolo26-train | L4 24GB | train4 (multi fra COCO) | 156 | **0.786** | Platåer |
-| nmiai-train-fast | L4 24GB | train (heavy aug) | 53 | 0.737 | Trener |
-| classifier-train | L4 24GB | DINOv2 v2 (focal+mixup) | ~10 | 90.1% acc | Trener |
-| yolo26-l4-3 | L4 24GB | YOLO26-l | ? | ? | Starter |
-| yolo26-t4-1 | T4 16GB | YOLO26-m | ? | ? | Setup |
+| yolo26-a100 | A100 40GB | K-fold 0,1,2 ✅ + fold 3 trener | 0:151, 1:113, 2:141, 3:62 | 0.749 (fold2) | Fold 3 trener |
+| yolo26-train | L4 24GB | Pseudo-label multi-class | 132 | **0.789** | Trener videre |
+| nmiai-train-fast | L4 24GB | Progressive resize pretrain | ? | ? | Trener |
+| yolo26-l4-3 | L4 24GB | K-fold 1 (parallell) | 82 | 0.717 | Ferdig |
+| yolo26-t4-1 | T4 16GB | K-fold 2 (parallell) | 91 | 0.736 | Trener |
+| yolo26-t4-2 | T4 16GB | K-fold 3 (parallell) | 89 | 0.693 | Trener |
+| classifier-train | L4 24GB | DINOv2 v2 | 44/50 | 91.8% val | Nesten ferdig |
 
-### Score Breakdown Estimater
+### Tilgjengelige ONNX-modeller for ensemble
 
-| Scenario | Det mAP | Cls mAP | Score (0.7d + 0.3c) | Bilder | Notater |
-|---|---|---|---|---|---|
-| Sub #1 (baseline) | ~0.68 | ~0.00 | 0.476 | alle | YOLOv8x multi-class only |
-| Sub #4 (0.6740) | ~0.90 | ~0.15 | 0.674 | ~60% | SAHI timeout, svak cls |
-| Sub #6 (klar) | ~0.94 | ~0.50 | **0.81** | alle | No SAHI, DINOv2 cls, score=det |
-| Med bedre modeller (est.) | ~0.95 | ~0.80 | **0.905** | alle | Ensemble + bedre trening |
-| Topp lag | ~0.99 | ~0.98 | **0.991** | alle | Gap: ~8-10 poeng |
+| Modell | mAP50 | Fil | Størrelse | Kilde |
+|---|---|---|---|---|
+| pseudo_best.onnx | **0.789** | ✅ Lastet ned | 109 MB | Pseudo-label (L4 train5) |
+| fold2_best.onnx | **0.749** | ✅ Lastet ned | 108 MB | K-fold 2 (A100 kfold_2) |
+| fold0_best.onnx | 0.726 | ✅ Lastet ned | 109 MB | K-fold 0 (A100 kfold_0) |
+| fold1_best.onnx | 0.718 | ✅ Lastet ned | 113 MB | K-fold 1 (A100 kfold_1) |
+| fold3 | ~0.678 | ⏳ Trener | ~108 MB | K-fold 3 (A100 kfold_3) |
 
-### Forbedringsprioritet
-1. ✅ **Prosesser alle bilder** — fjernet SAHI, run_fast.py
-2. ✅ **score=det_score** — ren detection ranking for 70%
-3. ⏳ **Bedre classifier** — focal loss + mixup trener på GCP
-4. ⏳ **Bedre multi-class YOLO** — A100 trener 300ep fra COCO
-5. 🔜 **Ensemble** — WBF av beste modeller
-6. 🔜 **TTA** — multi-scale test-time augmentation
-3. **Klassifiser ALLE deteksjoner** — ikke category_id=0 ✅ (run_best.py)
-4. **Klassifiserings-TTA** — flip + average logits ✅ (classifier.py)
-5. **Deteksjons-TTA** — horisontal flip når tid tillater ✅ (run_best.py)
-6. **Multi-scale WBF** — 640+960+1280 ✅ (run_best.py)
+**Max 3 filer × ~110 MB = 330 MB / 420 MB**
+
+### Score-historikk
+
+| Sub | Score | Metode |
+|---|---|---|
+| #1 | 0.476 | YOLOv8x single model |
+| #4 | 0.674 | YOLO26-x + DINOv2 (timeout) |
+| **#8** | **0.914** | **3-modell WBF ensemble + TTA** |
+| Topp | 0.920 | Havvind |
+| Mål | 0.920+ | Bedre ensemble-kombinasjon |
+
+### Neste steg
+1. ⏳ Vent ~30 min til fold 3 ferdig + pseudo trener videre
+2. 🔜 Test lokalt: hvilken 3-modell kombinasjon gir best eval
+3. 🔜 Submit beste ensemble
+4. 💡 Mulig: tune WBF iou_thr, confidence threshold, TTA scales
 
 ## MCP Docs Server
 ```

@@ -82,6 +82,7 @@ class TripletexClient:
                 if "Name or service not known" in err_str or "nodename nor servname" in err_str:
                     logger.error(f"{method} {path} DNS error (no retry): {e}")
                     self._dns_ok = False
+                    self.error_count += 1
                     self._log_call(method, path, 0, False, err_str)
                     return {"status_code": 0, "ok": False, "data": {"error": err_str, "network_error": True}}
                 if attempt < MAX_RETRIES:
@@ -89,6 +90,7 @@ class TripletexClient:
                     logger.warning(f"{method} {path} network error, retry {attempt+1} in {wait}s: {e}")
                     await asyncio.sleep(wait)
                     continue
+                self.error_count += 1
                 self._log_call(method, path, 0, False, err_str)
                 return {"status_code": 0, "ok": False, "data": {"error": err_str, "network_error": True}}
 
@@ -109,7 +111,10 @@ class TripletexClient:
                     # Respect Retry-After header if present
                     retry_after = response.headers.get("Retry-After")
                     if retry_after:
-                        wait = min(float(retry_after), 5.0)
+                        try:
+                            wait = min(float(retry_after), 5.0)
+                        except (ValueError, TypeError):
+                            pass  # keep default wait
                 logger.warning(f"{method} {path} -> {response.status_code}, retry {attempt+1} in {wait}s")
                 await asyncio.sleep(wait)
                 continue
@@ -135,9 +140,9 @@ class TripletexClient:
 
     async def get(self, path: str, params: dict | None = None) -> dict:
         if params is None:
-            params = {}
-        if "fields" not in params:
-            params["fields"] = "*"
+            params = {"fields": "*"}
+        elif "fields" not in params:
+            params = {**params, "fields": "*"}
         return await self.request("GET", path, params=params)
 
     async def post(self, path: str, body: dict | None = None, params: dict | None = None) -> dict:

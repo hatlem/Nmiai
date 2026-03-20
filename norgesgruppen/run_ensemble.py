@@ -41,7 +41,7 @@ if not WBF_AVAILABLE:
 
 # ── Config ────────────────────────────────────────────────────────────
 TOTAL_TIMEOUT = 285
-CONF_THRESHOLD = 0.01
+CONF_THRESHOLD = 0.05
 NMS_IOU = 0.65
 IMGSZ = 1280
 MIN_BOX_SIZE = 4
@@ -52,8 +52,8 @@ WBF_SKIP_THR = 0.001
 def load_models(model_dir: Path):
     """Load all available ONNX multi-class detectors."""
     models = []
-    names = ["pseudo_best.onnx", "fold0_best.onnx", "fold2_best.onnx",
-             "best.onnx", "multi_best.onnx"]
+    names = ["pseudo_best.onnx", "fold4_best.onnx", "fold2_best.onnx",
+             "fold0_best.onnx", "fold1_best.onnx", "best.onnx"]
 
     for name in names:
         p = model_dir / name
@@ -86,7 +86,7 @@ def ensemble_detect(models, img_bgr, use_tta=False):
     all_boxes, all_scores, all_labels = [], [], []
 
     for name, model in models:
-        # Normal pass
+        # Normal pass at primary resolution
         boxes, scores, labels = detect_single(model, img_bgr, CONF_THRESHOLD, NMS_IOU, IMGSZ)
         if len(boxes) > 0:
             norm_boxes = boxes.copy()
@@ -96,12 +96,11 @@ def ensemble_detect(models, img_bgr, use_tta=False):
             all_scores.append(scores)
             all_labels.append(labels)
 
-        # TTA: horizontal flip
         if use_tta:
+            # TTA 1: horizontal flip at primary resolution
             flipped = cv2.flip(img_bgr, 1)
             fb, fs, fl = detect_single(model, flipped, CONF_THRESHOLD, NMS_IOU, IMGSZ)
             if len(fb) > 0:
-                # Mirror boxes back
                 fb_mirror = fb.copy()
                 fb_mirror[:, 0] = w - fb[:, 2]
                 fb_mirror[:, 2] = w - fb[:, 0]
@@ -114,7 +113,8 @@ def ensemble_detect(models, img_bgr, use_tta=False):
     if not all_boxes or not any(len(b) > 0 for b in all_boxes):
         return np.zeros((0, 4)), np.array([]), np.array([], dtype=int)
 
-    # WBF fusion
+    # WBF fusion — weight by prediction quality
+    # all_boxes has variable length depending on TTA and which models produced detections
     weights = [1.0] * len(all_boxes)
     fused_boxes, fused_scores, fused_labels = weighted_boxes_fusion(
         all_boxes, all_scores, all_labels,

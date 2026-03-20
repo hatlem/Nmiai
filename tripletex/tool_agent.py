@@ -1,17 +1,16 @@
-"""Tripletex Tool-Use Agent — LLM as primary problem solver.
+"""Tripletex Tool-Use Agent — LLM with on-demand API knowledge retrieval.
 
-Instead of rigid templates with brittle step references, this gives
-Gemini 3.1 Pro direct API access and lets it solve tasks dynamically.
+Uses Gemini 3.1 Pro with function calling. Instead of stuffing all API
+knowledge into the system prompt, the LLM calls get_api_guide(topic) to
+retrieve detailed documentation on demand. This keeps the context window
+lean and focused.
 
-The LLM:
-1. Reads the task prompt (any of 7 languages)
-2. Decides which API calls to make
-3. Reads responses and adapts
-4. Handles errors naturally (reads error message, tries different approach)
+Flow:
+1. LLM reads the task prompt
+2. Calls get_api_guide("customer") etc. to learn exact field names
+3. Makes API calls via tripletex_get/post/put/delete
+4. Reads responses and adapts
 5. Continues until task is done
-
-This eliminates all template bugs: no step references, no extraction step
-that loses information, no rigid plans that can't handle edge cases.
 """
 
 import asyncio
@@ -37,14 +36,10 @@ from tripletex_client import TripletexClient
 
 logger = logging.getLogger(__name__)
 
-# NOTE: vertexai.init() is called in agent.py with location="global".
-# Do NOT re-init here — it overrides the global location and breaks 3.1 models.
-# tool_agent uses its own init when called directly (see tool_agent_solve).
-
-MAX_TURNS = 20
+MAX_TURNS = 25  # bumped from 20 — get_api_guide calls don't cost API round-trips
 DEADLINE_BUFFER = 25  # stop 25s before timeout
 
-# ── Tripletex API tool definitions ────────────────────────────────────
+# ── Tool definitions ─────────────────────────────────────────────────
 
 _tripletex_get = FunctionDeclaration(
     name="tripletex_get",
@@ -99,115 +94,375 @@ _tripletex_delete = FunctionDeclaration(
     },
 )
 
-TOOLS = [Tool(function_declarations=[_tripletex_get, _tripletex_post, _tripletex_put, _tripletex_delete])]
+_get_api_guide = FunctionDeclaration(
+    name="get_api_guide",
+    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity",
+    parameters={
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string", "description": "The topic to get documentation for"},
+        },
+        "required": ["topic"],
+    },
+)
 
-# ── System prompt with comprehensive API knowledge ────────────────────
+TOOLS = [Tool(function_declarations=[
+    _tripletex_get, _tripletex_post, _tripletex_put, _tripletex_delete, _get_api_guide
+])]
+
+# ── Slim system prompt ───────────────────────────────────────────────
 
 SYSTEM_PROMPT = f"""\
 You are an expert Tripletex accounting agent. Today is {date.today().isoformat()}.
 You receive accounting tasks in Norwegian, English, German, French, Spanish, Portuguese, or Nynorsk.
 Execute each task by making Tripletex API calls using the provided tools.
 
-## CRITICAL RULES
-- The sandbox starts EMPTY — create all prerequisites (customer, supplier, employee) before dependent entities.
-- Account numbers are NOT account IDs. Always GET /ledger/account?number=X&fields=id first.
-- Every invoice needs a bank account. If invoicing fails with "bankkontonummer", try POST /bank to register one.
-- All IDs must be integers, not strings.
-- When updating entities, include both 'id' and 'version' from the GET response.
-- Amounts must be numbers, not strings.
-- Dates must be YYYY-MM-DD format.
-- Voucher postings: row starts from 1 (NEVER 0), MUST include amountGrossCurrency (same as amountGross), MUST include vatType.
-- Contact: phone field is phoneNumberMobile (NOT phoneNumber — that field doesn't exist on contact).
-- Order: MUST include both orderDate AND deliveryDate (both required).
-- Project: projectManager MUST have ALL_PRIVILEGES entitlement before being assigned.
-- Reminder: use dispatchType=EMAIL (NOT sendType/sendMethod).
-- TTC/inkl mva amounts: for voucher postings with vatType 1 or 3, amountGross should be the NET amount (Tripletex adds VAT automatically).
+LANGUAGE GLOSSARY:
+faktura=invoice, kunde=customer, ansatt=employee, leverandør=supplier, bilag=voucher, konto=account, prosjekt=project, avdeling=department, produkt=product, reiseregning=travel expense, innbetaling=payment, kreditnota=credit note, purring=reminder, bankavstemming=bank reconciliation, åpningsbalanse=opening balance, anleggsmiddel=fixed asset, lønn=salary, innkjøpsordre=purchase order, kontaktperson=contact person, ansettelse=employment, bokfør=post/book, reverser=reverse, godkjenn=approve, lever=deliver, slett=delete, Rechnung=invoice, Kunde=customer, Mitarbeiter=employee, Lieferant=supplier, facture=invoice, client=customer, employé=employee, fournisseur=supplier, factura=invoice, cliente=customer, empleado=employee, proveedor=supplier
 
-## ENTITY CREATION PATTERNS
+CRITICAL UNIVERSAL RULES:
+- The sandbox starts EMPTY — create ALL prerequisites (customer, supplier, employee) before dependent entities
+- Account numbers are NOT account IDs — always GET /ledger/account?number=X&fields=id first
+- All IDs must be integers, not strings
+- Amounts must be numbers, not strings
+- Dates must be YYYY-MM-DD format
+- When updating entities, include both 'id' and 'version' from the GET response
+- EVERY data point in the prompt MUST end up in the API calls — missing a phone, org number, or address = lost points
 
-### Customer
-POST /customer {{"name":"X", "isCustomer":true, "email":"x@y.no", "organizationNumber":"123456789", "phoneNumber":"12345678"}}
-- postalAddress: {{"addressLine1":"X", "postalCode":"1234", "city":"Oslo"}}
-- For both customer AND supplier: add "isSupplier":true
+STRATEGY:
+1. Parse the task to understand what entity types are involved
+2. ALWAYS call get_api_guide for each entity type BEFORE your first API call — this gives you exact field names and patterns
+3. Create prerequisites first (customer before invoice, accounts before voucher)
+4. Make API calls one at a time, using returned IDs in subsequent calls
+5. If a call fails, read the error and adapt (don't repeat the same call)
+6. When done, stop — don't make unnecessary verification calls
 
-### Employee
-POST /employee {{"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth":"1990-01-01", "phoneNumberMobile":"99887766", "userType":"STANDARD", "department":{{"id":DEPT_ID}}}}
-- MUST GET /department first and include department.id (required field!)
-- Phone field is phoneNumberMobile (NOT phoneNumber, NOT mobileNumber — these cause 422)
-- email field is immutable after creation (cannot be changed via PUT)
-- Role/admin: after creating, PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
-- Templates: ALL_PRIVILEGES, INVOICING_MANAGER, PERSONELL_MANAGER, ACCOUNTANT, AUDITOR, DEPARTMENT_LEADER
-- For employment: POST /employee/employment {{"employee":{{"id":X}}, "startDate":"2026-01-01"}} — ONLY these 2 fields, NO employmentType/percentageOfFullTimeEquivalent/userType
-
-### Invoice (create order → invoice it)
-1. POST /customer (if new)
-2. POST /order {{"customer":{{"id":X}}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{{"description":"Item", "count":1, "unitPriceExcludingVatCurrency":1000}}]}}
-3. PUT /order/ORDER_ID/:invoice?sendToCustomer=false&invoiceDate=YYYY-MM-DD
-- With payment: GET /invoice/paymentType first, then PUT /invoice/INV_ID/:payment?paymentDate=YYYY-MM-DD&paymentTypeId=X&paidAmount=AMOUNT
-
-### Voucher (bilag)
-GET /ledger/account?number=XXXX&fields=id for each account number, then:
-POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"X", "postings":[
-  {{"row":1, "account":{{"id":DEBIT_ACCT_ID}}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{{"id":VAT_ID}}}},
-  {{"row":2, "account":{{"id":CREDIT_ACCT_ID}}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{{"id":VAT_ID}}}}
-]}}
-- vatType: 0=no VAT (1xxx,2xxx,5xxx,8xxx accounts), 1=incoming 25% (4xxx,6xxx,7xxx), 3=outgoing 25% (3xxx)
-- Postings MUST sum to zero. Row starts from 1.
-
-### Supplier Invoice (leverandørfaktura)
-POST /supplier (create supplier), GET /ledger/account for accounts, then:
-POST /supplierInvoice {{"invoiceNumber":"X", "invoiceDate":"YYYY-MM-DD", "supplier":{{"id":X}},
-  "voucher":{{"date":"YYYY-MM-DD", "description":"X", "postings":[...]}}
-}}
-- DO NOT include: orderDate, deliveryDate, dueDate (cause 422)
-
-### Project
-GET /employee?count=1&fields=id (for project manager), then:
-POST /project {{"name":"X", "startDate":"YYYY-MM-DD", "projectManager":{{"id":EMPLOYEE_ID}}, "isInternal":false, "customer":{{"id":CUST_ID}}}}
-- Internal: set isInternal:true, omit customer
-
-### Other endpoints
-- POST /department {{"name":"X", "departmentNumber":123}}
-- POST /product {{"name":"X", "number":"P001", "priceExcludingVatCurrency":1000}}
-- POST /supplier {{"name":"X", "organizationNumber":"123456789"}}
-- POST /contact {{"firstName":"X", "lastName":"Y", "email":"x@y.no", "customer":{{"id":X}}}}
-- PUT /invoice/ID/:send?sendType=EMAIL — send invoice (sendType UPPERCASE: EMAIL, EHF, EFAKTURA)
-- PUT /invoice/ID/:createCreditNote — credit note
-- PUT /ledger/voucher/ID/:reverse?date=YYYY-MM-DD — reverse voucher
-### Travel Expense (reiseregning)
-1. GET /employee?firstName=X&fields=id OR POST /employee to create
-2. POST /travelExpense {{"title":"X", "employee":{{"id":X}}, "travelDetails":{{"departureDate":"X", "returnDate":"X", "destination":"X"}}, "isDayTrip":false, "isForeignTravel":false}}
-3. GET /travelExpense/costCategory?fields=id,description to find cost category IDs
-4. For EACH cost: POST /travelExpense/cost {{"travelExpense":{{"id":TE_ID}}, "date":"YYYY-MM-DD", "costCategory":{{"id":CAT_ID}}, "paymentType":{{"id":0}}, "currency":{{"code":"NOK"}}, "costCurrency":AMOUNT, "vatType":{{"id":0}}, "isRefund":false}}
-- NEVER use /travelExpense/ID/expenses or /travelExpense/ID/expense — those don't exist!
-- NEVER use /travelExpense/type or /expenseType — those don't exist!
-- NEVER include "expenses" field in POST/PUT /travelExpense body — use /travelExpense/cost separately!
-- costCategory IDs: check GET /travelExpense/costCategory first
-- DELETE /travelExpense/ID — delete travel expense
-- PUT /travelExpense/ID/:deliver — submit travel expense
-- PUT /travelExpense/ID/:approve — approve travel expense
-- POST /purchaseOrder {{"supplier":{{"id":X}}, "ourContact":{{"id":X}}, "deliveryDate":"X"}} then POST /purchaseOrder/orderline separately
-- POST /salary/transaction {{"year":2026, "month":3, "payslips":[{{"employee":{{"id":X}}}}]}}
-- POST /bank/reconciliation {{"account":{{"id":X}}, "type":"MANUAL", "dateFrom":"X"}}
-- POST /asset {{"name":"X", "dateOfAcquisition":"X", "acquisitionCost":X}}
-- PUT /invoice/ID/:createReminder?dispatchType=EMAIL
-- PUT /company/modules {{"moduleAccountingInternal":true}} — enable modules
-
-## LANGUAGE GLOSSARY
-faktura=invoice, kunde=customer, ansatt=employee, leverandør=supplier, bilag=voucher, konto=account,
-prosjekt=project, avdeling=department, produkt=product, reiseregning=travel expense, innbetaling=payment,
-kreditnota=credit note, purring=reminder, bankavstemming=bank reconciliation, åpningsbalanse=opening balance,
-anleggsmiddel=fixed asset, lønn=salary, innkjøpsordre=purchase order, kontaktperson=contact person,
-ansettelse=employment, bokfør=post/book, reverser=reverse, godkjenn=approve, lever=deliver, slett=delete
-
-## STRATEGY
-1. Parse the task to understand what needs to be done
-2. Create prerequisites first (customer before invoice, accounts before voucher)
-3. Make API calls one at a time, using returned IDs in subsequent calls
-4. If a call fails, read the error message and adapt (don't repeat the same call)
-5. When done, stop. Don't make unnecessary verification calls.
+ENDPOINTS THAT DO NOT EXIST (cause 404 — never use):
+- /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
+- PUT /company/modules (returns 405)
 """
 
+# ── API Guides (on-demand knowledge) ────────────────────────────────
+
+API_GUIDES: dict[str, str] = {
+    "customer": """\
+## Customer
+POST /customer {"name":"X", "isCustomer":true, "email":"x@y.no", "organizationNumber":"123456789", "phoneNumber":"12345678"}
+- postalAddress: {"addressLine1":"X", "postalCode":"1234", "city":"Oslo"}
+- physicalAddress: same structure as postalAddress
+- For both customer AND supplier: add "isSupplier":true
+- phoneNumber is the correct field (NOT phone, NOT phoneNumberMobile)
+- ALWAYS include organizationNumber if mentioned in prompt
+- ALWAYS include ALL data from prompt (email, phone, address, org number)
+- If customer already exists (409 Conflict), GET /customer?name=X&fields=id to find existing
+Example:
+POST /customer {"name":"Acme AS", "isCustomer":true, "email":"post@acme.no", "organizationNumber":"987654321", "phoneNumber":"22334455", "postalAddress":{"addressLine1":"Storgata 1","postalCode":"0155","city":"Oslo"}}
+""",
+
+    "employee": """\
+## Employee
+POST /employee {"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth":"1990-01-01", "phoneNumberMobile":"99887766", "userType":"STANDARD", "department":{"id":DEPT_ID}}
+- MUST GET /department?fields=id,name first and include department.id (required field!)
+- Phone field is phoneNumberMobile (NOT phoneNumber, NOT mobileNumber — these cause 422)
+- email field is immutable after creation
+- If email "allerede i bruk": GET /employee?email=X&fields=id to find existing employee
+- dateOfBirth: include if mentioned, format YYYY-MM-DD
+- employeeNumber: auto-assigned, returned in response
+Role/admin privileges:
+- PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
+- Templates: ALL_PRIVILEGES, INVOICING_MANAGER, PERSONELL_MANAGER, ACCOUNTANT, AUDITOR, DEPARTMENT_LEADER
+""",
+
+    "employment": """\
+## Employment (ansettelse)
+POST /employee/employment {"employee":{"id":X}, "startDate":"2026-01-01"}
+- ONLY these 2 fields — NO employmentType, NO percentageOfFullTimeEquivalent, NO userType
+- startDate is required
+- employee.id must reference an existing employee
+""",
+
+    "invoice": """\
+## Invoice (faktura) — Create via Order
+1. POST /customer (if new) — see get_api_guide("customer")
+2. POST /order {"customer":{"id":X}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"Item", "count":1, "unitPriceExcludingVatCurrency":1000}]}
+   - BOTH orderDate AND deliveryDate are REQUIRED
+   - deliveryDate defaults to orderDate if not specified in task
+3. PUT /order/ORDER_ID/:invoice?sendToCustomer=false&invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD
+   - ALWAYS include invoiceDueDate param — default: invoiceDate + 14 days
+   - If invoicing fails with "bankkontonummer": POST /bank to register bank account first
+
+With payment after invoicing:
+- GET /invoice/paymentType?fields=id,description first
+- PUT /invoice/INV_ID/:payment?paymentDate=YYYY-MM-DD&paymentTypeId=X&paidAmount=AMOUNT
+""",
+
+    "voucher": """\
+## Voucher (bilag)
+1. GET /ledger/account?number=XXXX&fields=id for EACH account number
+2. POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"X", "postings":[
+     {"row":1, "account":{"id":DEBIT_ACCT_ID}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{"id":VAT_ID}},
+     {"row":2, "account":{"id":CREDIT_ACCT_ID}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{"id":VAT_ID}}
+   ]}
+
+CRITICAL RULES:
+- Row starts from 1 (NEVER 0)
+- MUST include amountGrossCurrency (same value as amountGross)
+- MUST include vatType on every posting
+- Postings MUST sum to zero (total debit = total credit)
+
+vatType IDs:
+- 0 = no VAT (1xxx, 2xxx, 5xxx, 8xxx accounts — balance sheet/equity)
+- 1 = incoming 25% (4xxx, 6xxx, 7xxx accounts — expenses)
+- 3 = outgoing 25% (3xxx accounts — revenue)
+
+TTC/inkl mva amounts: for postings with vatType 1 or 3, amountGross should be the NET amount (Tripletex adds VAT automatically).
+""",
+
+    "travel_expense": """\
+## Travel Expense (reiseregning)
+1. GET /employee or POST /employee (need employee.id)
+2. POST /travelExpense {"title":"X", "employee":{"id":X}, "travelDetails":{"departureDate":"YYYY-MM-DD", "returnDate":"YYYY-MM-DD", "departureFrom":"Oslo", "destination":"Bergen", "purpose":"X", "isDayTrip":false, "isForeignTravel":false}}
+   - isDayTrip and isForeignTravel go INSIDE travelDetails (NOT top-level!)
+   - departureFrom, destination, purpose also go inside travelDetails
+3. GET /travelExpense/costCategory?fields=id,description — find cost category IDs
+4. GET /travelExpense/paymentType?fields=id,description — find payment type ID
+5. For EACH cost: POST /travelExpense/cost {"travelExpense":{"id":TE_ID}, "date":"YYYY-MM-DD", "amountCurrencyIncVat":AMOUNT, "vatType":{"id":0}, "paymentType":{"id":PT_ID}}
+   - amountCurrencyIncVat is the REQUIRED amount field (NOT costCurrency, NOT amount)
+   - For per diem: use POST /travelExpense/cost with amountCurrencyIncVat = daily_rate * days (NOT /travelExpense/perDiemCompensation)
+
+ENDPOINTS THAT DON'T EXIST:
+- /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
+- NEVER include "expenses" field in POST/PUT /travelExpense body — use /travelExpense/cost separately!
+
+Actions:
+- DELETE /travelExpense/ID — delete
+- PUT /travelExpense/ID/:deliver — submit
+- PUT /travelExpense/ID/:approve — approve
+""",
+
+    "project": """\
+## Project (prosjekt)
+1. GET /employee?count=1&fields=id — for project manager
+2. projectManager MUST have ALL_PRIVILEGES entitlement before being assigned:
+   PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
+3. POST /project {"name":"X", "startDate":"YYYY-MM-DD", "projectManager":{"id":EMPLOYEE_ID}, "isInternal":false, "customer":{"id":CUST_ID}}
+   - Internal project: set isInternal:true, omit customer
+   - isFixedPrice: set to true for fixed-price projects, with fixedprice:AMOUNT
+""",
+
+    "supplier": """\
+## Supplier (leverandør)
+POST /supplier {"name":"X", "organizationNumber":"123456789", "email":"x@y.no", "phoneNumber":"12345678"}
+- postalAddress: {"addressLine1":"X", "postalCode":"1234", "city":"Oslo"}
+- A customer can also be a supplier: POST /customer with "isSupplier":true
+""",
+
+    "product": """\
+## Product (produkt)
+POST /product {"name":"X", "number":"P001", "priceExcludingVatCurrency":1000}
+- If number "er i bruk" (409): GET /product?number=X&fields=id to find existing product ID
+- priceExcludingVatCurrency is the price field (NOT price, NOT unitPrice)
+""",
+
+    "department": """\
+## Department (avdeling)
+POST /department {"name":"X", "departmentNumber":123}
+- departmentNumber is required and must be unique
+- Returned in employee responses as department.id
+""",
+
+    "contact": """\
+## Contact Person (kontaktperson)
+POST /contact {"firstName":"X", "lastName":"Y", "email":"x@y.no", "customer":{"id":X}}
+- Phone field is phoneNumberMobile (NOT phoneNumber — that field doesn't exist on contact)
+- Must link to a customer via customer.id
+""",
+
+    "payment": """\
+## Payment (innbetaling)
+For invoice payment:
+1. GET /invoice/paymentType?fields=id,description
+2. PUT /invoice/INV_ID/:payment?paymentDate=YYYY-MM-DD&paymentTypeId=X&paidAmount=AMOUNT
+   - All params go as query params, NOT body
+""",
+
+    "credit_note": """\
+## Credit Note (kreditnota)
+PUT /invoice/ID/:createCreditNote
+- Creates a credit note for the specified invoice
+- Returns the credit note invoice object
+""",
+
+    "reminder": """\
+## Reminder (purring)
+PUT /invoice/ID/:createReminder?dispatchType=EMAIL
+- dispatchType=EMAIL (NOT sendType, NOT sendMethod)
+- Dispatch types: EMAIL, EHF, EFAKTURA
+""",
+
+    "send_invoice": """\
+## Send Invoice
+PUT /invoice/ID/:send?sendType=EMAIL
+- sendType UPPERCASE: EMAIL, EHF, EFAKTURA
+""",
+
+    "timesheet": """\
+## Timesheet Entry (timeføring)
+1. GET /employee or POST /employee (need employee.id)
+2. GET /project?name=X&fields=id,name,startDate,version
+3. GET /activity?isProjectActivity=true&fields=id,name (MUST use project activity, not general)
+4. If timesheet date < project startDate: PUT /project to adjust startDate first
+5. POST /timesheet/entry {"employee":{"id":X}, "project":{"id":X}, "activity":{"id":X}, "date":"YYYY-MM-DD", "hours":N, "comment":"X"}
+   - FORBIDDEN fields: description, title, name, type (cause 422)
+   - Use "comment" for any text description
+""",
+
+    "salary": """\
+## Salary Transaction (lønn)
+POST /salary/transaction {"year":2026, "month":3, "payslips":[{"employee":{"id":X}}]}
+- Does NOT accept "salaryLines" or "salaryTransaction" fields
+- year and month are required
+""",
+
+    "opening_balance": """\
+## Opening Balance (åpningsbalanse)
+POST /ledger/voucher with description "Åpningsbalanse"
+Each posting needs:
+- row (1,2,3...), account.id, amountGross (positive=debit, negative=credit), amountGrossCurrency (same as amountGross), vatType.id
+- Use vatType.id=0 for balance sheet accounts (1xxx/2xxx)
+- Postings MUST sum to zero
+- If only asset accounts given, add equity account 2050 as balancing entry
+- GET /ledger/account?number=XXXX&fields=id for each account number first
+""",
+
+    "supplier_invoice": """\
+## Supplier Invoice (leverandørfaktura)
+1. POST /supplier (create supplier if needed)
+2. GET /ledger/account?number=X&fields=id for each account
+3. POST /supplierInvoice {"invoiceNumber":"X", "invoiceDate":"YYYY-MM-DD", "supplier":{"id":X},
+     "voucher":{"date":"YYYY-MM-DD", "description":"X", "postings":[
+       {"row":1, "account":{"id":EXPENSE_ACCT_ID}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{"id":1}},
+       {"row":2, "account":{"id":SUPPLIER_ACCT_ID}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{"id":0}}
+     ]}}
+- DO NOT include: orderDate, deliveryDate, dueDate (cause 422)
+- Voucher postings follow same rules as regular vouchers (sum to zero, row from 1)
+""",
+
+    "purchase_order": """\
+## Purchase Order (innkjøpsordre)
+1. POST /supplier (if needed)
+2. GET /employee?count=1&fields=id (for ourContact)
+3. POST /purchaseOrder {"supplier":{"id":X}, "ourContact":{"id":X}, "deliveryDate":"YYYY-MM-DD"}
+4. POST /purchaseOrder/orderline {"purchaseOrder":{"id":PO_ID}, "description":"X", "count":N, "unitPriceExcludingVatCurrency":AMOUNT}
+   - orderLines CANNOT be included in POST /purchaseOrder body (causes "purchaseOrder: Kan ikke være null")
+   - Must POST each orderline separately AFTER creating the purchase order
+""",
+
+    "asset": """\
+## Fixed Asset (anleggsmiddel)
+POST /asset {"name":"X", "dateOfAcquisition":"YYYY-MM-DD", "acquisitionCost":AMOUNT}
+""",
+
+    "bank_reconciliation": """\
+## Bank Reconciliation (bankavstemming)
+POST /bank/reconciliation {"account":{"id":X}, "type":"MANUAL", "dateFrom":"YYYY-MM-DD"}
+- account.id is the ledger account ID (GET /ledger/account?number=1920&fields=id)
+""",
+
+    "dimensions": """\
+## Accounting Dimensions (fri regnskapsdimensjon)
+1. POST /ledger/accountingDimensionName {"dimensionName":"Kostsenter"} — creates dimension
+2. POST /ledger/accountingDimensionValue {"displayName":"Økonomi", "dimensionIndex":1} — creates value
+3. In voucher postings, link with: "freeAccountingDimension1":{"id":VALUE_ID}
+   - Field is freeAccountingDimension1 (NOT freeDimension1)
+   - dimensionIndex: 1 for first free dimension, 2 for second, 3 for third
+""",
+
+    "fixed_price_project": """\
+## Fixed-Price Project (fastprisprosjekt)
+POST /project with isFixedPrice:true, fixedprice:AMOUNT
+- For partial invoicing (e.g. "75% av fastpris"):
+  1. Create project with isFixedPrice:true, fixedprice:TOTAL
+  2. POST /order with customer, orderDate, deliveryDate, orderLines with computed amount (fixedPrice * percentage / 100)
+  3. PUT /order/ID/:invoice
+- projectManager must have ALL_PRIVILEGES entitlement
+""",
+
+    "update_entity": """\
+## Updating Any Entity
+PUT /entity/ID with body including "id" and "version" from the GET response.
+1. GET /entity/ID?fields=id,version,... to get current version
+2. PUT /entity/ID {"id":ID, "version":VERSION, ...updated fields...}
+- version is required for optimistic locking — without it you get 409 Conflict
+- Include all fields you want to keep (PUT replaces the entity)
+""",
+}
+
+# Aliases for common misspellings / alternative names
+API_GUIDES["travel"] = API_GUIDES["travel_expense"]
+API_GUIDES["expense"] = API_GUIDES["travel_expense"]
+API_GUIDES["reiseregning"] = API_GUIDES["travel_expense"]
+API_GUIDES["faktura"] = API_GUIDES["invoice"]
+API_GUIDES["bilag"] = API_GUIDES["voucher"]
+API_GUIDES["kunde"] = API_GUIDES["customer"]
+API_GUIDES["ansatt"] = API_GUIDES["employee"]
+API_GUIDES["leverandor"] = API_GUIDES["supplier"]
+API_GUIDES["leverandør"] = API_GUIDES["supplier"]
+API_GUIDES["prosjekt"] = API_GUIDES["project"]
+API_GUIDES["avdeling"] = API_GUIDES["department"]
+API_GUIDES["produkt"] = API_GUIDES["product"]
+API_GUIDES["kontakt"] = API_GUIDES["contact"]
+API_GUIDES["innbetaling"] = API_GUIDES["payment"]
+API_GUIDES["kreditnota"] = API_GUIDES["credit_note"]
+API_GUIDES["purring"] = API_GUIDES["reminder"]
+API_GUIDES["timeføring"] = API_GUIDES["timesheet"]
+API_GUIDES["lønn"] = API_GUIDES["salary"]
+API_GUIDES["ansettelse"] = API_GUIDES["employment"]
+API_GUIDES["åpningsbalanse"] = API_GUIDES["opening_balance"]
+API_GUIDES["leverandørfaktura"] = API_GUIDES["supplier_invoice"]
+API_GUIDES["innkjøpsordre"] = API_GUIDES["purchase_order"]
+API_GUIDES["anleggsmiddel"] = API_GUIDES["asset"]
+API_GUIDES["bankavstemming"] = API_GUIDES["bank_reconciliation"]
+API_GUIDES["dimensjon"] = API_GUIDES["dimensions"]
+API_GUIDES["fastpris"] = API_GUIDES["fixed_price_project"]
+API_GUIDES["order"] = API_GUIDES["invoice"]  # order creation is part of invoice flow
+API_GUIDES["bank"] = "POST /bank {\"accountNumber\":\"86011117947\", \"name\":\"Driftskonto\"}\nUsed to register a bank account when invoicing fails with 'bankkontonummer' error."
+API_GUIDES["account"] = API_GUIDES["voucher"]  # account lookups covered in voucher guide
+API_GUIDES["konto"] = API_GUIDES["voucher"]
+
+# Fields to preserve in _compact_response
+_ESSENTIAL_FIELDS = frozenset({
+    "id", "version", "name", "number", "firstName", "lastName",
+    "email", "invoiceNumber", "amount", "amountOutstanding",
+    "status", "orderId", "organizationNumber", "bankAccountNumber",
+    "startDate", "endDate", "dateOfBirth", "phoneNumber",
+    "phoneNumberMobile", "isCustomer", "isSupplier", "isInternal",
+    "isFixedPrice", "fixedprice", "description", "userType",
+    "department", "projectManager", "customer", "supplier",
+    "employee", "invoiceDate", "invoiceDueDate", "postalAddress",
+    "priceExcludingVatCurrency", "employeeNumber", "departmentNumber",
+    # Additional scoring-relevant fields
+    "physicalAddress", "deliveryAddress", "count", "unitPriceExcludingVatCurrency",
+    "orderDate", "deliveryDate", "orderLines", "comment", "hours",
+    "title", "travelDetails", "isDayTrip", "isForeignTravel",
+    "departureDate", "returnDate", "departureFrom", "destination",
+    "purpose", "costCategory", "amountCurrencyIncVat", "paymentType",
+    "vatType", "row", "account", "amountGross", "amountGrossCurrency",
+    "postings", "voucher", "type", "displayName", "dimensionName",
+    "dimensionIndex", "freeAccountingDimension1", "acquisitionCost",
+    "dateOfAcquisition", "year", "month", "payslips",
+})
+
+_LIST_ESSENTIAL_FIELDS = frozenset({
+    "id", "version", "name", "number", "type", "description",
+    "bankAccountNumber", "firstName", "lastName", "email",
+    "startDate", "status", "isProjectActivity",
+    "organizationNumber", "phoneNumber", "phoneNumberMobile",
+    "departmentNumber", "accountNumber", "paymentTypeId",
+})
+
+
+# ── Agent execution ──────────────────────────────────────────────────
 
 async def tool_agent_solve(
     prompt: str,
@@ -217,13 +472,18 @@ async def tool_agent_solve(
 ) -> bool:
     """Run the tool-use agent. Returns True if task completed without errors."""
 
-    vertexai.init(project="ainm26osl-710", location="global")
-    model = GenerativeModel(
-        "gemini-3.1-pro-preview",
-        system_instruction=SYSTEM_PROMPT,
-        tools=TOOLS,
-    )
-    logger.info("Tool agent using gemini-3.1-pro-preview (global)")
+    model_name = "gemini-3.1-pro-preview"
+    location = "global"
+    try:
+        vertexai.init(project="ainm26osl-710", location="global")
+        model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
+        logger.info(f"Tool agent trying {model_name} ({location})")
+    except Exception as e:
+        logger.warning(f"Failed to init {model_name}: {e}, falling back to 2.5-pro")
+        model_name = "gemini-2.5-pro"
+        location = "europe-north1"
+        vertexai.init(project="ainm26osl-710", location=location)
+        model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
 
     # Build initial user message
     parts = []
@@ -239,10 +499,11 @@ async def tool_agent_solve(
 
     chat = model.start_chat()
     had_errors = False
+    user_parts = list(parts)  # Save original user message for fallback
 
     for turn in range(MAX_TURNS):
         remaining = deadline - time.monotonic()
-        if remaining < DEADLINE_BUFFER:
+        if remaining < 40:
             logger.warning(f"Tool agent: deadline approaching ({remaining:.0f}s), stopping at turn {turn}")
             break
 
@@ -256,7 +517,16 @@ async def tool_agent_solve(
                 timeout=min(60.0, remaining - DEADLINE_BUFFER),
             )
         except asyncio.TimeoutError:
-            logger.error(f"Tool agent: LLM timeout at turn {turn}")
+            logger.error(f"Tool agent: LLM timeout at turn {turn} ({model_name})")
+            if model_name == "gemini-3.1-pro-preview" and turn <= 2:
+                model_name = "gemini-2.5-pro"
+                location = "europe-north1"
+                vertexai.init(project="ainm26osl-710", location=location)
+                model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
+                logger.info(f"Falling back to {model_name} ({location})")
+                chat = model.start_chat()
+                parts = user_parts  # Reset to original user message
+                continue
             had_errors = True
             break
         except Exception as e:
@@ -266,7 +536,7 @@ async def tool_agent_solve(
                 await asyncio.sleep(3)
                 try:
                     response = await asyncio.wait_for(
-                        chat.send_message_async(user_parts),
+                        chat.send_message_async(parts, generation_config={"temperature": 0.0, "max_output_tokens": 4096}),
                         timeout=min(60.0, remaining - DEADLINE_BUFFER),
                     )
                 except Exception as e2:
@@ -291,7 +561,6 @@ async def tool_agent_solve(
         )
 
         if not has_function_calls:
-            # LLM responded with text only — it's done
             text = response.text if hasattr(response, 'text') else ""
             logger.info(f"Tool agent: text response at turn {turn} (done): {text[:200]}")
             break
@@ -299,22 +568,47 @@ async def tool_agent_solve(
         # Execute all function calls
         function_responses = []
         for part in content.parts:
-            if not hasattr(part, 'function_call') or not part.function_call.name:
+            if not hasattr(part, 'function_call') or part.function_call is None or not part.function_call.name:
                 continue
 
             fc = part.function_call
             fn_name = fc.name
             args = dict(fc.args) if fc.args else {}
 
+            # Handle get_api_guide locally (no HTTP request)
+            if fn_name == "get_api_guide":
+                topic = str(args.get("topic", "")).strip().lower()
+                guide = API_GUIDES.get(topic)
+                if guide:
+                    logger.info(f"Tool agent turn {turn}: get_api_guide({topic}) -> found")
+                    result_text = guide
+                else:
+                    available = sorted(set(k for k, v in API_GUIDES.items() if k == v or k not in (
+                        "travel", "expense", "reiseregning", "faktura", "bilag",
+                        "kunde", "ansatt", "leverandor", "leverandør", "prosjekt",
+                        "avdeling", "produkt", "kontakt", "innbetaling", "kreditnota",
+                        "purring", "timeføring", "lønn", "ansettelse", "åpningsbalanse",
+                        "leverandørfaktura", "innkjøpsordre", "anleggsmiddel",
+                        "bankavstemming", "dimensjon", "fastpris"
+                    )))
+                    result_text = f"Topic '{topic}' not found. Available topics: {', '.join(available)}"
+                    logger.info(f"Tool agent turn {turn}: get_api_guide({topic}) -> not found")
+                function_responses.append(
+                    Part.from_function_response(
+                        name=fn_name,
+                        response={"result": result_text},
+                    )
+                )
+                continue
+
+            # HTTP API call
             path = args.get("path", "")
             body = args.get("body")
             params = args.get("params")
 
-            # Ensure path starts with /
             if path and not path.startswith("/"):
                 path = "/" + path
 
-            # Map function name to HTTP method
             method_map = {
                 "tripletex_get": "GET",
                 "tripletex_post": "POST",
@@ -325,7 +619,6 @@ async def tool_agent_solve(
 
             logger.info(f"Tool agent turn {turn}: {method} {path}")
 
-            # Execute
             try:
                 result = await client.request(method, path, body=body, params=params)
             except Exception as e:
@@ -339,7 +632,6 @@ async def tool_agent_solve(
                 had_errors = True
                 logger.warning(f"Tool agent: {method} {path} -> {status} FAIL")
 
-            # Summarize response for LLM (keep tokens low)
             summary = _compact_response(data, ok)
 
             function_responses.append(
@@ -358,22 +650,13 @@ async def tool_agent_solve(
 def _compact_response(data: dict, ok: bool, max_len: int = 1500) -> dict:
     """Compact API response to save tokens while keeping essential info."""
     if not ok:
-        # For errors, keep full detail so LLM can learn
         return {"ok": False, "error": json.dumps(data, ensure_ascii=False, default=str)[:max_len]}
 
-    # For success, extract the useful parts
     if isinstance(data, dict):
         if "value" in data:
             val = data["value"]
             if isinstance(val, dict):
-                # Keep essential fields, drop verbose ones
-                compact = {}
-                for k, v in val.items():
-                    if k in ("id", "version", "name", "number", "firstName", "lastName",
-                             "email", "invoiceNumber", "amount", "status", "orderId",
-                             "organizationNumber", "bankAccountNumber", "startDate",
-                             "isCustomer", "isSupplier", "isInternal"):
-                        compact[k] = v
+                compact = {k: v for k, v in val.items() if k in _ESSENTIAL_FIELDS}
                 return {"ok": True, "value": compact}
             return {"ok": True, "value": val}
 
@@ -383,13 +666,13 @@ def _compact_response(data: dict, ok: bool, max_len: int = 1500) -> dict:
                 compact_list = []
                 for item in vals[:10]:
                     if isinstance(item, dict):
-                        compact_list.append({
-                            k: v for k, v in item.items()
-                            if k in ("id", "version", "name", "number", "type",
-                                     "description", "bankAccountNumber")
-                        })
+                        compact_list.append({k: v for k, v in item.items() if k in _LIST_ESSENTIAL_FIELDS})
                     else:
                         compact_list.append(item)
-                return {"ok": True, "count": len(vals), "values": compact_list}
+                truncation_note = f"(showing {min(10, len(vals))}/{len(vals)} results)" if len(vals) > 10 else ""
+                result = {"ok": True, "count": len(vals), "values": compact_list}
+                if truncation_note:
+                    result["note"] = truncation_note
+                return result
 
     return {"ok": True, "data": json.dumps(data, ensure_ascii=False, default=str)[:max_len]}

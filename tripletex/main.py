@@ -1,5 +1,8 @@
 # tripletex/main.py
-"""FastAPI agent with clean plan-execute-retry architecture."""
+# Architecture: Gemini 3.1 Pro with function calling (tool_agent.py)
+# The LLM decides which API calls to make, reads responses, and adapts.
+# No templates, no extraction, no step references.
+"""FastAPI agent — Gemini 3.1 Pro with function calling."""
 import os
 import time
 import logging
@@ -105,9 +108,8 @@ def _record(task_type: str, success: bool, elapsed: float, api_calls: int,
     bt["total_time"] += elapsed
     bt["success" if success else "failed"] += 1
 
-    from templates import TEMPLATES
-    optimal = TEMPLATES.get(task_type, {}).get("optimal_calls", 0)
-    efficiency = round(optimal / api_calls * 100) if api_calls > 0 and optimal > 0 else None
+    optimal = 0  # Templates removed — tool_agent handles everything dynamically
+    efficiency = None
 
     entry = {
         "time": datetime.now(timezone.utc).isoformat(),

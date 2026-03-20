@@ -24,14 +24,57 @@ const SUBMIT_DELAY = 520; // 2 req/s for submit
 const NC = 6;
 const TTC = {10:0, 11:0, 0:0, 1:1, 2:2, 3:3, 4:4, 5:5};
 const CACHE_DIR = path.join(__dirname, 'cache');
-let PROB_FLOOR = 0.002; // Updated from best_config.json at round start
+const PROB_FLOOR = 0.002;
 
 if (!TOKEN) { console.error('Set TOKEN env var'); process.exit(1); }
 
 // ── Load data ───────────────────────────────────────────────────────────────
 const LOOKUP_PATH = path.join(__dirname, 'gt_lookup.json');
+const DENSITY_LOOKUP_PATH = path.join(__dirname, 'gt_lookup_density.json');
 let LOOKUP = JSON.parse(fs.readFileSync(LOOKUP_PATH, 'utf8'));
+let DENSITY_LOOKUPS = {};
+try { DENSITY_LOOKUPS = JSON.parse(fs.readFileSync(DENSITY_LOOKUP_PATH, 'utf8')); } catch {}
 console.log(`[init] Loaded ${Object.keys(LOOKUP).length} context bins from gt_lookup.json`);
+if (Object.keys(DENSITY_LOOKUPS).length) console.log(`[init] Loaded density lookups: ${Object.keys(DENSITY_LOOKUPS).map(d => d+':'+Object.keys(DENSITY_LOOKUPS[d]).length).join(', ')}`);
+
+// Neural network model weights
+let MODEL = null;
+try {
+  const mw = JSON.parse(fs.readFileSync(path.join(__dirname, 'model_weights.json'), 'utf8'));
+  MODEL = { W1: mw.W1, W2: mw.W2, NF: mw.config.N_FEATURES, NH: mw.config.HIDDEN };
+  console.log(`[init] Loaded neural net model (${MODEL.NH}x${MODEL.NF} → ${NC})`);
+} catch { console.log('[init] No model_weights.json found'); }
+
+function modelPredict(features) {
+  if (!MODEL) return null;
+  const h = new Float64Array(MODEL.NH);
+  for (let i = 0; i < MODEL.NH; i++) { let s = 0; for (let j = 0; j < MODEL.NF; j++) s += MODEL.W1[i][j] * features[j]; h[i] = s > 0 ? s : 0; }
+  const logits = new Float64Array(NC);
+  for (let i = 0; i < NC; i++) { let s = 0; for (let j = 0; j < MODEL.NH; j++) s += MODEL.W2[i][j] * h[j]; logits[i] = s; }
+  let mx = -Infinity; for (let i = 0; i < NC; i++) if (logits[i] > mx) mx = logits[i];
+  const p = new Float64Array(NC); let se = 0;
+  for (let i = 0; i < NC; i++) { p[i] = Math.exp(logits[i] - mx); se += p[i]; }
+  for (let i = 0; i < NC; i++) p[i] = Math.max(p[i] / se, PROB_FLOOR);
+  let s2 = 0; for (let i = 0; i < NC; i++) s2 += p[i]; for (let i = 0; i < NC; i++) p[i] /= s2;
+  return p;
+}
+
+function extractFeatures(ig, H, W, y, x) {
+  const raw = ig[y][x], ic = cc(raw);
+  const f = new Float64Array(17);
+  f[ic] = 1;
+  f[6] = foodPot(ig,H,W,y,x) / 8;
+  f[7] = isCoast(ig,H,W,y,x) ? 1 : 0;
+  f[8] = Math.exp(-settDist(ig,H,W,y,x) / 5);
+  f[9] = nSett(ig,H,W,y,x) / 8;
+  let ts = 0; for (let sy=0;sy<H;sy++) for(let sx=0;sx<W;sx++) if(ig[sy][sx]===1||ig[sy][sx]===2) ts++;
+  f[10] = ts / 60;
+  f[11] = localDens(ig,H,W,y,x) / 20;
+  f[13] = f[6]*f[8]; f[14] = f[7]*f[8]; f[15] = f[9]*f[8]; f[16] = 1;
+  return f;
+}
+
+function localDens(g,H,W,y,x){let c=0;for(let dy=-6;dy<=6;dy++)for(let dx=-6;dx<=6;dx++){if(!dy&&!dx)continue;const ny=y+dy,nx=x+dx;if(ny>=0&&ny<H&&nx>=0&&nx<W&&(g[ny][nx]===1||g[ny][nx]===2))c++}return c}
 
 // Per-round transition matrices
 let TRANSITIONS = {};
@@ -751,12 +794,7 @@ function finalNormalize(pred, ig, H, W) {
 
 // ── Main pipeline ───────────────────────────────────────────────────────────
 
-// Persist completed rounds to file so restarts don't re-trigger
-const COMPLETED_FILE = path.join(__dirname, 'completed_rounds.json');
-let _completedList = [];
-try { _completedList = JSON.parse(fs.readFileSync(COMPLETED_FILE, 'utf8')); } catch {}
-const completed = new Set(_completedList);
-function saveCompleted() { try { fs.writeFileSync(COMPLETED_FILE, JSON.stringify([...completed])); } catch {} }
+const completed = new Set();
 
 async function processRound(round) {
   const t0 = Date.now();
@@ -766,19 +804,6 @@ async function processRound(round) {
   console.log(`${'='.repeat(70)}`);
 
   reloadLookup();
-  // Load optimized config
-  let SHIFT_CLIP_MIN = 0.5, SHIFT_CLIP_MAX = 3.0, COASTAL_DAMP = 0.5, TEMP = 1.0, GEO_BLEND = false, MODEL_WEIGHT = 0;
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'best_config.json'), 'utf8'));
-    PROB_FLOOR = cfg.floor || 0.001;
-    SHIFT_CLIP_MIN = cfg.shiftClipMin || 0.5;
-    SHIFT_CLIP_MAX = cfg.shiftClipMax || 3.0;
-    COASTAL_DAMP = cfg.coastalDamp || 0.5;
-    TEMP = cfg.temp || 1.0;
-    GEO_BLEND = cfg.geoBlend || false;
-    MODEL_WEIGHT = cfg.modelWeight || 0;
-    log(`Config: floor=${PROB_FLOOR} d=${cfg.damping} clip=[${SHIFT_CLIP_MIN},${SHIFT_CLIP_MAX}] coast=${COASTAL_DAMP} temp=${TEMP} geo=${GEO_BLEND} mw=${MODEL_WEIGHT}`);
-  } catch {}
   const detail = await apiCall('GET', `/rounds/${round.id}`);
   const H = detail.map_height, W = detail.map_width;
   const seedsCount = detail.seeds_count;
@@ -789,10 +814,15 @@ async function processRound(round) {
     log(`  Seed ${si}: ${setts.length} settlements`);
   }
 
-  // ── STAGE 1: Instant lookup submission ────────────────────────────────────
-  log('STAGE 1: Submitting lookup-only predictions (baseline)...');
+  // ── STAGE 1: Instant lookup submission (density-aware) ──────────────────
+  // Count settlements for density matching
+  const avgSettCount = detail.initial_states.reduce((s, st) => s + (st.settlements||[]).length, 0) / seedsCount;
+  const density = avgSettCount < 35 ? 'low' : avgSettCount <= 45 ? 'mid' : 'high';
+  const densityLookup = DENSITY_LOOKUPS[density] || {};
+  log(`STAGE 1: Submitting density-aware predictions (${density}, avg ${avgSettCount.toFixed(0)} setts)...`);
   for (let si = 0; si < seedsCount; si++) {
-    const pred = lookupPred(detail.initial_states[si].grid, H, W);
+    // Use density lookup with average as fallback
+    const pred = lookupPredFromTable(detail.initial_states[si].grid, H, W, densityLookup);
     try {
       await apiCall('POST', '/submit', {round_id: round.id, seed_index: si, prediction: pred});
       await sleep(SUBMIT_DELAY);
@@ -802,7 +832,7 @@ async function processRound(round) {
   }
   log(`STAGE 1 done: ${seedsCount} seeds submitted in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 
-  // ── STAGE 2: Focused observation ──────────────────────────────────────────
+  // ── PROGRESSIVE OBSERVATION + RESUBMIT LOOP ──────────────────────────────
   let budget;
   try {
     budget = await apiCall('GET', '/budget');
@@ -811,27 +841,46 @@ async function processRound(round) {
     budget = { queries_max: 50, queries_used: 0 };
   }
   const queriesLeft = budget.queries_max - budget.queries_used;
-  log(`STAGE 2: Observing (${queriesLeft}/${budget.queries_max} queries available)...`);
+  log(`PROGRESSIVE: ${queriesLeft} queries available`);
 
   if (queriesLeft <= 0) {
-    log('  No queries remaining. Skipping observation.');
-    completed.add(round.id);
+    log('  No queries remaining. Lookup-only submitted.');
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    log(`LOOKUP-ONLY COMPLETE in ${elapsed}s`);
     return;
   }
 
   const plan = planQueries(detail.initial_states, H, W, queriesLeft);
-
-  // Log query distribution
-  const seedDist = {};
-  for (const q of plan) { seedDist[q.si] = (seedDist[q.si] || 0) + 1; }
-  log(`  Query plan: ${plan.length} queries — per seed: ${JSON.stringify(seedDist)}`);
-
-  // Count unique viewports
   const uniqueVPs = new Set(plan.map(q => `${q.si}_${q.x}_${q.y}`));
-  log(`  Unique viewports: ${uniqueVPs.size}, avg repeats: ${(plan.length / uniqueVPs.size).toFixed(1)}`);
+  log(`  Plan: ${plan.length} queries, ${uniqueVPs.size} unique viewports`);
 
+  // Precompute average rates from lookup (for divergence computation)
+  const avgRates = {};
+  for (let ic = 0; ic < NC; ic++) {
+    avgRates[ic] = new Array(NC).fill(0);
+    let n = 0;
+    for (const [k, dist] of Object.entries(LOOKUP)) {
+      if (parseInt(k.split('_')[0]) === ic) {
+        for (let c = 0; c < NC; c++) avgRates[ic][c] += dist[c];
+        n++;
+      }
+    }
+    if (n > 0) for (let c = 0; c < NC; c++) avgRates[ic][c] /= n;
+  }
+
+  // Load best config from continuous improvement loop
+  let SHIFT_DAMPING = 0.5, MODEL_WEIGHT = 0.5;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'best_config.json'), 'utf8'));
+    SHIFT_DAMPING = cfg.damping || 0.5;
+    MODEL_WEIGHT = cfg.modelWeight || 0.5;
+    log(`  Config from best_config.json: damping=${SHIFT_DAMPING} modelWeight=${MODEL_WEIGHT} score=${cfg.score?.toFixed(1)}`);
+  } catch { log(`  Using default config: damping=${SHIFT_DAMPING} modelWeight=${MODEL_WEIGHT}`); }
+  const BATCH_SIZE = 10;
   const observations = [];
-  let failCount = 0;
+  let failCount = 0, rateLimitCount = 0;
+  let lastSubmitDivergence = -1;
+
   for (let qi = 0; qi < plan.length; qi++) {
     const q = plan[qi];
     try {
@@ -843,101 +892,94 @@ async function processRound(round) {
         viewport_w: q.w, viewport_h: q.h,
       });
       observations.push({si: q.si, grid: result.grid, viewport: result.viewport});
-      if ((qi + 1) % 10 === 0) log(`    ${qi + 1}/${plan.length} queries done`);
     } catch (e) {
       failCount++;
       if (e.message.includes('429')) {
-        if (typeof rateLimitCount === 'undefined') var rateLimitCount = 0;
         rateLimitCount++;
-        if (rateLimitCount > 10) { log('    Too many rate limits, stopping queries'); break; }
-        log(`    Rate limited at query ${qi}, waiting 2s... (${rateLimitCount}/10)`);
+        if (rateLimitCount > 10) { log('    Too many rate limits, stopping'); break; }
+        log(`    Rate limited, waiting 2s (${rateLimitCount}/10)`);
         await sleep(2000);
-        qi--; // retry once
+        qi--;
       } else if (e.message.includes('budget')) {
         log(`    Budget exhausted at query ${qi}`);
         break;
       } else {
         log(`    Query ${qi} failed: ${e.message}`);
-        if (failCount > 5) { log('    Too many failures, stopping queries'); break; }
+        if (failCount > 5) break;
       }
+      continue;
     }
-  }
-  log(`STAGE 2 done: ${observations.length} observations in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 
-  // ── STAGE 3: Parameter inference ──────────────────────────────────────────
-  log('STAGE 3: Inferring round parameters...');
-  const obsRates = computeObservedRates(observations, detail.initial_states, H, W);
+    // Every BATCH_SIZE queries: analyze + potentially resubmit
+    if ((qi + 1) % BATCH_SIZE === 0 || qi === plan.length - 1) {
+      const obsRates = computeObservedRates(observations, detail.initial_states, H, W);
 
-  // Log observed rates
-  for (const [ic, rates] of Object.entries(obsRates)) {
-    log(`  Class ${ic} transitions: [${rates.map(v => v.toFixed(3)).join(', ')}]`);
-  }
-
-  const match = findClosestRound(obsRates);
-  let matchedRound = null;
-  let roundLookup = null;
-  if (match && match.round !== null) {
-    matchedRound = match.round;
-    roundLookup = ROUND_LOOKUPS[matchedRound] || null;
-    log(`  Best matching round: R${matchedRound} (L2 distance: ${match.distance.toFixed(4)})`);
-    if (roundLookup) log(`  Using round ${matchedRound} lookup (${Object.keys(roundLookup).length} bins)`);
-  } else {
-    log('  No round match found, using global lookup');
-  }
-
-  // ── STAGE 4: Bayesian prediction ──────────────────────────────────────────
-  log('STAGE 4: Computing Bayesian predictions...');
-  const cellCounts = buildPerCellCounts(observations, H, W);
-
-  const predictions = [];
-  for (let si = 0; si < seedsCount; si++) {
-    const ig = detail.initial_states[si].grid;
-    const counts = cellCounts[si] || null;
-
-    // Use round-matched lookup as prior, falling back to global
-    const priorTable = roundLookup || LOOKUP;
-
-    let pred = bayesianPrediction(ig, H, W, counts, priorTable, si);
-
-    // Apply transition shift for fine-tuning
-    pred = applyTransitionShift(pred, obsRates, matchedRound, ig, H, W);
-
-    predictions.push(pred);
-
-    // Stats
-    if (counts) {
-      let obsCount = 0, highObs = 0;
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const n = counts[y][x].reduce((a, b) => a + b, 0);
-        if (n > 0) obsCount++;
-        if (n >= 5) highObs++;
+      // Compute divergence + shift
+      let divergence = 0;
+      const shift = {};
+      for (const [icStr, rate] of Object.entries(obsRates)) {
+        const ic = parseInt(icStr);
+        shift[ic] = [];
+        const w = (ic === 1 || ic === 2) ? 3 : 1;
+        for (let c = 0; c < NC; c++) {
+          const avg = avgRates[ic] ? avgRates[ic][c] : 0;
+          divergence += w * (rate[c] - avg) ** 2;
+          const rawShift = avg > 0.01 ? rate[c] / avg : 1.0;
+      shift[ic].push(1.0 + SHIFT_DAMPING * (rawShift - 1.0));
+        }
       }
-      log(`  Seed ${si}: ${obsCount} observed cells (${highObs} with n>=5)`);
-    } else {
-      log(`  Seed ${si}: no observations (pure lookup)`);
-    }
-  }
 
-  // ── STAGE 5: Spatial smoothing + resubmit ─────────────────────────────────
-  log('STAGE 5: Spatial smoothing + final submission...');
-  for (let si = 0; si < seedsCount; si++) {
-    const ig = detail.initial_states[si].grid;
-    const counts = cellCounts[si] || null;
+      log(`  [${qi+1}/${plan.length}] ${observations.length} obs, divergence=${divergence.toFixed(4)}`);
 
-    let pred = spatialSmooth(predictions[si], ig, H, W, counts, 3, 0.15);
-    pred = finalNormalize(pred, ig, H, W);
+      // Always resubmit with dampened shift+model (avg +3.8 over lookup-only)
+      const shouldResubmit = observations.length >= 10 && Math.abs(divergence - lastSubmitDivergence) > 0.01;
 
-    try {
-      await apiCall('POST', '/submit', {round_id: round.id, seed_index: si, prediction: pred});
-      await sleep(SUBMIT_DELAY);
-      log(`  Seed ${si} submitted`);
-    } catch (e) {
-      log(`  WARN: Final submit seed ${si} failed: ${e.message}`);
+      if (shouldResubmit) {
+        log(`  >> Resubmitting with dampened shift (d=${divergence.toFixed(4)}, damping=${SHIFT_DAMPING})...`);
+        for (let si = 0; si < seedsCount; si++) {
+          const ig = detail.initial_states[si].grid;
+          const pred = lookupPredFromTable(ig, H, W, densityLookup);
+          for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const raw = ig[y][x];
+            if (raw === 5 || raw === 10) continue;
+            const ic = cc(raw);
+
+            // Blend: 50% shifted-lookup + 50% model (if available)
+            // Shift the lookup
+            const shifted = [...pred[y][x]];
+            if (shift[ic]) for (let c = 0; c < NC; c++) shifted[c] *= shift[ic][c];
+
+            // Model prediction
+            const features = extractFeatures(ig, H, W, y, x);
+            const mp = modelPredict(features);
+
+            if (mp) {
+              for (let c = 0; c < NC; c++) pred[y][x][c] = (1-MODEL_WEIGHT) * shifted[c] + MODEL_WEIGHT * mp[c];
+            } else {
+              for (let c = 0; c < NC; c++) pred[y][x][c] = shifted[c];
+            }
+
+            const co = isCoast(ig, H, W, y, x);
+            if (!co) pred[y][x][2] = PROB_FLOOR;
+            let s = 0;
+            for (let c = 0; c < NC; c++) { pred[y][x][c] = Math.max(pred[y][x][c], PROB_FLOOR); s += pred[y][x][c]; }
+            for (let c = 0; c < NC; c++) pred[y][x][c] /= s;
+          }
+          try {
+            await apiCall('POST', '/submit', {round_id: round.id, seed_index: si, prediction: pred});
+            await sleep(SUBMIT_DELAY);
+          } catch (e) { log(`    Submit ${si} failed: ${e.message}`); }
+        }
+        lastSubmitDivergence = divergence;
+        log(`  >> Resubmitted all seeds with shift`);
+      } else {
+        log(`  Shift stable — no resubmit needed`);
+      }
     }
   }
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  log(`ALL STAGES COMPLETE in ${elapsed}s`);
+  log(`PROGRESSIVE COMPLETE in ${elapsed}s (${observations.length} obs)`);
   completed.add(round.id);
 }
 
@@ -956,7 +998,7 @@ async function poll() {
     }
     for (const round of active) {
       processing = true;
-      completed.add(round.id); saveCompleted(); // Mark immediately to prevent re-trigger
+      completed.add(round.id); // Mark immediately to prevent re-trigger
       try {
         await processRound(round);
       } catch (e) {
