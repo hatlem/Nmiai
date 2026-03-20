@@ -1,6 +1,7 @@
 # tripletex/react_agent.py
 """ReAct-style tool-use agent for Tripletex. Fallback when templates fail."""
 
+import asyncio
 import json
 import time
 import base64
@@ -108,45 +109,47 @@ async def react_solve(
     """Run ReAct agent loop. Returns True if completed successfully."""
     model = GenerativeModel(MODEL, system_instruction=SYSTEM_PROMPT)
 
-    # Build initial content parts
-    parts: list[Part | str] = [f"Task:\n{prompt}"]
-
-    # Add file attachments
+    # Build initial message parts
+    parts = []
     if files:
         for f in files:
             try:
                 data = base64.b64decode(f.get("content_base64", ""))
                 mime = f.get("mime_type", "application/octet-stream")
                 parts.append(Part.from_data(data=data, mime_type=mime))
-                parts.append(f"[Attached file: {f.get('filename', 'unknown')}]")
+                parts.append(Part.from_text(f"[Attached file: {f.get('filename', 'unknown')}]"))
             except Exception as e:
                 logger.warning(f"Failed to attach file: {e}")
+    parts.append(Part.from_text(f"Task:\n{prompt}"))
 
-    history = [{"role": "user", "parts": parts}]
+    # Start a single chat session — reuse across all rounds
+    chat = model.start_chat()
     parse_failures = 0
     all_ok = True
 
     for round_num in range(MAX_ROUNDS):
-        # Check deadline
         remaining = deadline - time.monotonic()
         if remaining < DEADLINE_BUFFER:
             logger.warning(f"ReAct: deadline approaching ({remaining:.0f}s left), stopping")
             break
 
-        # Call LLM
         try:
-            import asyncio
-            chat = model.start_chat(history=history[:-1]) if len(history) > 1 else model.start_chat()
+            # First round: send initial parts. Subsequent rounds: send feedback
+            message = parts if round_num == 0 else current_feedback
             response = await asyncio.wait_for(
                 chat.send_message_async(
-                    history[-1]["parts"],
+                    message,
                     generation_config={"temperature": 0.1, "max_output_tokens": 2048},
                 ),
-                timeout=min(45.0, remaining - DEADLINE_BUFFER),
+                timeout=min(45.0, remaining - 10),
             )
             response_text = response.text.strip()
+        except asyncio.TimeoutError:
+            logger.error(f"ReAct: LLM timeout round {round_num+1}")
+            all_ok = False
+            break
         except Exception as e:
-            logger.error(f"ReAct: LLM call failed: {e}")
+            logger.error(f"ReAct: LLM error: {e}")
             all_ok = False
             break
 
@@ -160,22 +163,15 @@ async def react_solve(
                 logger.error("ReAct: too many parse failures, aborting")
                 all_ok = False
                 break
-            # Add assistant response and retry prompt
-            history.append({"role": "model", "parts": [response_text]})
-            history.append({"role": "user", "parts": ["Please respond with valid JSON only. One JSON object with action field."]})
+            current_feedback = "Please respond with valid JSON only. {\"action\":\"api_call\",...} or {\"action\":\"done\"}"
             continue
 
-        parse_failures = 0  # reset on success
+        parse_failures = 0
 
-        # Add assistant response to history
-        history.append({"role": "model", "parts": [response_text]})
-
-        # Handle done
         if action.get("action") == "done":
             logger.info(f"ReAct: done after {round_num+1} rounds. Reason: {action.get('reasoning', '')}")
             break
 
-        # Handle api_call
         if action.get("action") == "api_call":
             method = action.get("method", "GET").upper()
             path = action.get("path", "")
@@ -183,41 +179,32 @@ async def react_solve(
             params = action.get("params")
 
             if not path:
-                history.append({"role": "user", "parts": ["Error: missing 'path' in api_call. Try again."]})
+                current_feedback = "Error: missing 'path'. Try again."
                 continue
-
-            # Ensure path starts with /
             if not path.startswith("/"):
                 path = "/" + path
 
-            # Execute API call
             try:
                 result = await client.request(method, path, body=body, params=params)
             except Exception as e:
                 result = {"ok": False, "status_code": 0, "data": {"error": str(e)}}
 
-            # Build concise result summary
             status = result.get("status_code", 0)
             ok = result.get("ok", False)
             data = result.get("data", {})
 
             if ok:
-                # Trim response to avoid token bloat
                 summary = _summarize_response(data)
-                feedback = f"OK {status}: {summary}"
+                current_feedback = f"OK {status}: {summary}"
             else:
-                all_ok = False
-                # Include full error for LLM to learn from
+                if not ok and status >= 400:
+                    all_ok = False
                 error_text = json.dumps(data, ensure_ascii=False, default=str)[:1500]
-                feedback = f"ERROR {status}: {error_text}"
+                current_feedback = f"ERROR {status}: {error_text}"
 
             logger.info(f"ReAct API: {method} {path} -> {status} {'OK' if ok else 'FAIL'}")
-            history.append({"role": "user", "parts": [feedback]})
         else:
-            # Unknown action
-            history.append({"role": "user", "parts": [
-                f"Unknown action '{action.get('action')}'. Use 'api_call' or 'done'."
-            ]})
+            current_feedback = f"Unknown action '{action.get('action')}'. Use 'api_call' or 'done'."
 
     return all_ok
 

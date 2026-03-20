@@ -170,6 +170,10 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
             return "delete_travel_expense", 0.95
         return "delete_entity", 0.90
 
+    # Fixed-price project (may include partial invoicing)
+    if re.search(r'\b(precio fijo|prix forfaitaire|fixed price|fastpris|fixedprice|fest pris|festpreis|preço fixo)\b', prompt_lower):
+        return "create_project_with_invoice", 0.92
+
     # Combined: customer + invoice = invoice task (customer created as part of it)
     # But NOT if the prompt is primarily about a project (prosjekt/proyecto/projekt/projet/projeto)
     if re.search(r'\b(faktura|invoice|factura|rechnung|facture)\b', prompt_lower) and re.search(r'\b(kunde|customer|client|cliente)\b', prompt_lower):
@@ -187,6 +191,12 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "rechnung fur bestehenden": ("create_invoice_existing_customer", 0.90),
         "facture pour client existant": ("create_invoice_existing_customer", 0.90),
         "prosjekt for eksisterende": ("create_project_existing_customer", 0.95),
+        "precio fijo": ("create_project_with_invoice", 0.92),
+        "prix forfaitaire": ("create_project_with_invoice", 0.92),
+        "fixed price project": ("create_project_with_invoice", 0.92),
+        "fastpris prosjekt": ("create_project_with_invoice", 0.92),
+        "festpreis projekt": ("create_project_with_invoice", 0.92),
+        "preço fixo projeto": ("create_project_with_invoice", 0.92),
         "project for existing": ("create_project_existing_customer", 0.95),
         "prosjekt til eksisterende": ("create_project_existing_customer", 0.95),
         "proyecto para cliente existente": ("create_project_existing_customer", 0.90),
@@ -920,14 +930,26 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     task_type, confidence = await classify_task(prompt)
     tier = get_tier(task_type)
 
-    # ONLY use LLM planning when we truly have no template.
-    # Templates are tested and correct. LLM-generated plans have wrong step
-    # references ($step_6 when only 5 steps), wrong field types (string IDs
-    # instead of int), and extra steps that break the pipeline.
-    if task_type == "unknown" or task_type not in TEMPLATES:
-        reason = "unknown task type" if task_type == "unknown" else f"no template for {task_type}"
+    # Detect complex multi-step tasks that don't fit a single template
+    # These need full LLM planning with complete API knowledge
+    prompt_lower = prompt.lower()
+    is_complex = (
+        task_type == "unknown"
+        or task_type not in TEMPLATES
+        # Project + invoice combo (fixed price, milestone billing)
+        or ("prosjekt" in prompt_lower or "projet" in prompt_lower or "proyecto" in prompt_lower or "projekt" in prompt_lower or "project" in prompt_lower)
+           and ("faktur" in prompt_lower or "invoice" in prompt_lower or "factur" in prompt_lower or "rechnung" in prompt_lower)
+        # Dimension + voucher combo
+        or "dimensjon" in prompt_lower or "dimension" in prompt_lower
+        # Any prompt mentioning 3+ distinct operations
+        or confidence < 0.6
+    )
+
+    if is_complex:
+        reason = f"complex task (classified as {task_type}, conf={confidence:.2f})"
         logger.info(f"{reason} — full LLM planning")
-        plan = await _create_plan_full_llm(prompt, task_type, tier, confidence, files)
+        plan = await _create_plan_full_llm(prompt, "unknown", max(tier, 2), confidence, files)
+        plan["original_classification"] = task_type
         logger.info(f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps")
         return plan
 

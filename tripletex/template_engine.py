@@ -118,13 +118,14 @@ _AMOUNT_FIELDS = {
     "unitPriceExcludingVatCurrency", "paymentAmount", "cost_amount",
     "percentageOfFullTimeEquivalent", "closingBalance",
     "orderLine_count", "orderLine_unitPriceExcludingVatCurrency",
+    "fixedPrice", "fixedprice", "invoicePercentage", "_invoiceAmount",
 }
 
 # Fields that should be boolean
 _BOOL_FIELDS = {
     "isCustomer", "isSupplier", "isInternal", "isDayTrip",
     "isForeignTravel", "sendToCustomer", "isPrivateIndividual",
-    "isChargeable",
+    "isChargeable", "amount_is_gross", "isFixedPrice",
 }
 
 
@@ -303,6 +304,10 @@ def _apply_posting_defaults(body: dict, values: dict | None = None):
     elif values.get("account_number"):
         posting_account_numbers = [str(values["account_number"])]
 
+    # Supplier invoice VAT adjustment: when amount_is_gross (TTC/inkl mva),
+    # expense postings with VAT need net amount (Tripletex adds VAT on top of amountGross).
+    amount_is_gross = values.get("amount_is_gross", False)
+
     for i, posting in enumerate(postings):
         if not isinstance(posting, dict):
             continue
@@ -319,6 +324,19 @@ def _apply_posting_defaults(body: dict, values: dict | None = None):
         else:
             vat_id = 0  # Safe default: no VAT
         posting["vatType"] = {"id": vat_id}
+
+        # When amount includes VAT (TTC/inkl mva) and this posting has a VAT type
+        # with percentage (e.g. vatType 1 = 25% incoming), Tripletex expects NET amount
+        # in amountGross and adds VAT automatically. So we divide by (1 + rate).
+        if amount_is_gross and vat_id in (1, 3):
+            # vatType 1 = inngående mva 25%, vatType 3 = utgående mva 25%
+            vat_rate = 0.25
+            amt = posting.get("amountGross")
+            if amt is not None and isinstance(amt, (int, float)) and amt != 0:
+                net_amt = round(amt / (1 + vat_rate))
+                posting["amountGross"] = net_amt
+                posting["amountGrossCurrency"] = net_amt
+                logger.info(f"VAT adjustment: posting {i} gross {amt} -> net {net_amt} (vatType {vat_id}, rate {vat_rate})")
 
 
 # ---------------------------------------------------------------------------
@@ -742,6 +760,124 @@ def _expand_travel_costs(steps: list[dict], values: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Travel expense: employee creation
+# ---------------------------------------------------------------------------
+
+def _prepend_travel_employee_creation(steps: list[dict], values: dict) -> list[dict]:
+    """When a travel expense specifies an employee by name/email, replace the
+    GET /employee step with: GET /department, POST /employee, then adjust
+    all subsequent $step_N references."""
+    first_name = values.get("firstName", "")
+    last_name = values.get("lastName", "")
+    email = values.get("email", "")
+
+    # Replace step 0 (GET /employee) with department lookup + employee creation
+    new_prefix = [
+        {
+            "method": "GET",
+            "path": "/department",
+            "params": {"fields": "id,name", "count": 1},
+        },
+        {
+            "method": "POST",
+            "path": "/employee",
+            "body": {
+                "firstName": first_name,
+                "lastName": last_name,
+                "email": email,
+                "userType": "STANDARD",
+                "department": {"id": "$step_0.values[0].id"},
+            },
+        },
+    ]
+
+    # The old step 0 was GET /employee, step 1 was POST /travelExpense.
+    # New layout: step 0 = GET /department, step 1 = POST /employee, step 2 = POST /travelExpense
+    # So old $step_0 (employee) -> $step_1 (new employee), old $step_1 (travel expense) -> $step_2
+    remaining = steps[1:]  # skip old GET /employee
+
+    # Shift all $step_N references in remaining steps by +1
+    shifted = _shift_step_refs(remaining, offset=1)
+
+    # Store offset so conditional steps also get shifted
+    values["_travel_step_offset"] = 1
+
+    return new_prefix + shifted
+
+
+def _shift_step_refs(steps: list[dict], offset: int) -> list[dict]:
+    """Shift all $step_N references in steps by the given offset."""
+    serialized = json.dumps(steps)
+    def _shift(m):
+        old_idx = int(m.group(1))
+        return f"$step_{old_idx + offset}" + m.group(2)
+    shifted = re.sub(r'\$step_(\d+)([\.\[])', _shift, serialized)
+    return json.loads(shifted)
+
+
+# ---------------------------------------------------------------------------
+# Travel expense: per diem expansion
+# ---------------------------------------------------------------------------
+
+def _expand_per_diem(steps: list[dict], values: dict) -> list[dict]:
+    """After the rate category GET has been added by conditional steps,
+    add a PUT to update the travel expense with perDiemCompensations."""
+    per_diem = values.get("perDiem")
+    if not per_diem or not isinstance(per_diem, dict):
+        return steps
+
+    days = per_diem.get("days") or per_diem.get("countDays") or 1
+    daily_rate = per_diem.get("dailyRate") or per_diem.get("rate")
+
+    # Find the GET /travelExpense/perDiemCompensation/rateCategory step index
+    rate_cat_idx = None
+    travel_expense_idx = None
+    for i, step in enumerate(steps):
+        path = step.get("path", "")
+        if "/travelExpense/perDiemCompensation/rateCategory" in path:
+            rate_cat_idx = i
+        if step.get("method") == "POST" and path == "/travelExpense":
+            travel_expense_idx = i
+
+    if rate_cat_idx is None or travel_expense_idx is None:
+        return steps
+
+    # Build the per diem compensation entry
+    compensation = {
+        "rateCategory": {"id": f"$step_{rate_cat_idx}.values[0].id"},
+        "countDays": int(days),
+    }
+    if daily_rate:
+        compensation["rate"] = _clean_amount(daily_rate)
+
+    # The GET will be appended at current len(steps), PUT at len(steps)+1
+    get_idx = len(steps)
+
+    per_diem_steps = [
+        {
+            "method": "GET",
+            "path": f"/travelExpense/$step_{travel_expense_idx}.id",
+            "params": {"fields": "id,version,travelDetails"},
+        },
+        {
+            "method": "PUT",
+            "path": f"/travelExpense/$step_{travel_expense_idx}.id",
+            "body": {
+                "id": f"$step_{get_idx}.id",
+                "version": f"$step_{get_idx}.version",
+                "travelDetails": {
+                    "perDiemCompensations": [compensation],
+                },
+            },
+            "note": "Update travel expense to add per diem compensations.",
+        },
+    ]
+
+    steps.extend(per_diem_steps)
+    return steps
+
+
+# ---------------------------------------------------------------------------
 # Conditional steps
 # ---------------------------------------------------------------------------
 
@@ -751,15 +887,30 @@ def _apply_conditional_steps(steps: list[dict], values: dict, template: dict) ->
     if not conditional:
         return steps
 
+    # Track which cost trigger was used to avoid double-triggering
+    cost_trigger_used = False
+
     for trigger_key, step_or_steps in conditional.items():
         # trigger_key is like "if_role" or "if_cost_amount"
         field = trigger_key.removeprefix("if_")
+
+        # For travel expenses: prefer "if_costs" (array) over "if_cost_amount" (single)
+        # to avoid adding cost steps twice
+        if field in ("cost_amount", "costs"):
+            if cost_trigger_used:
+                continue
+            # Prefer costs array if present
+            if field == "cost_amount" and "costs" in values and isinstance(values["costs"], list) and values["costs"]:
+                continue  # Skip single cost trigger, let if_costs handle it
+            if field == "costs" and (not isinstance(values.get("costs"), list) or not values.get("costs")):
+                continue
+
         if field in values and values[field]:
+            if field in ("cost_amount", "costs"):
+                cost_trigger_used = True
             if isinstance(step_or_steps, list):
-                # Array of steps (e.g. travel expense costs)
                 steps.extend(copy.deepcopy(step_or_steps))
             else:
-                # Single step (e.g. role entitlement)
                 steps.append(copy.deepcopy(step_or_steps))
 
     return steps
@@ -841,9 +992,27 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
     elif task_type == "create_purchase_order" and isinstance(values.get("orderLines"), list):
         steps = _expand_purchase_order_lines(steps, values)
 
+    # Fixed-price project with partial invoicing: compute _invoiceAmount
+    if task_type == "create_project_with_invoice":
+        fp = _clean_amount(values.get("fixedPrice"))
+        pct = _clean_amount(values.get("invoicePercentage"))
+        if fp and pct:
+            values["_invoiceAmount"] = round(fp * pct / 100, 2)
+            # Ensure dates for order/invoice
+            if "orderDate" not in values:
+                values["orderDate"] = values.get("startDate") or date.today().isoformat()
+            if "deliveryDate" not in values:
+                values["deliveryDate"] = values.get("orderDate", date.today().isoformat())
+            if "invoiceDate" not in values:
+                values["invoiceDate"] = values.get("orderDate", date.today().isoformat())
+
     # Apply conditional steps BEFORE travel cost expansion
     # (travel cost step is in conditional_steps, needs to be in steps first)
     steps = _apply_conditional_steps(steps, values, template)
+
+    # Travel expense: expand per diem after conditional steps added the rate category GET
+    if task_type == "create_travel_expense" and values.get("perDiem"):
+        steps = _expand_per_diem(steps, values)
 
     # Expand travel costs AFTER conditional steps have been added
     if task_type == "create_travel_expense" and isinstance(values.get("costs"), list):

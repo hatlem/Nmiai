@@ -10,10 +10,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from agent import create_plan, classify_task, re_extract_values, get_tier
-from executor import execute_plan
-from template_engine import build_concrete_plan
-from react_agent import react_solve
+from tool_agent import tool_agent_solve
 from tripletex_client import TripletexClient
 
 import sys
@@ -140,8 +137,17 @@ async def _ensure_bank_account(client: TripletexClient):
     """Set bankAccountNumber on account 1920 if not already set.
     Competition sandboxes don't have this pre-configured, causing invoice 422."""
     try:
+        # Try primary query format
         resp = await client.get("/ledger/account", params={"number": "1920", "fields": "id,bankAccountNumber,version"})
         if not resp.get("ok"):
+            # Fallback: some proxies use numberFrom/numberTo instead of number
+            logger.info("Pre-flight: GET /ledger/account?number=1920 failed, trying numberFrom/numberTo")
+            resp = await client.get("/ledger/account", params={
+                "numberFrom": "1920", "numberTo": "1920",
+                "fields": "id,bankAccountNumber,version",
+            })
+        if not resp.get("ok"):
+            logger.warning(f"Pre-flight: could not fetch account 1920: status={resp.get('status_code')}")
             return
         data = resp.get("data", {})
         values = data.get("values", [])
@@ -150,12 +156,28 @@ async def _ensure_bank_account(client: TripletexClient):
             if isinstance(inner, dict):
                 values = inner.get("values", [])
         if not values:
+            logger.warning("Pre-flight: account 1920 not found, trying PUT /company fallback")
+            try:
+                co_resp = await client.get("/company/1", params={"fields": "id,version"})
+                if co_resp.get("ok"):
+                    co_data = co_resp.get("data", {})
+                    co_val = co_data.get("value", co_data)
+                    if isinstance(co_val, dict) and "id" in co_val:
+                        await client.put(f"/company/{co_val['id']}", body={
+                            "id": co_val["id"],
+                            "version": co_val.get("version", 0),
+                            "bankAccountNumber": "12345678903",
+                        })
+                        logger.info("Pre-flight: set bankAccountNumber via PUT /company")
+            except Exception as e2:
+                logger.warning(f"Pre-flight: PUT /company fallback failed: {e2}")
             return
         acct = values[0]
         if acct.get("bankAccountNumber"):
+            logger.info(f"Pre-flight: account 1920 already has bankAccountNumber={acct['bankAccountNumber']}")
             return  # Already set
         logger.info("Pre-flight: setting bankAccountNumber on account 1920")
-        await client.put(
+        put_resp = await client.put(
             f"/ledger/account/{acct['id']}",
             body={
                 "id": acct["id"],
@@ -163,6 +185,22 @@ async def _ensure_bank_account(client: TripletexClient):
                 "bankAccountNumber": "12345678903",
             },
         )
+        if not put_resp.get("ok"):
+            logger.warning(f"Pre-flight: PUT account 1920 failed: {put_resp.get('status_code')} {put_resp.get('data', {})}")
+            # Fallback: try via POST /bank
+            try:
+                bank_resp = await client.request("POST", "/bank", body={
+                    "accountNumber": "86011117947",
+                    "name": "Driftskonto",
+                })
+                if bank_resp.get("ok"):
+                    logger.info("Pre-flight: registered bank account via POST /bank fallback")
+                else:
+                    logger.warning(f"Pre-flight: POST /bank also failed: {bank_resp.get('status_code')}")
+            except Exception as e3:
+                logger.warning(f"Pre-flight: POST /bank exception: {e3}")
+        else:
+            logger.info("Pre-flight: bankAccountNumber set successfully on account 1920")
     except Exception as e:
         logger.warning(f"Pre-flight bank account failed (non-fatal): {e}")
 
@@ -201,116 +239,40 @@ async def solve(request: Request):
     test_id = report_test("tripletex", prompt[:80], status="running")
 
     client = TripletexClient(base_url, session_token)
-    task_type = "unknown"
-    retry_count = 0
+    task_type = "tool_agent"
 
     try:
-        # 1. Classify + extract values + build plan from template
-        plan = await create_plan(prompt, files)
-        task_type = plan.get("task_type", task_type)
-        logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
+        # Pre-flight: ensure bank account exists (prevents invoice 422 errors)
+        await _ensure_bank_account(client)
 
-        # 1b. Unknown tasks → go straight to ReAct agent
-        if task_type == "unknown" or not plan.get("steps"):
-            logger.info(f"Unknown/empty plan → ReAct agent")
-            react_deadline = start + 280
-            react_ok = await react_solve(prompt, files, client, react_deadline)
-            result = {"success": react_ok, "failed": [], "results": {}}
-        else:
-            # 2. Pre-flight: ensure bank account for invoice tasks
-            if "invoice" in task_type and "supplier" not in task_type:
-                await _ensure_bank_account(client)
-
-            # 3. Execute
-            result = await execute_plan(plan, client, start)
-
-        # 4. If failed and time permits, re-extract and retry ONCE
-        if not result["success"] and time.monotonic() - start < 150:
-            retry_count += 1
-            raw_errors = result.get("failed", [])
-            errors = [{"step": idx, "status_code": res.get("status_code", 0), "error": res.get("data", {})} for idx, res in raw_errors]
-            logger.info(f"Template retry for {task_type} | errors: {errors}")
-            new_values = await re_extract_values(prompt, task_type, errors, files, original_values=plan.get("extracted_values", {}))
-            new_plan = build_concrete_plan(task_type, new_values)
-            result = await execute_plan(new_plan, client, start)
-
-        # 5. If STILL failed, fall back to ReAct agent (dynamic tool-use)
-        if not result["success"] and time.monotonic() - start < 200:
-            logger.info(f"Template failed, falling back to ReAct agent for {task_type}")
-            react_deadline = start + 280  # leave 20s buffer
-            react_client = TripletexClient(base_url, session_token)
-            try:
-                react_ok = await react_solve(prompt, files, react_client, react_deadline)
-                if react_ok:
-                    result = {"success": True, "failed": [], "results": {}}
-                    logger.info(f"ReAct agent succeeded for {task_type}")
-                else:
-                    logger.warning(f"ReAct agent also failed for {task_type}")
-            except Exception as e:
-                logger.error(f"ReAct agent error: {e}")
-            finally:
-                client.call_count += react_client.call_count
-                client.error_count += react_client.error_count
-                await react_client.close()
+        # Single approach: let Gemini 3.1 Pro solve it with function calling.
+        # No templates. No extraction. No step references. Just an LLM with API access.
+        agent_deadline = start + 280  # 280s = 300 - 20s buffer
+        success = await tool_agent_solve(prompt, files, client, agent_deadline)
 
         elapsed = time.monotonic() - start
-        success = result["success"]
-
-        # Collect debug info
-        tier = plan.get("tier", 0)
-        confidence = plan.get("classification_confidence", 0)
-        extracted_keys = list(plan.get("extracted_values", {}).keys())
-        error_detail = ""
-        if not success:
-            for _, res in result.get("failed", []):
-                detail = str(res.get("data", ""))[:150]
-                if detail:
-                    error_detail = detail
-                    break
-
         logger.info(
-            f"Done in {elapsed:.1f}s | type={task_type} | tier={tier} | "
-            f"success={success} | retries={retry_count} | "
-            f"api_calls={client.call_count} | errors={client.error_count} | "
-            f"extracted={extracted_keys}"
+            f"Done in {elapsed:.1f}s | "
+            f"success={success} | "
+            f"api_calls={client.call_count} | errors={client.error_count}"
         )
         _record(task_type, success, elapsed, client.call_count,
-                client.error_count, retry_count, prompt,
-                tier=tier, confidence=confidence,
-                extracted_keys=extracted_keys, error_detail=error_detail)
+                client.error_count, 0, prompt)
 
-        # Report result to dashboard
         update_test(
             test_id,
             status="passed" if success else "failed",
-            details=f"type={task_type} elapsed={elapsed:.1f}s calls={client.call_count} retries={retry_count}",
-            metadata={"task_type": task_type, "api_calls": client.call_count,
-                       "errors": client.error_count, "retries": retry_count},
-        )
-
-        # Report task-level result to dashboard
-        _report_task_result(
-            task_type=task_type,
-            tier=tier,
-            success=success,
-            elapsed=elapsed,
-            error_detail=error_detail if not success else None,
+            details=f"elapsed={elapsed:.1f}s calls={client.call_count}",
+            metadata={"api_calls": client.call_count, "errors": client.error_count},
         )
 
     except Exception as e:
         logger.error(f"Agent error: {e}", exc_info=True)
         elapsed = time.monotonic() - start
         _record(task_type, False, elapsed, client.call_count,
-                client.error_count, retry_count, prompt, False,
+                client.error_count, 0, prompt, False,
                 error_detail=str(e)[:300])
         update_test(test_id, status="failed", details=f"Error: {e}")
-        _report_task_result(
-            task_type=task_type,
-            tier=0,
-            success=False,
-            elapsed=elapsed,
-            error_detail=str(e)[:300],
-        )
     finally:
         await client.close()
 

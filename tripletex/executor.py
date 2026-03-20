@@ -240,6 +240,7 @@ _ENDPOINT_INVALID_FIELDS: dict[str, set[str]] = {
     "/employee/employment": {"userType", "employmentType", "percentageOfFullTimeEquivalent", "type", "role", "department"},
     "/contact": {"phoneNumber"},  # Use phoneNumberMobile or phoneNumberWork
     "/supplier": {"isSupplier"},  # Never set on supplier endpoint
+    "/supplierInvoice": {"orderDate", "deliveryDate", "dueDate", "orderNumber", "invoiceDueDate"},
 }
 
 
@@ -326,7 +327,7 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
     # Strip fields that don't exist on certain endpoints
     if isinstance(path, str):
         if "/supplierInvoice" in path and "/orderline" not in path.lower():
-            for bad_field in ("orderDate", "deliveryDate", "dueDate", "orderLines"):
+            for bad_field in ("orderDate", "deliveryDate", "dueDate", "orderNumber", "invoiceDueDate", "orderLines"):
                 cleaned.pop(bad_field, None)
         if "/employee/employment" in path:
             for bad_field in ("userType", "employmentType", "percentageOfFullTimeEquivalent", "type", "role", "department", "email"):

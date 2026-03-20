@@ -298,48 +298,63 @@ TEMPLATES: dict[str, dict] = {
     "create_travel_expense": {
         "description": (
             "Register a travel expense report. Steps:\n"
-            "1. GET /employee to find employee ID\n"
+            "0. GET /department (needed for employee creation)\n"
+            "1. POST /employee — CREATE the named person (firstName, lastName, email)\n"
             "2. POST /travelExpense with travelDetails (dates, destination, purpose)\n"
-            "3. If costs are mentioned: GET /travelExpense/costCategory, GET /travelExpense/paymentType, GET /ledger/vatType, GET /currency?code=NOK\n"
-            "4. For EACH cost: POST /travelExpense/cost with the EXACT fields listed below.\n"
+            "3. If costs are mentioned: GET /travelExpense/paymentType\n"
+            "4. For EACH cost: POST /travelExpense/cost\n"
+            "\n"
+            "IMPORTANT: The sandbox starts EMPTY — there is no pre-existing employee.\n"
+            "The prompt always names a specific person — you MUST create them first.\n"
             "\n"
             "CRITICAL: POST /travelExpense/cost REQUIRED fields:\n"
             "  - travelExpense: {\"id\": <travel_expense_id>}\n"
-            "  - vatType: {\"id\": <vat_type_id>}  (REQUIRED! GET /ledger/vatType first)\n"
+            "  - vatType: {\"id\": 0}  (0 = exempt, safe default)\n"
             "  - paymentType: {\"id\": <payment_type_id>}\n"
             "  - amountCurrencyIncVat: <number> (the cost amount INCLUDING VAT)\n"
             "  - date: \"YYYY-MM-DD\"\n"
             "OPTIONAL fields:\n"
-            "  - currency: {\"id\": <currency_id>}\n"
-            "  - costCategory: {\"id\": <cost_category_id>}\n"
-            "  - comments: \"string\" (use this for any description/note about the cost)\n"
-            "  - rate: <number>\n"
-            "  - amountNOKInclVAT: <number>\n"
-            "  - isChargeable: boolean\n"
-            "  - category: \"string\"\n"
+            "  - comments: \"string\" (use for description/note about the cost)\n"
             "\n"
-            "FORBIDDEN fields (DO NOT USE — will cause 422 error):\n"
-            "  - amount (WRONG — use amountCurrencyIncVat)\n"
-            "  - title (WRONG — does not exist)\n"
-            "  - description (WRONG — use comments)\n"
-            "  - name (WRONG — does not exist)\n"
-            "  - rateCurrency (WRONG — not a valid field)\n"
-            "  - count (WRONG — not a valid field)"
+            "COST EXTRACTION: Extract ALL costs from the prompt as a 'costs' array.\n"
+            "Per diem (diett/dagpenger): calculate total = daily_rate x number_of_days.\n"
+            "Example: '3 days per diem 800 NOK' -> {description: 'Per diem', amount: 2400}\n"
+            "\n"
+            "FORBIDDEN fields on /travelExpense/cost (cause 422):\n"
+            "  - amount (use amountCurrencyIncVat), title, description (use comments),\n"
+            "  - name, rateCurrency, count"
         ),
-        "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost"],
-        "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel", "title", "cost_amount", "cost_description_if_any"],
-        "optimal_calls": 2,
+        "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost", "Employee"],
+        "extract_fields": [
+            "firstName", "lastName", "email",
+            "departureDate", "returnDate", "departureFrom", "destination", "purpose",
+            "costs", "isDayTrip", "isForeignTravel", "title",
+            "cost_amount", "cost_description_if_any",
+            "perDiem",
+        ],
+        "optimal_calls": 5,
         "steps": [
             {
                 "method": "GET",
+                "path": "/department",
+                "params": {"fields": "id,name", "count": 1},
+            },
+            {
+                "method": "POST",
                 "path": "/employee",
-                "params": {"fields": "id", "count": 1},
+                "body": {
+                    "firstName": "{{firstName}}",
+                    "lastName": "{{lastName}}",
+                    "email": "{{email}}",
+                    "userType": "STANDARD",
+                    "department": {"id": "$step_0.values[0].id"},
+                },
             },
             {
                 "method": "POST",
                 "path": "/travelExpense",
                 "body": {
-                    "employee": {"id": "$step_0.values[0].id"},
+                    "employee": {"id": "$step_1.id"},
                     "travelDetails": {
                         "departureDate": "{{departureDate}}",
                         "returnDate": "{{returnDate}}",
@@ -364,14 +379,41 @@ TEMPLATES: dict[str, dict] = {
                     "method": "POST",
                     "path": "/travelExpense/cost",
                     "body": {
-                        "travelExpense": {"id": "$step_1.id"},
+                        "travelExpense": {"id": "$step_2.id"},
                         "vatType": {"id": 0},
-                        "paymentType": {"id": "$step_2.values[0].id"},
+                        "paymentType": {"id": "$step_3.values[0].id"},
                         "amountCurrencyIncVat": "{{cost_amount}}",
                         "date": "{{departureDate}}",
                         "comments": "{{cost_description_if_any}}",
                     },
-                    "note": "vatType 0 = exempt (safe default, avoids VAT_NOT_REGISTERED). currency omitted (defaults to NOK).",
+                    "note": "vatType 0 = exempt. _expand_travel_costs duplicates this for each cost in costs array.",
+                },
+            ],
+            "if_costs": [
+                {
+                    "method": "GET",
+                    "path": "/travelExpense/paymentType",
+                    "params": {"fields": "id,description"},
+                },
+                {
+                    "method": "POST",
+                    "path": "/travelExpense/cost",
+                    "body": {
+                        "travelExpense": {"id": "$step_2.id"},
+                        "vatType": {"id": 0},
+                        "paymentType": {"id": "$step_3.values[0].id"},
+                        "amountCurrencyIncVat": "{{cost_amount}}",
+                        "date": "{{departureDate}}",
+                        "comments": "{{cost_description_if_any}}",
+                    },
+                    "note": "Triggered by costs array. _expand_travel_costs duplicates for each cost item.",
+                },
+            ],
+            "if_perDiem": [
+                {
+                    "method": "GET",
+                    "path": "/travelExpense/perDiemCompensation/rateCategory",
+                    "params": {"fields": "id,name,amountPerDay"},
                 },
             ],
         },
@@ -572,6 +614,119 @@ TEMPLATES: dict[str, dict] = {
                 "note": "Depends on step 1 (entitlement).",
             },
         ],
+    },
+
+    "create_project_with_invoice": {
+        "description": (
+            "Create a fixed-price project linked to a NEW customer, with a named project manager.\n"
+            "Steps: GET department -> POST employee (project manager) -> PUT entitlement -> POST customer -> POST project (isFixedPrice=true).\n"
+            "If invoicePercentage is present: POST order (with single orderLine = fixedPrice * invoicePercentage / 100) -> PUT order/:invoice.\n"
+            "The project manager is ALWAYS a specific person named in the prompt — create them as an employee."
+        ),
+        "relevant_schemas": ["Project", "Customer", "Employee", "Order", "Invoice"],
+        "extract_fields": [
+            "project_name", "customer_name", "customer_email", "customer_organizationNumber",
+            "customer_phoneNumber", "customer_phoneNumberMobile", "customer_description",
+            "customer_addressLine1", "customer_postalCode", "customer_city",
+            "projectManager_firstName", "projectManager_lastName", "projectManager_email",
+            "fixedPrice", "invoicePercentage", "startDate", "endDate", "project_description",
+        ],
+        "optimal_calls": 7,
+        "steps": [
+            {
+                "method": "GET",
+                "path": "/department",
+                "params": {"fields": "id,name", "count": 1},
+                "note": "Need department for employee creation.",
+            },
+            {
+                "method": "POST",
+                "path": "/employee",
+                "body": {
+                    "firstName": "{{projectManager_firstName}}",
+                    "lastName": "{{projectManager_lastName}}",
+                    "email": "{{projectManager_email}}",
+                    "userType": "STANDARD",
+                    "department": {"id": "$step_0.values[0].id"},
+                },
+                "note": "Create the named project manager as an employee.",
+            },
+            {
+                "method": "PUT",
+                "path": "/employee/entitlement/:grantEntitlementsByTemplate",
+                "params": {
+                    "employeeId": "$step_1.id",
+                    "template": "ALL_PRIVILEGES",
+                },
+                "note": "Grant project manager entitlements.",
+            },
+            {
+                "method": "POST",
+                "path": "/customer",
+                "body": {
+                    "name": "{{customer_name}}",
+                    "isCustomer": True,
+                    "email": "{{customer_email}}",
+                    "organizationNumber": "{{customer_organizationNumber}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
+                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
+                    "description": "{{customer_description}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
+                },
+                "note": "Create the customer.",
+            },
+            {
+                "method": "POST",
+                "path": "/project",
+                "body": {
+                    "name": "{{project_name}}",
+                    "description": "{{project_description}}",
+                    "customer": {"id": "$step_3.id"},
+                    "startDate": "{{startDate}}",
+                    "endDate": "{{endDate}}",
+                    "isInternal": False,
+                    "isFixedPrice": True,
+                    "fixedprice": "{{fixedPrice}}",
+                    "projectManager": {"id": "$step_1.id"},
+                },
+                "note": "Create fixed-price project. Depends on steps 1 (employee), 2 (entitlement), 3 (customer).",
+            },
+        ],
+        "conditional_steps": {
+            "if_invoicePercentage": [
+                {
+                    "method": "POST",
+                    "path": "/order",
+                    "body": {
+                        "customer": {"id": "$step_3.id"},
+                        "orderDate": "{{orderDate}}",
+                        "deliveryDate": "{{deliveryDate}}",
+                        "project": {"id": "$step_4.id"},
+                        "orderLines": [
+                            {
+                                "description": "Milestone payment",
+                                "count": 1,
+                                "unitPriceExcludingVatCurrency": "{{_invoiceAmount}}",
+                            },
+                        ],
+                    },
+                    "note": "Order for partial invoice. _invoiceAmount is computed by template engine.",
+                },
+                {
+                    "method": "PUT",
+                    "path": "/order/$step_5.id/:invoice",
+                    "params": {
+                        "invoiceDate": "{{invoiceDate}}",
+                        "sendToCustomer": False,
+                    },
+                    "note": "Convert order to invoice.",
+                },
+            ],
+        },
     },
 
     # ===== DEPARTMENTS =====
@@ -800,7 +955,7 @@ TEMPLATES: dict[str, dict] = {
             "FORBIDDEN FIELDS: dueDate, orderDate, orderNumber — cause 422."
         ),
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
-        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
+        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number", "amount_is_gross"],
         "optimal_calls": 4,
         "steps": [
             {
@@ -1388,13 +1543,14 @@ KEYWORD_HINTS: dict[str, list[str]] = {
     "register_payment": ["innbetaling", "betaling", "payment", "pago", "pagamento", "Zahlung", "paiement", "registrer betaling", "registrer innbetaling", "zahlung registrieren", "registrar pago", "enregistrer paiement", "registrar pagamento", "pagar factura", "pagar fatura", "rechnung bezahlen", "payer facture"],
     "register_payment_by_search": ["betal faktura nummer", "registrer betaling pa faktura", "payment on invoice number", "betal faktura nr", "betaling for faktura", "pay invoice number", "payment for invoice", "betaling på faktura"],
     "create_credit_note": ["kreditnota", "credit note", "nota de credito", "Gutschrift", "avoir", "note de credit", "nota de credito"],
-    "create_travel_expense": ["reiseregning", "travel expense", "gastos de viaje", "gasto de viaje", "despesas de viagem", "despesa de viagem", "Reisekosten", "reisekostenabrechnung", "note de frais", "reiserekning", "registrer reiseregning", "registrer reiserekning", "ny reiserekning", "reisekosten erstellen"],
+    "create_travel_expense": ["reiseregning", "travel expense", "gastos de viaje", "gasto de viaje", "despesas de viagem", "despesa de viagem", "Reisekosten", "reisekostenabrechnung", "note de frais", "reiserekning", "registrer reiseregning", "registrer reiserekning", "ny reiserekning", "reisekosten erstellen", "diett", "dagpenger", "per diem", "daily allowance", "kostgodtgjørelse", "Tagegeld", "dieta"],
     "delete_travel_expense": ["slett reiseregning", "delete travel", "slett reiserekning", "reisekosten loschen", "reisekosten löschen", "reisekostenabrechnung loschen", "eliminar gasto de viaje", "eliminar despesa de viagem", "supprimer note de frais"],
     "deliver_travel_expense": ["lever reiseregning", "deliver travel expense", "send inn reiseregning", "lever reiserekning", "entregar gasto de viaje", "entregar despesa de viagem", "soumettre note de frais", "reisekostenabrechnung einreichen"],
     "approve_travel_expense": ["godkjenn reiseregning", "approve travel expense", "godkjenn reiserekning", "aprobar gasto de viaje", "aprovar despesa de viagem", "approuver note de frais", "reisekostenabrechnung genehmigen"],
     "create_project": ["prosjekt", "project", "proyecto", "projeto", "Projekt", "projet", "opprett prosjekt", "nytt prosjekt", "crear proyecto", "nuevo proyecto", "criar projeto", "novo projeto", "projekt erstellen", "neues projekt", "creer projet", "nouveau projet", "ajouter un projet"],
     "create_project_existing_customer": ["prosjekt for eksisterende kunde", "project for existing customer", "prosjekt eksisterende", "proyecto para cliente existente", "projeto para cliente existente", "projekt fur bestehenden kunden", "projet pour client existant"],
     "create_internal_project": ["internt prosjekt", "internal project", "proyecto interno", "internes Projekt", "innvendig prosjekt", "projeto interno", "projet interne"],
+    "create_project_with_invoice": ["precio fijo", "prix forfaitaire", "fixed price", "fastpris", "fixedprice", "fest pris", "Festpreis", "preço fixo", "precio fijo proyecto", "prix forfaitaire projet", "fixed price project", "fastpris prosjekt"],
     "update_project": ["oppdater prosjekt", "endre prosjekt", "update project", "actualizar proyecto", "atualizar projeto", "projekt aktualisieren", "mettre a jour projet"],
     "create_department": ["avdeling", "department", "departamento", "Abteilung", "departement", "opprett avdeling", "ny avdeling", "crear departamento", "nuevo departamento", "criar departamento", "novo departamento", "abteilung erstellen", "neue abteilung", "creer departement", "nouveau departement", "ajouter un departement"],
     "create_supplier": ["leverandør", "leverandor", "supplier", "proveedor", "fornecedor", "Lieferant", "fournisseur", "opprett leverandør", "registrer leverandør", "ny leverandør", "crear proveedor", "nuevo proveedor", "criar fornecedor", "novo fornecedor", "lieferant erstellen", "neuer lieferant", "creer fournisseur", "nouveau fournisseur", "ajouter un fournisseur"],
