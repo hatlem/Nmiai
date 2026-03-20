@@ -777,7 +777,7 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
 
     logger.info(
         f"Plan: {plan['task_type']} with {len(steps)} steps, "
-        f"extracted {len(extracted_values)} values"
+        f"extracted {len(extracted_values)} values: {list(extracted_values.keys())}"
     )
     return plan
 
