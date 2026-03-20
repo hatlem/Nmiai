@@ -106,9 +106,30 @@ _get_api_guide = FunctionDeclaration(
     },
 )
 
+_get_api_schema = FunctionDeclaration(
+    name="get_api_schema",
+    description="Get exact field names for a Tripletex entity. Use when you need to know valid field names (e.g. for GET ?fields= or POST body). Entities: Customer, Employee, Product, Department, Supplier, Contact, Order, OrderLine, Invoice, Voucher, Posting, TravelExpense, TravelExpenseCost, TravelDetails, Project, ProjectHourlyRate, SalaryTransaction, PurchaseOrder, PurchaseOrderline, BankReconciliation, Asset, AccountingDimensionName, AccountingDimensionValue, Employment",
+    parameters={
+        "type": "object",
+        "properties": {
+            "entity": {"type": "string", "description": "Entity name (PascalCase), e.g. 'ProjectHourlyRate', 'TravelExpenseCost'"},
+        },
+        "required": ["entity"],
+    },
+)
+
 TOOLS = [Tool(function_declarations=[
-    _tripletex_get, _tripletex_post, _tripletex_put, _tripletex_delete, _get_api_guide
+    _tripletex_get, _tripletex_post, _tripletex_put, _tripletex_delete, _get_api_guide, _get_api_schema
 ])]
+
+# Load field reference from OpenAPI spec
+import pathlib as _pathlib
+_FIELD_REF_PATH = _pathlib.Path(__file__).parent / "schemas" / "field_reference.json"
+_FIELD_REF: dict = {}
+try:
+    _FIELD_REF = json.loads(_FIELD_REF_PATH.read_text())
+except Exception:
+    pass
 
 # ── Slim system prompt ───────────────────────────────────────────────
 
@@ -617,6 +638,25 @@ async def tool_agent_solve(
                     )))
                     result_text = f"Topic '{topic}' not found. Available topics: {', '.join(available)}"
                     logger.info(f"Tool agent turn {turn}: get_api_guide({topic}) -> not found")
+                function_responses.append(
+                    Part.from_function_response(
+                        name=fn_name,
+                        response={"result": result_text},
+                    )
+                )
+                continue
+
+            # Handle get_api_schema locally (no HTTP request)
+            if fn_name == "get_api_schema":
+                entity = str(args.get("entity", "")).strip()
+                schema = _FIELD_REF.get(entity)
+                if schema:
+                    result_text = f"Fields for {entity}: {json.dumps(schema)}"
+                    logger.info(f"Tool agent turn {turn}: get_api_schema({entity}) -> {len(schema)} fields")
+                else:
+                    available = sorted(_FIELD_REF.keys())
+                    result_text = f"Entity '{entity}' not found. Available: {', '.join(available)}"
+                    logger.info(f"Tool agent turn {turn}: get_api_schema({entity}) -> not found")
                 function_responses.append(
                     Part.from_function_response(
                         name=fn_name,
