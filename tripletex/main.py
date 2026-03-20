@@ -398,7 +398,7 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
                 return None
 
         # 422 with activity error — wrong activity type for timesheet
-        if status == 422 and ("aktiviteten kan ikke benyttes" in error_msg or "activity" in error_msg):
+        if status == 422 and ("aktiviteten kan ikke benyttes" in error_msg or ("activity" in error_msg and "timesheet" in str(original_step.get("path","")).lower())):
             # Add GET /activity to find a valid project activity, then retry
             get_step_idx = len(new_steps)
             new_steps.append({
@@ -409,6 +409,10 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             })
             fixed_step = dict(original_step)
             fixed_body = dict(fixed_step.get("body", {}))
+            # Resolve any $step_N references in the body to concrete values from prior results
+            from executor import resolve_refs
+            fixed_body = resolve_refs(fixed_body, results)
+            # Now override only the activity with the new reference
             fixed_body["activity"] = {"id": f"$step_{get_step_idx}.values[0].id"}
             fixed_step["body"] = fixed_body
             new_steps.append(fixed_step)

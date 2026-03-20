@@ -309,7 +309,7 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
     if method == "POST":
         path_lower = path.lower() if isinstance(path, str) else ""
 
-        if "/employee" in path_lower and "userType" not in cleaned:
+        if "/employee" in path_lower and "/employment" not in path_lower and "userType" not in cleaned:
             cleaned["userType"] = "STANDARD"
 
         if "/order" in path_lower:
