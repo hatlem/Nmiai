@@ -59,6 +59,16 @@ class TripletexClient:
     ) -> dict:
         if body and method in ("POST", "PUT"):
             body = self._fix_body(body, path)
+        # Fix dateFrom=dateTo on GET requests (dateTo must be > dateFrom)
+        if params and method == "GET" and "dateFrom" in params and "dateTo" in params:
+            if params["dateFrom"] == params["dateTo"]:
+                # Add 1 day to dateTo
+                try:
+                    from datetime import datetime, timedelta
+                    dt = datetime.strptime(params["dateTo"], "%Y-%m-%d")
+                    params["dateTo"] = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+                except (ValueError, TypeError):
+                    pass
         url = f"{self.base_url}{path}"
         self.call_count += 1
 
