@@ -109,16 +109,19 @@ def _record(task_type: str, success: bool, elapsed: float, api_calls: int,
     optimal = TEMPLATES.get(task_type, {}).get("optimal_calls", 0)
     efficiency = round(optimal / api_calls * 100) if api_calls > 0 and optimal > 0 else None
 
-    HISTORY.appendleft({
-        "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+    entry = {
+        "time": datetime.now(timezone.utc).isoformat(),
         "type": task_type, "ok": success, "verified": verified,
         "elapsed": round(elapsed, 1), "api_calls": api_calls,
         "optimal_calls": optimal, "efficiency": efficiency,
-        "errors": errors, "repairs": repairs, "prompt": prompt[:300],
+        "errors": errors, "repairs": repairs, "prompt": prompt[:500],
         "tier": tier, "confidence": round(confidence, 2),
         "extracted_keys": extracted_keys or [],
-        "error_detail": error_detail[:300],
-    })
+        "error_detail": error_detail[:500],
+        "call_log": call_log or [],
+    }
+    HISTORY.appendleft(entry)
+    _log_to_jsonl(entry)
 
 
 # ── Endpoints ──
@@ -268,7 +271,7 @@ async def solve(request: Request):
             f"api_calls={client.call_count} | errors={client.error_count}"
         )
         _record(task_type, success, elapsed, client.call_count,
-                client.error_count, 0, prompt)
+                client.error_count, 0, prompt, call_log=client.call_log)
 
         update_test(
             test_id,
@@ -282,7 +285,7 @@ async def solve(request: Request):
         elapsed = time.monotonic() - start
         _record(task_type, False, elapsed, client.call_count,
                 client.error_count, 0, prompt, False,
-                error_detail=str(e)[:300])
+                error_detail=str(e)[:300], call_log=client.call_log)
         update_test(test_id, status="failed", details=f"Error: {e}")
     finally:
         await client.close()

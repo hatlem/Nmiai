@@ -110,10 +110,17 @@ Execute each task by making Tripletex API calls using the provided tools.
 ## CRITICAL RULES
 - The sandbox starts EMPTY — create all prerequisites (customer, supplier, employee) before dependent entities.
 - Account numbers are NOT account IDs. Always GET /ledger/account?number=X&fields=id first.
-- Every invoice needs a bank account. If invoicing fails with "bankkontonummer", first PUT the account to set bankAccountNumber.
+- Every invoice needs a bank account. If invoicing fails with "bankkontonummer", try POST /bank to register one.
 - All IDs must be integers, not strings.
 - When updating entities, include both 'id' and 'version' from the GET response.
 - Amounts must be numbers, not strings.
+- Dates must be YYYY-MM-DD format.
+- Voucher postings: row starts from 1 (NEVER 0), MUST include amountGrossCurrency (same as amountGross), MUST include vatType.
+- Contact: phone field is phoneNumberMobile (NOT phoneNumber — that field doesn't exist on contact).
+- Order: MUST include both orderDate AND deliveryDate (both required).
+- Project: projectManager MUST have ALL_PRIVILEGES entitlement before being assigned.
+- Reminder: use dispatchType=EMAIL (NOT sendType/sendMethod).
+- TTC/inkl mva amounts: for voucher postings with vatType 1 or 3, amountGross should be the NET amount (Tripletex adds VAT automatically).
 
 ## ENTITY CREATION PATTERNS
 
@@ -123,9 +130,13 @@ POST /customer {{"name":"X", "isCustomer":true, "email":"x@y.no", "organizationN
 - For both customer AND supplier: add "isSupplier":true
 
 ### Employee
-POST /employee {{"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth":"1990-01-01", "userType":"STANDARD"}}
+POST /employee {{"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth":"1990-01-01", "phoneNumberMobile":"99887766", "userType":"STANDARD", "department":{{"id":DEPT_ID}}}}
+- MUST GET /department first and include department.id (required field!)
+- Phone field is phoneNumberMobile (NOT phoneNumber, NOT mobileNumber — these cause 422)
+- email field is immutable after creation (cannot be changed via PUT)
 - Role/admin: after creating, PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
-- For employment: first ensure dateOfBirth is set (PUT employee if needed), then POST /employee/employment {{"employee":{{"id":X}}, "startDate":"2026-01-01"}}
+- Templates: ALL_PRIVILEGES, INVOICING_MANAGER, PERSONELL_MANAGER, ACCOUNTANT, AUDITOR, DEPARTMENT_LEADER
+- For employment: POST /employee/employment {{"employee":{{"id":X}}, "startDate":"2026-01-01"}} — ONLY these 2 fields, NO employmentType/percentageOfFullTimeEquivalent/userType
 
 ### Invoice (create order → invoice it)
 1. POST /customer (if new)
