@@ -403,7 +403,8 @@ async def _execute_step(
 
     # Log body for POST/PUT to help debug 422 errors
     if method in ("POST", "PUT") and body:
-        logger.info(f"Step {idx}: {method} {path} body keys: {list(body.keys()) if isinstance(body, dict) else type(body)}")
+        import json as _json
+        logger.info(f"Step {idx}: {method} {path} body: {_json.dumps(body, default=str, ensure_ascii=False)[:500]}")
 
     # Fallback: if this is a /:payment step and paymentTypeId was stripped (unresolved),
     # fetch it on-the-fly from GET /invoice/paymentType
