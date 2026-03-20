@@ -204,6 +204,12 @@ def _build_dependency_graph(steps: list[dict]) -> dict[int, set[int]]:
             if field in step and step[field] is not None:
                 deps.update(_find_refs_in_obj(step[field]))
 
+        # Force sequential execution for /travelExpense/cost steps
+        # (Tripletex locks the travel expense, parallel POSTs cause 409)
+        path = step.get("path", "")
+        if "/travelExpense/cost" in str(path) and i > 0:
+            deps.add(i - 1)
+
         skip_ref = step.get("skip_if_exists")
         if isinstance(skip_ref, str):
             deps.update(int(m) for m in _STEP_REF_RE.findall(skip_ref))
@@ -265,6 +271,9 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
         # Skip empty strings for optional fields
         if v == "" and k not in ("name", "firstName", "lastName"):
             continue
+        # orderLine prices must be positive (credit notes create positive invoice then reverse)
+        if k in ("unitPriceExcludingVatCurrency", "unitPriceIncludingVatCurrency") and isinstance(v, (int, float)) and v < 0:
+            v = abs(v)
         # Ensure amounts are numbers, not strings
         if k in ("amount", "amountGross", "amountGrossCurrency", "paidAmount",
                   "priceExcludingVatCurrency", "priceIncludingVatCurrency",

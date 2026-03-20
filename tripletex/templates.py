@@ -1498,7 +1498,7 @@ TEMPLATES: dict[str, dict] = {
             "Create custom accounting dimensions with values, then register a voucher posting.\n"
             "NOTE: This template requires dynamic step expansion via _expand_dimension_steps() "
             "because the number of dimension values varies per task.\n"
-            "Steps: POST /ledger/customDimensionDefinition -> N x POST /ledger/customDimensionValue -> "
+            "Steps: POST /ledger/accountingDimensionName -> N x POST /ledger/accountingDimensionValue -> "
             "GET /ledger/account -> POST /ledger/voucher"
         ),
         "relevant_schemas": ["Voucher", "Posting"],
@@ -1510,7 +1510,7 @@ TEMPLATES: dict[str, dict] = {
         "steps": [
             {
                 "method": "POST",
-                "path": "/ledger/customDimensionDefinition",
+                "path": "/ledger/accountingDimensionName",
                 "body": {
                     "name": "{{dimension_name}}",
                 },
@@ -1518,7 +1518,7 @@ TEMPLATES: dict[str, dict] = {
             {
                 "note": "Dimension value steps are dynamically expanded by _expand_dimension_steps()",
                 "method": "POST",
-                "path": "/ledger/customDimensionValue",
+                "path": "/ledger/accountingDimensionValue",
                 "body": {
                     "dimension": {"id": "$step_0.id"},
                     "name": "{{first_dimension_value}}",
