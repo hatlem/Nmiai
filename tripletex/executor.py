@@ -308,6 +308,12 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
         if path.rstrip("/") == "/customer" and "isCustomer" not in cleaned:
             cleaned["isCustomer"] = True
 
+    # Strip fields that don't exist on certain endpoints
+    if isinstance(path, str):
+        if "/supplierInvoice" in path and "/orderline" not in path.lower():
+            for bad_field in ("orderDate", "deliveryDate", "dueDate", "orderLines"):
+                cleaned.pop(bad_field, None)
+
     # Smart date defaults for invoice-related fields
     if "orderDate" in cleaned and "deliveryDate" not in cleaned:
         cleaned["deliveryDate"] = cleaned["orderDate"]
@@ -364,6 +370,11 @@ async def _execute_step(
     """Execute a single step. Returns (index, response, ok)."""
     method = step.get("method", "GET").upper()
     path = resolve_ref(step.get("path", ""), results)
+
+    # Strip double-brace placeholders from path (e.g. {{employee_id}} that didn't resolve)
+    if isinstance(path, str) and re.search(r'\{\{.*?\}\}', path):
+        logger.warning(f"Step {idx}: stripping unresolved placeholders from path '{path}'")
+        path = re.sub(r'\{\{.*?\}\}', '', path)
 
     if "$step_" in str(path):
         logger.error(f"Step {idx}: unresolved reference in path '{path}'")

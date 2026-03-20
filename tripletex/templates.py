@@ -839,9 +839,14 @@ TEMPLATES: dict[str, dict] = {
     # ===== SUPPLIER INVOICES =====
 
     "create_supplier_invoice": {
-        "description": "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, and voucher postings. NOTE: dueDate/invoiceDueDate causes errors — do NOT include it. If POST /supplierInvoice returns 500, fall back to creating a regular voucher via POST /ledger/voucher with supplier reference in postings, then manually mark it as a supplier invoice.",
+        "description": (
+            "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, dueDate, and voucher postings.\n"
+            "IMPORTANT: Do NOT include 'orderDate' — it does NOT exist on supplierInvoice.\n"
+            "Required fields: invoiceNumber, invoiceDate, supplier({id}), dueDate, voucher({date, description, postings}).\n"
+            "If POST /supplierInvoice returns 500, fall back to creating a regular voucher via POST /ledger/voucher."
+        ),
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
-        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "amount", "account_number", "description", "expense_account_number"],
+        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
         "optimal_calls": 4,
         "steps": [
             {
@@ -878,6 +883,7 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "invoiceNumber": "{{invoiceNumber}}",
                     "invoiceDate": "{{invoiceDate}}",
+                    "dueDate": "{{dueDate}}",
                     "supplier": {"id": "$step_0.id"},
                     "voucher": {
                         "date": "{{invoiceDate}}",
@@ -1105,7 +1111,8 @@ TEMPLATES: dict[str, dict] = {
             "Create a salary transaction for an employee.\n"
             "1. GET /employee to find employee ID\n"
             "2. GET /salary/type to find the correct salary type ID\n"
-            "3. POST /salary/transaction with employee, salaryType, date, year, month, amount\n"
+            "3. POST /salary/transaction with employeeId, salaryTypeId, date, year, month, count\n"
+            "IMPORTANT: The fields are NOT 'employee' and 'amount'. Use 'employeeId' (integer) and 'count' (the amount).\n"
             "If the prompt specifies a salary type (e.g. 'fastlonn', 'overtid'), match it "
             "against the salary types from step 2."
         ),
@@ -1127,12 +1134,12 @@ TEMPLATES: dict[str, dict] = {
                 "method": "POST",
                 "path": "/salary/transaction",
                 "body": {
-                    "employee": {"id": "$step_0.values[0].id"},
+                    "employeeId": "$step_0.values[0].id",
                     "date": "{{date}}",
                     "year": "{{year}}",
                     "month": "{{month}}",
-                    "amount": "{{amount}}",
-                    "salaryType": {"id": "$step_1.values[0].id"},
+                    "count": "{{amount}}",
+                    "salaryTypeId": "$step_1.values[0].id",
                 },
             },
         ],
@@ -1173,7 +1180,7 @@ TEMPLATES: dict[str, dict] = {
     # ===== REMINDERS =====
 
     "create_reminder": {
-        "description": "Create a payment reminder (purring) for an overdue invoice",
+        "description": "Create a payment reminder (purring) for an overdue invoice. MUST include sendMethod (EMAIL) — API requires at least one send type.",
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "date", "comment"],
         "optimal_calls": 1,
@@ -1185,6 +1192,7 @@ TEMPLATES: dict[str, dict] = {
                     "type": "SOFT_REMINDER",
                     "date": "{{date}}",
                     "comment": "{{comment}}",
+                    "sendMethod": "EMAIL",
                 },
             },
         ],
@@ -1193,15 +1201,30 @@ TEMPLATES: dict[str, dict] = {
     # ===== EMPLOYEE EMPLOYMENT =====
 
     "create_employment": {
-        "description": "Create or update employment details for an employee (ansettelsesforhold). NOTE: employmentType and percentageOfFullTimeEquivalent do NOT exist on this endpoint. Only employee and startDate are accepted.",
+        "description": (
+            "Create or update employment details for an employee (ansettelsesforhold).\n"
+            "NOTE: employmentType and percentageOfFullTimeEquivalent do NOT exist on this endpoint. Only employee and startDate are accepted.\n"
+            "Employee MUST have dateOfBirth set before employment can be created. If dateOfBirth is null, "
+            "PUT /employee to set it (use date from prompt or default 1990-01-01) BEFORE creating employment."
+        ),
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["search_firstName", "search_lastName", "startDate"],
-        "optimal_calls": 2,
+        "extract_fields": ["search_firstName", "search_lastName", "startDate", "dateOfBirth"],
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "GET",
                 "path": "/employee",
-                "params": {"firstName": "{{search_firstName}}", "lastName": "{{search_lastName}}", "fields": "id,firstName,lastName"},
+                "params": {"firstName": "{{search_firstName}}", "lastName": "{{search_lastName}}", "fields": "id,firstName,lastName,dateOfBirth,version"},
+            },
+            {
+                "method": "PUT",
+                "path": "/employee/$step_0.values[0].id",
+                "body": {
+                    "id": "$step_0.values[0].id",
+                    "version": "$step_0.values[0].version",
+                    "dateOfBirth": "{{dateOfBirth}}",
+                },
+                "note": "Set dateOfBirth if missing. Use date from prompt or default 1990-01-01. Skip if already set.",
             },
             {
                 "method": "POST",

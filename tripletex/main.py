@@ -372,6 +372,33 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             logger.info("Quick-fix: added ourContact from employee lookup")
             continue
 
+        # 422 with "Feltet eksisterer ikke" on supplierInvoice — strip bad fields and retry
+        if status == 422 and "feltet eksisterer ikke" in error_msg:
+            path = original_step.get("path", "")
+            if "supplierinvoice" in path.lower() or "supplierInvoice" in path:
+                fixed_step = dict(original_step)
+                fixed_body = dict(fixed_step.get("body", {}))
+                for bad_field in ("orderDate", "deliveryDate", "dueDate", "orderLines", "invoiceDueDate"):
+                    fixed_body.pop(bad_field, None)
+                fixed_step["body"] = fixed_body
+                new_steps.append(fixed_step)
+                logger.info("Quick-fix: stripped invalid fields from supplierInvoice body")
+                continue
+            if "salary/transaction" in path.lower():
+                fixed_step = dict(original_step)
+                fixed_body = dict(fixed_step.get("body", {}))
+                # Remap wrong field names to correct ones
+                if "employee" in fixed_body and isinstance(fixed_body["employee"], dict):
+                    fixed_body["employeeId"] = fixed_body.pop("employee").get("id")
+                if "amount" in fixed_body:
+                    fixed_body["count"] = fixed_body.pop("amount")
+                if "salaryType" in fixed_body and isinstance(fixed_body["salaryType"], dict):
+                    fixed_body["salaryTypeId"] = fixed_body.pop("salaryType").get("id")
+                fixed_step["body"] = fixed_body
+                new_steps.append(fixed_step)
+                logger.info("Quick-fix: remapped salary/transaction fields (employee->employeeId, amount->count)")
+                continue
+
         # No quick fix available for this error
         return None
 
@@ -595,7 +622,7 @@ async def solve(request: Request):
                     logger.warning("Time budget exceeded before repair execution")
                     break
             except Exception as e:
-                logger.error(f"Self-repair exception: {e}")
+                logger.error(f"Self-repair exception: {type(e).__name__}: {e}", exc_info=True)
                 break
 
         elapsed = time.monotonic() - start

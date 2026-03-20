@@ -600,17 +600,18 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     parts.append(Part.from_text(task_text))
 
     max_tokens = 8192
-    logger.info(f"Planning {task_type} (tier={tier}): {prompt[:80]}...")
+    plan_timeout = 120.0 if tier >= 3 else 90.0
+    logger.info(f"Planning {task_type} (tier={tier}, timeout={plan_timeout}s): {prompt[:80]}...")
     try:
         response = await asyncio.wait_for(
             model.generate_content_async(
                 parts,
                 generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
             ),
-            timeout=60.0,
+            timeout=plan_timeout,
         )
     except asyncio.TimeoutError:
-        logger.error(f"Planner LLM timed out (60s) for {task_type}")
+        logger.error(f"Planner LLM timed out ({plan_timeout}s) for {task_type}")
         template = TEMPLATES.get(task_type, TEMPLATES["unknown"])
         return {
             "task_type": task_type,
