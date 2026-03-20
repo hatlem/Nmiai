@@ -1,9 +1,11 @@
 # tripletex/main.py
 # Hybrid router: template engine for known tasks, tool agent for complex ones.
 """FastAPI agent — hybrid router with template engine + Gemini tool agent."""
+import json
 import os
 import time
 import logging
+import urllib.request
 from datetime import datetime, timezone
 from collections import deque
 from urllib.parse import urlparse
@@ -68,8 +70,6 @@ RESULTS_LOG = os.path.join(os.path.dirname(__file__), "results.jsonl")
 def _report_task_result(task_type: str, tier: int, success: bool, elapsed: float,
                         error_detail: str | None = None):
     """POST task result to dashboard. Fails silently."""
-    import json
-    import urllib.request
     try:
         payload = {
             "task_type": task_type,
@@ -93,10 +93,9 @@ def _report_task_result(task_type: str, tier: int, success: bool, elapsed: float
 
 def _log_to_jsonl(entry: dict):
     """Append a result entry to results.jsonl for offline analysis."""
-    import json as _json
     try:
         with open(RESULTS_LOG, "a") as f:
-            f.write(_json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+            f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
     except Exception as e:
         logger.warning(f"Failed to write results.jsonl: {e}")
 
