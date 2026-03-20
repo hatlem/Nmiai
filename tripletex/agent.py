@@ -920,21 +920,12 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
     task_type, confidence = await classify_task(prompt)
     tier = get_tier(task_type)
 
-    # Unknown, missing template, or low confidence -> full LLM planning
-    # Low confidence means the classifier is unsure, so the template path may
-    # use a wrong template and score 0%.  LLM-generated plans are better than
-    # nothing for these cases.
-    use_llm_planning = (
-        task_type == "unknown"
-        or task_type not in TEMPLATES
-        or confidence < CONFIDENCE_THRESHOLD
-    )
-    if use_llm_planning:
-        reason = (
-            "unknown task type" if task_type == "unknown"
-            else f"no template for {task_type}" if task_type not in TEMPLATES
-            else f"low confidence ({confidence:.2f} < {CONFIDENCE_THRESHOLD})"
-        )
+    # ONLY use LLM planning when we truly have no template.
+    # Templates are tested and correct. LLM-generated plans have wrong step
+    # references ($step_6 when only 5 steps), wrong field types (string IDs
+    # instead of int), and extra steps that break the pipeline.
+    if task_type == "unknown" or task_type not in TEMPLATES:
+        reason = "unknown task type" if task_type == "unknown" else f"no template for {task_type}"
         logger.info(f"{reason} — full LLM planning")
         plan = await _create_plan_full_llm(prompt, task_type, tier, confidence, files)
         logger.info(f"Plan: {plan['task_type']} with {len(plan.get('steps', []))} steps")

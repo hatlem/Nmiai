@@ -337,6 +337,15 @@ def _expand_order_lines_with_products(order_lines: list, values: dict, task_type
             continue
 
         product_number = line.get("productNumber") or line.get("product_number") or line.get("number")
+        # Also detect when LLM puts product number as product.id (common: {"product": {"id": 1874}})
+        product_ref = line.get("product")
+        if not product_number and isinstance(product_ref, dict) and product_ref.get("id"):
+            pid = product_ref["id"]
+            # If it's a small number (< 100000), it's likely a product NUMBER, not a DB ID
+            if isinstance(pid, (int, float)) and pid < 100000:
+                product_number = str(int(pid))
+            elif isinstance(pid, str) and pid.isdigit() and int(pid) < 100000:
+                product_number = pid
         if product_number:
             # This line references a product by number — create it
             step_idx_placeholder = f"__product_{len(product_steps)}__"
@@ -424,6 +433,64 @@ def _inject_product_steps(steps: list[dict], values: dict) -> list[dict]:
 
     logger.info(f"Injected {len(product_steps)} product steps before order (new total: {len(new_steps)} steps)")
     return new_steps
+
+
+def _expand_dimension_steps(values: dict) -> list[dict]:
+    """Create steps to set up an accounting dimension and its values.
+
+    Returns steps for:
+    1. POST /ledger/accountingDimensionName — create the dimension
+    2. POST /ledger/accountingDimensionValue — one per dimension value
+
+    Also stores '_dimension_link_step' in values so the voucher posting
+    can reference the correct dimension value ID via freeAccountingDimension1.
+    """
+    dim_name = values.get("dimension_name")
+    dim_values = values.get("dimension_values", [])
+    dim_link_value = values.get("dimension_link_value")
+
+    if not dim_name:
+        return []
+
+    # Ensure dim_values is a list
+    if isinstance(dim_values, str):
+        dim_values = [v.strip() for v in dim_values.split(",") if v.strip()]
+
+    steps = []
+
+    # Step 0 (relative): create the dimension name
+    steps.append({
+        "method": "POST",
+        "path": "/ledger/accountingDimensionName",
+        "body": {
+            "dimensionName": dim_name,
+        },
+    })
+
+    # Steps 1..N (relative): create each dimension value
+    link_step_relative = None
+    for i, val_name in enumerate(dim_values):
+        steps.append({
+            "method": "POST",
+            "path": "/ledger/accountingDimensionValue",
+            "body": {
+                "displayName": val_name,
+                "dimensionIndex": 1,
+            },
+        })
+        if dim_link_value and val_name.strip().lower() == dim_link_value.strip().lower():
+            # This is the value we want to link to the voucher posting
+            link_step_relative = len(steps) - 1  # index within dim_steps
+
+    # Store the absolute step index for the linked dimension value
+    # (will be used after dim_steps are prepended, so the index IS the relative index)
+    if link_step_relative is not None:
+        values["_dimension_link_step"] = link_step_relative
+    elif dim_values:
+        # Default to last dimension value if no match found
+        values["_dimension_link_step"] = len(steps) - 1
+
+    return steps
 
 
 def _expand_voucher_steps(steps: list[dict], values: dict) -> list[dict]:
@@ -759,6 +826,11 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
     # NOTE: Product injection happens AFTER _fill_placeholders (below)
     # because orderLines with __product_N__ refs are filled from values at that point
 
+    # Handle dimension creation for vouchers
+    if task_type == "create_voucher" and values.get("dimension_name"):
+        dim_steps = _expand_dimension_steps(values)
+        steps = dim_steps + steps
+
     # Handle dynamic expansion for complex task types
     if task_type in ("create_voucher",) and "postings_data" in values:
         steps = _expand_voucher_steps(steps, values)
@@ -808,6 +880,21 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
 
     # Apply smart defaults (dates, booleans, etc.)
     steps = _apply_defaults(steps, values, task_type)
+
+    # Inject freeAccountingDimension1 into voucher postings if dimension was created
+    dim_link_step = values.pop("_dimension_link_step", None)
+    if dim_link_step is not None:
+        for step in steps:
+            if (step.get("method") == "POST"
+                    and "/ledger/voucher" in step.get("path", "")
+                    and isinstance(step.get("body"), dict)):
+                postings = step["body"].get("postings")
+                if isinstance(postings, list):
+                    for posting in postings:
+                        if isinstance(posting, dict):
+                            posting["freeAccountingDimension1"] = {
+                                "id": f"$step_{dim_link_step}.id"
+                            }
 
     # Strip None values and unresolved placeholders from bodies and params
     for step in steps:

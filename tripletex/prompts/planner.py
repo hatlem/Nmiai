@@ -62,6 +62,7 @@ Rules:
   IMPORTANT: If the prompt mentions a product number (e.g. "Konsulenttimar (1874)"), include "productNumber": "1874" in that orderLine.
   The number in parentheses IS the product number. Example: "produkta Webdesign (5678) til 3000 kr" -> {{"description": "Webdesign", "productNumber": "5678", "count": 1, "unitPriceExcludingVatCurrency": 3000}}
 - For voucher/opening balance: "accounts" list of {{"number": "1920", "amount": 100000}} (positive=debit, negative=credit).
+- If the prompt mentions a "fri regnskapsdimensjon" or "accounting dimension", extract: dimension_name (the dimension name, e.g. "Kostsenter"), dimension_values (list of value names, e.g. ["Økonomi", "Kundeservice"]), dimension_link_value (which value to link the voucher posting to, e.g. "Kundeservice").
 - If files attached, extract ALL data from them (every line, amount, account).
 - Omit fields not mentioned in the prompt. But NEVER omit fields that ARE mentioned — every data point in the prompt MUST appear in the output.
 - CRITICAL: Every field mentioned in the prompt MUST be extracted. Missing fields = lost points.

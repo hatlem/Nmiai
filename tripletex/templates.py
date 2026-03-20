@@ -727,10 +727,12 @@ TEMPLATES: dict[str, dict] = {
             "  vatType 0 = No VAT — for bank/asset accounts (1xxx, 2xxx)\n"
             "  vatType 3 = Outgoing VAT 25% — for revenue accounts (3xxx)\n"
             "  vatType 1 = Incoming VAT 25% — for expense accounts (6xxx, 7xxx)\n"
-            "ALWAYS include vatType in EVERY posting. Use 0 if unsure."
+            "ALWAYS include vatType in EVERY posting. Use 0 if unsure.\n"
+            "If the prompt mentions a 'fri regnskapsdimensjon' or 'accounting dimension', "
+            "dimension creation steps will be added automatically before the voucher."
         ),
         "relevant_schemas": ["Voucher", "Posting", "Account"],
-        "extract_fields": ["date", "description", "postings_with_account_numbers", "debit_account_number", "credit_account_number", "debit_amount", "credit_amount"],
+        "extract_fields": ["date", "description", "postings_with_account_numbers", "debit_account_number", "credit_account_number", "debit_amount", "credit_amount", "dimension_name", "dimension_values", "dimension_link_value"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -1400,7 +1402,7 @@ KEYWORD_HINTS: dict[str, list[str]] = {
     "update_department": ["oppdater avdeling", "endre avdeling", "update department", "actualizar departamento", "atualizar departamento", "abteilung aktualisieren", "mettre a jour departement"],
     "update_product": ["oppdater produkt", "endre produkt", "update product", "actualizar producto", "atualizar produto", "produkt aktualisieren", "mettre a jour produit"],
     "create_contact": ["kontaktperson", "contact person", "persona de contacto", "Kontaktperson", "kontakt", "pessoa de contato", "personne de contact", "ansprechpartner"],
-    "create_voucher": ["bilag", "voucher", "Beleg", "piece comptable", "postering", "bokfør", "bokfor", "comprobante", "asiento contable", "reknskap"],
+    "create_voucher": ["bilag", "voucher", "Beleg", "piece comptable", "postering", "bokfør", "bokfor", "comprobante", "asiento contable", "reknskap", "regnskapsdimensjon", "accounting dimension", "dimension", "kostsenter", "fri dimensjon"],
     "reverse_voucher": ["reverser", "reverse", "tilbakefor", "beleg stornieren", "stornierung", "contrepasser", "annuler piece comptable"],
     "send_invoice": ["send faktura", "send invoice", "enviar factura", "enviar fatura", "rechnung senden", "envoyer facture"],
     "create_supplier_invoice": ["leverandorfaktura", "leverandørfaktura", "supplier invoice", "inngaende faktura", "incoming invoice", "factura proveedor", "factura del proveedor", "Lieferantenrechnung", "eingangsrechnung", "facture fournisseur", "facture d'achat", "fatura do fornecedor"],
