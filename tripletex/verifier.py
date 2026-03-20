@@ -270,7 +270,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "bank_reconciliation": {
         "entity_path": "/bank/reconciliation",
-        "id_from_step": 1,
+        "id_from_step": 2,
         "search_params": {"fields": "id"},
         "check_fields": {
             "exists:id": "exists",
@@ -279,7 +279,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_timesheet_entry": {
         "entity_path": "/timesheet/entry",
-        "id_from_step": 3,
+        "id_from_step": 4,
         "search_params": {"fields": "id,date,hours,employee,project,activity"},
         "check_fields": {
             "exists:id": "exists",

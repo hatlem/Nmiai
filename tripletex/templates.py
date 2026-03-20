@@ -71,12 +71,8 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "PUT",
                 "path": "/employee/$step_0.values[0].id",
-                "body": {
-                    "id": "$step_0.values[0].id",
-                    "version": "$step_0.values[0].version",
-                    "email": "{{new_email}}",
-                },
-                "note": "MUST include id and version from GET. Merge with fields_to_update.",
+                "body": "{{fields_to_update}}",
+                "note": "MUST include id and version from GET. Template engine injects these automatically.",
             },
         ],
     },
@@ -1336,7 +1332,7 @@ TEMPLATES: dict[str, dict] = {
                 "params": {
                     "paymentDate": "{{paymentDate}}",
                     "paymentTypeId": "$step_0.values[0].id",
-                    "paidAmount": "{{paymentAmount_must_equal_total_invoice_amount}}",
+                    "paidAmount": "{{paymentAmount}}",
                 },
                 "note": "paidAmount MUST equal total invoice amount. Calculate: sum of (count × unitPrice) for all order lines.",
             },

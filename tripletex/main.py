@@ -1,5 +1,5 @@
 # tripletex/main.py
-"""FastAPI agent with clean plan-execute-retry architecture + live dashboard."""
+"""FastAPI agent with clean plan-execute-retry architecture."""
 import os
 import time
 import logging
@@ -8,7 +8,7 @@ from collections import deque
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse
 
 from agent import create_plan, classify_task, re_extract_values, get_tier
 from executor import execute_plan
@@ -48,6 +48,34 @@ STATS = {
     "last_proxy": "",
 }
 HISTORY: deque = deque(maxlen=100)
+
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:8090")
+
+
+def _report_task_result(task_type: str, tier: int, success: bool, elapsed: float,
+                        error_detail: str | None = None):
+    """POST task result to dashboard. Fails silently."""
+    import json
+    import urllib.request
+    try:
+        payload = {
+            "task_type": task_type,
+            "tier": max(tier, 1),
+            "points_earned": 1 if success else 0,
+            "points_max": 1,
+            "time_seconds": round(elapsed, 2),
+            "error": error_detail,
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{DASHBOARD_URL}/api/tripletex/task-result",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=3)
+    except Exception:
+        pass
 
 
 def _record(task_type: str, success: bool, elapsed: float, api_calls: int,
@@ -101,9 +129,10 @@ async def history():
     return list(HISTORY)
 
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    return DASHBOARD_HTML
+@app.get("/")
+async def root():
+    """Redirect to /stats — dashboard is at dashboard/ (port 8090)."""
+    return {"status": "ok", "dashboard": "http://localhost:8090", "endpoints": ["/health", "/stats", "/history", "/solve"]}
 
 
 @app.post("/solve")
@@ -124,14 +153,13 @@ async def solve(request: Request):
     except (KeyError, TypeError) as e:
         return JSONResponse({"error": f"missing field: {e}"}, status_code=400)
 
-    # SSRF prevention
+    # Log base_url for debugging (don't reject — competition controls the URL)
     parsed = urlparse(base_url)
-    if parsed.scheme not in ("https", "http") or not any(
+    if not any(
         parsed.hostname == h or (parsed.hostname and parsed.hostname.endswith(f".{h}"))
         for h in ALLOWED_HOSTS
     ):
-        logger.warning(f"Rejected base_url: {base_url}")
-        return JSONResponse({"error": "invalid base_url"}, status_code=400)
+        logger.warning(f"Unexpected base_url (proceeding anyway): {base_url}")
 
     files = body.get("files", [])
     STATS["last_proxy"] = urlparse(base_url).hostname or ""
@@ -197,6 +225,15 @@ async def solve(request: Request):
                        "errors": client.error_count, "retried": retried},
         )
 
+        # Report task-level result to dashboard
+        _report_task_result(
+            task_type=task_type,
+            tier=tier,
+            success=success,
+            elapsed=elapsed,
+            error_detail=error_detail if not success else None,
+        )
+
     except Exception as e:
         logger.error(f"Agent error: {e}", exc_info=True)
         elapsed = time.monotonic() - start
@@ -204,182 +241,15 @@ async def solve(request: Request):
                 client.error_count, int(retried), prompt, False,
                 error_detail=str(e)[:300])
         update_test(test_id, status="failed", details=f"Error: {e}")
+        _report_task_result(
+            task_type=task_type,
+            tier=0,
+            success=False,
+            elapsed=elapsed,
+            error_detail=str(e)[:300],
+        )
     finally:
         await client.close()
 
     return JSONResponse({"status": "completed"})
 
-
-# ── Dashboard ──
-DASHBOARD_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tripletex Agent</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e0;padding:20px}
-h1{font-size:1.4rem;color:#fff;margin-bottom:4px}
-.sub{color:#888;font-size:.85rem;margin-bottom:20px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:24px}
-.card{background:#14141f;border:1px solid #222;border-radius:10px;padding:16px;text-align:center}
-.card .num{font-size:2rem;font-weight:700;color:#fff}
-.card .label{font-size:.7rem;color:#888;margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
-.ok .num{color:#22c55e} .fail .num{color:#ef4444} .warn .num{color:#f59e0b} .info .num{color:#3b82f6}
-table{width:100%;border-collapse:collapse;font-size:.85rem}
-th{text-align:left;color:#888;font-weight:500;padding:8px 10px;border-bottom:1px solid #222;font-size:.7rem;text-transform:uppercase;letter-spacing:.5px}
-td{padding:7px 10px;border-bottom:1px solid #1a1a2a}
-tr:hover td{background:#14141f}
-.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
-.badge-ok{background:#052e16;color:#22c55e} .badge-fail{background:#2d0a0a;color:#ef4444}
-.badge-verify{background:#1e1b4b;color:#818cf8}
-.mono{font-family:'SF Mono',Consolas,monospace;font-size:.8rem;color:#a0a0b0}
-.type-tag{background:#1e1b4b;color:#818cf8;padding:2px 8px;border-radius:4px;font-size:.75rem}
-.section{margin-bottom:24px}
-.section h2{font-size:1rem;color:#ccc;margin-bottom:10px}
-.bar-bg{background:#1a1a2a;border-radius:3px;height:6px;flex:1}
-.bar-fill{height:6px;border-radius:3px;background:linear-gradient(90deg,#3b82f6,#22c55e);transition:width .5s}
-.type-row{display:flex;align-items:center;gap:10px;padding:5px 0}
-.type-row .name{width:220px;font-size:.85rem}
-.type-row .count{width:50px;text-align:right;font-size:.85rem;color:#888}
-.prompt{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#666;font-size:.8rem}
-.empty{text-align:center;padding:40px;color:#555;font-size:.9rem}
-#live{position:fixed;top:12px;right:20px;display:flex;align-items:center;gap:6px;font-size:.75rem;color:#888}
-#live .pulse{width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-</style>
-</head>
-<body>
-<div id="live"><span class="pulse"></span> Live — auto-refresh 3s</div>
-<h1>NM i AI 2026 — Tripletex Agent</h1>
-<p class="sub" id="uptime">Revision: loading...</p>
-<div id="alert" style="display:none;background:#2d0a0a;border:1px solid #ef4444;border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#ef4444;font-size:.85rem"></div>
-<div id="proxy-info" style="background:#14141f;border:1px solid #222;border-radius:8px;padding:8px 16px;margin-bottom:16px;font-size:.8rem;color:#888"></div>
-
-<div class="grid">
-  <div class="card"><div class="num" id="c-total">0</div><div class="label">Tasks</div></div>
-  <div class="card ok"><div class="num" id="c-ok">0</div><div class="label">Success</div></div>
-  <div class="card fail"><div class="num" id="c-fail">0</div><div class="label">Failed</div></div>
-  <div class="card warn"><div class="num" id="c-repairs">0</div><div class="label">Repairs</div></div>
-  <div class="card info"><div class="num" id="c-calls">0</div><div class="label">API Calls</div></div>
-  <div class="card"><div class="num" id="c-errs">0</div><div class="label">4xx Errors</div></div>
-  <div class="card"><div class="num" id="c-rate">-</div><div class="label">Success %</div></div>
-  <div class="card info"><div class="num" id="c-types">0</div><div class="label">Types Seen</div></div>
-  <div class="card ok"><div class="num" id="c-perfect">0</div><div class="label">100% Types</div></div>
-</div>
-
-<div class="section" style="background:#14141f;border:1px solid #222;border-radius:10px;padding:16px;margin-bottom:24px">
-  <h2 style="margin-bottom:8px">Competition Overview</h2>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;font-size:.85rem">
-    <div>
-      <div style="color:#888;font-size:.7rem;text-transform:uppercase;margin-bottom:4px">Tripletex (33%)</div>
-      <div>Agent: <span style="color:#22c55e">LIVE</span></div>
-      <div>Tier 1: <span style="color:#22c55e">open</span> | Tier 2: <span style="color:#22c55e">open</span> | Tier 3: <span style="color:#f59e0b">opens Sat</span></div>
-      <div>Daily limit: 5/task/day (verified)</div>
-    </div>
-    <div>
-      <div style="color:#888;font-size:.7rem;text-transform:uppercase;margin-bottom:4px">NorgesGruppen (33%)</div>
-      <div>Best score: <span style="color:#f59e0b">0.6740</span></div>
-      <div>Submissions today: 2/3</div>
-      <div id="ng-training" style="color:#818cf8">Training: checking...</div>
-    </div>
-    <div>
-      <div style="color:#888;font-size:.7rem;text-transform:uppercase;margin-bottom:4px">Astar Island (33%)</div>
-      <div>Status: <span style="color:#888">TBD</span></div>
-    </div>
-  </div>
-</div>
-
-<div class="section">
-  <h2>Task Types <span style="color:#888;font-size:.8rem;font-weight:400">(sorted: worst first)</span></h2>
-  <div id="types"><div class="empty">No tasks yet</div></div>
-</div>
-
-<div class="section">
-  <h2>Recent Submissions</h2>
-  <table>
-    <thead><tr><th>Time</th><th>Type</th><th>T</th><th>Status</th><th>Time</th><th>Calls</th><th>Eff</th><th>Errs</th><th>Retry</th><th>Fields</th><th>Prompt / Error</th></tr></thead>
-    <tbody id="hist"></tbody>
-  </table>
-  <div id="empty" class="empty">Waiting for first submission...</div>
-</div>
-
-<script>
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
-async function r(){
-  try{
-    const s=await(await fetch('/stats')).json();
-    document.getElementById('c-total').textContent=s.total;
-    document.getElementById('c-ok').textContent=s.success;
-    document.getElementById('c-fail').textContent=s.failed;
-    document.getElementById('c-repairs').textContent=s.repairs;
-    document.getElementById('c-calls').textContent=s.total_api_calls;
-    document.getElementById('c-errs').textContent=s.total_errors;
-    document.getElementById('c-rate').textContent=s.total>0?Math.round(s.success/s.total*100)+'%':'-';
-    const btEntries=Object.entries(s.by_type);
-    document.getElementById('c-types').textContent=btEntries.length;
-    const perfect=btEntries.filter(([,d])=>d.failed===0&&d.success>0).length;
-    document.getElementById('c-perfect').textContent=perfect+'/'+btEntries.length;
-    // Proxy info
-    const proxy=s.last_proxy||'none yet';
-    const isCompetition=proxy.includes('tx-proxy')||proxy.includes('a.run.app');
-    const isDev=proxy.includes('kkpqfuj');
-    document.getElementById('proxy-info').innerHTML='API Proxy: <strong style="color:'+(isCompetition?'#22c55e':isDev?'#f59e0b':'#888')+'">'+esc(proxy)+'</strong>'+(isCompetition?' (COMPETITION)':isDev?' (DEV SANDBOX)':'')+' &mdash; '+btEntries.length+'/30 types seen, '+perfect+' perfect';
-    // Alert for critical issues
-    const alert=document.getElementById('alert');
-    if(s.total>0&&s.success===0){alert.style.display='block';alert.textContent='ALL TASKS FAILING — check logs!';}
-    else if(isDev&&s.total>3){alert.style.display='block';alert.textContent='Using DEV sandbox, not competition proxy. Results may not count.';}
-    else{alert.style.display='none';}
-    const t=btEntries.sort((a,b)=>{const ar=a[1].success/(a[1].total||1),br=b[1].success/(b[1].total||1);return ar!==br?ar-br:b[1].total-a[1].total});
-    const mx=t.length?Math.max(...t.map(x=>x[1].total)):1;
-    document.getElementById('types').innerHTML=t.length?t.map(([n,d])=>{
-      const avg=(d.total_time/d.total).toFixed(1);
-      const rate=d.success/d.total;
-      const color=rate>=1?'#22c55e':rate>=0.5?'#f59e0b':'#ef4444';
-      const pct=Math.round(rate*100);
-      return`<div class="type-row"><span class="name"><span class="type-tag">${esc(n)}</span></span><span class="count" style="color:${color};font-weight:700">${d.success}/${d.total}</span><div class="bar-bg"><div class="bar-fill" style="width:${d.total/mx*100}%;background:${color}"></div></div><span class="count">${avg}s</span></div>`;
-    }).join(''):'<div class="empty">No tasks yet</div>';
-  }catch(e){}
-  try{
-    const h=await(await fetch('/history')).json();
-    const el=document.getElementById('hist'),em=document.getElementById('empty');
-    if(h.length){
-      em.style.display='none';
-      el.innerHTML=h.map(e=>{
-        const eff=e.efficiency;
-        const effClass=eff>=100?'badge-ok':eff>=50?'badge-verify':'badge-fail';
-        const effText=eff!==null?`${e.api_calls}/${e.optimal_calls}`:e.api_calls;
-        const keys=(e.extracted_keys||[]).join(', ');
-        const tierColor=e.tier>=3?'#ef4444':e.tier>=2?'#f59e0b':'#888';
-        const promptOrErr=e.ok?esc(e.prompt):`<span style="color:#ef4444">${esc(e.error_detail||e.prompt)}</span>`;
-        const confText=e.confidence?` ${Math.round(e.confidence*100)}%`:'';
-        return`<tr>
-        <td class="mono">${e.time}</td>
-        <td><span class="type-tag">${esc(e.type)}</span><span class="mono" style="color:${tierColor};margin-left:4px">${confText}</span></td>
-        <td class="mono" style="color:${tierColor};font-weight:700">T${e.tier||'?'}</td>
-        <td><span class="badge ${e.ok?'badge-ok':'badge-fail'}">${e.ok?'OK':'FAIL'}</span></td>
-        <td class="mono">${e.elapsed}s</td>
-        <td class="mono">${e.api_calls}</td>
-        <td><span class="badge ${effClass}">${effText}</span></td>
-        <td class="mono">${e.errors>0?'<span style="color:#ef4444">'+e.errors+'</span>':e.errors}</td>
-        <td class="mono">${e.repairs>0?'<span style="color:#f59e0b">Y</span>':'-'}</td>
-        <td class="mono" style="font-size:.7rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(keys)}">${keys||'-'}</td>
-        <td class="prompt" style="max-width:350px" title="${esc(e.prompt)}">${promptOrErr}</td>
-      </tr>`}).join('');
-    }
-  }catch(e){}
-}
-r();setInterval(r,3000);
-// Uptime
-fetch('/stats').then(r=>r.json()).then(s=>{
-  const started=new Date(s.started);
-  const now=new Date();
-  const mins=Math.floor((now-started)/60000);
-  const h=Math.floor(mins/60);
-  const m=mins%60;
-  document.getElementById('uptime').textContent=`Started: ${started.toLocaleTimeString()} (${h}h ${m}m ago) | Deadline: Sun 15:00 CET`;
-});
-</script>
-</body>
-</html>"""

@@ -191,7 +191,17 @@ def _strip_none_and_unresolved(obj):
             if v is None:
                 continue
             if isinstance(v, str) and re.search(r"\{\{.*?\}\}", v):
-                logger.debug(f"Stripping unresolved placeholder '{k}': {v}")
+                # If the ENTIRE string is a placeholder, strip the field
+                if re.fullmatch(r"\{\{\w+\}\}", v.strip()):
+                    logger.debug(f"Stripping unresolved placeholder '{k}': {v}")
+                    continue
+                # Partial placeholder in a longer string: remove just the placeholder parts
+                cleaned_v = re.sub(r"\{\{\w+\}\}", "", v).strip()
+                if cleaned_v:
+                    cleaned[k] = cleaned_v
+                    logger.debug(f"Cleaned partial placeholder in '{k}': {v} -> {cleaned_v}")
+                else:
+                    logger.debug(f"Stripping fully-unresolved '{k}': {v}")
                 continue
             # Don't strip empty dicts/lists that might be intentional
             cleaned[k] = v
@@ -619,6 +629,10 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
         elif not values.get("date"):
             values["date"] = _date.today().isoformat()
 
+    # Voucher: credit_amount defaults to debit_amount (double-entry bookkeeping)
+    if "debit_amount" in values and "credit_amount" not in values:
+        values["credit_amount"] = values["debit_amount"]
+
     if "cost_amount" not in values:
         # Try to get from costs list or amount field
         costs = values.get("costs", [])
@@ -651,6 +665,28 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
 
     # Fill {{placeholders}} with extracted values
     steps = _fill_placeholders(steps, values)
+
+    # Inject id + version into PUT bodies for update tasks
+    # The template uses "body": "{{fields_to_update}}" which only contains changed fields,
+    # but Tripletex PUT requires id and version from the preceding GET step.
+    if task_type.startswith("update_"):
+        for i, step in enumerate(steps):
+            if step.get("method", "").upper() == "PUT" and isinstance(step.get("body"), dict):
+                body = step["body"]
+                # Find the GET step this PUT depends on (usually step 0)
+                get_step_idx = None
+                path = step.get("path", "")
+                for ref_match in re.finditer(r'\$step_(\d+)', str(path)):
+                    get_step_idx = int(ref_match.group(1))
+                    break
+                if get_step_idx is None:
+                    get_step_idx = 0  # Default: first step is usually the GET
+
+                # Inject id and version references if not already present
+                if "id" not in body:
+                    body["id"] = f"$step_{get_step_idx}.values[0].id"
+                if "version" not in body:
+                    body["version"] = f"$step_{get_step_idx}.values[0].version"
 
     # Apply smart defaults (dates, booleans, etc.)
     steps = _apply_defaults(steps, values, task_type)
