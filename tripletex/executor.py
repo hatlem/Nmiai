@@ -468,8 +468,8 @@ async def _execute_step(
 
     # Log body for POST/PUT to help debug 422 errors
     if method in ("POST", "PUT") and body:
-        import json as _json
-        logger.info(f"Step {idx}: {method} {path} body: {_json.dumps(body, default=str, ensure_ascii=False)[:500]}")
+        import json
+        logger.info(f"Step {idx}: {method} {path} body: {json.dumps(body, default=str, ensure_ascii=False)[:500]}")
 
     # Fallback: if this is a /:payment step and paymentTypeId was stripped (unresolved),
     # fetch it on-the-fly from GET /invoice/paymentType
@@ -497,8 +497,7 @@ async def _execute_step(
     # Fallback: if /:payment is missing paidAmount, try to get invoice amount
     if "/:payment" in str(path) and params and "paidAmount" not in params:
         # Extract invoice ID from path (e.g. /invoice/12345/:payment)
-        import re as _re
-        inv_match = _re.search(r'/invoice/(\d+)', str(path))
+        inv_match = re.search(r'/invoice/(\d+)', str(path))
         if inv_match:
             inv_id = inv_match.group(1)
             logger.warning(f"Step {idx}: paidAmount missing — fetching invoice {inv_id} amount")

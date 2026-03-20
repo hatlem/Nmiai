@@ -111,7 +111,6 @@ class TripletexClient:
                 # DNS errors won't resolve with retry — fail fast
                 if "Name or service not known" in err_str or "nodename nor servname" in err_str:
                     logger.error(f"{method} {path} DNS error (no retry): {e}")
-                    self._dns_ok = False
                     self.error_count += 1
                     self._log_call(method, path, 0, False, err_str)
                     return {"status_code": 0, "ok": False, "data": {"error": err_str, "network_error": True}}

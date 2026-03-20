@@ -543,13 +543,12 @@ def _expand_dimension_steps(steps: list[dict], values: dict) -> list[dict]:
     for step in remaining:
         step_str = json.dumps(step)
         # Shift step references that are >= dimval_idx+1
-        import re as _re
         def _shift_ref(m):
             idx = int(m.group(1))
             if idx > dimval_idx:
                 return f"$step_{idx + extra}"
             return m.group(0)
-        step_str = _re.sub(r'\$step_(\d+)', _shift_ref, step_str)
+        step_str = re.sub(r'\$step_(\d+)', _shift_ref, step_str)
         new_steps.append(json.loads(step_str))
 
     return new_steps

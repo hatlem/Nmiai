@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Åstar Island — Norse World Viewer</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=IBM+Plex+Mono:wght@300;400;500&display=swap');
+
+:root {
+  --ocean: #1a3a5c;
+  --ocean-deep: #0f2440;
+  --empty: #8b9a6b;
+  --settlement: #c9453a;
+  --port: #d4913a;
+  --ruin: #6b5b73;
+  --forest: #2d5a27;
+  --forest-dark: #1e3d1a;
+  --mountain: #5a5a6e;
+  --mountain-peak: #8a8a9e;
+  --bg: #0a0d13;
+  --panel: #12161f;
+  --border: #1e2433;
+  --text: #c8cdd8;
+  --text-dim: #5a6275;
+  --gold: #d4a647;
+  --red: #c94545;
+  --green: #45a65c;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Mono', monospace;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+}
+
+/* ── Header ──────────────────────────────────────────── */
+header {
+  grid-column: 1 / -1;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 24px;
+}
+
+header h1 {
+  font-family: 'Cinzel', serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--gold);
+}
+
+header .controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+header .controls button {
+  background: var(--border);
+  border: 1px solid #2a3040;
+  color: var(--text);
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+header .controls button:hover { background: #2a3040; }
+header .controls button.active { background: var(--gold); color: var(--bg); border-color: var(--gold); }
+
+header .seed-select {
+  display: flex;
+  gap: 4px;
+}
+
+header .seed-btn {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+}
+
+.view-modes { margin-left: auto; }
+
+/* ── Canvas Area ─────────────────────────────────────── */
+#canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 120%, #1a2a3f 0%, var(--bg) 70%);
+}
+
+canvas {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  image-rendering: pixelated;
+  cursor: grab;
+}
+
+canvas:active { cursor: grabbing; }
+
+#tooltip {
+  position: fixed;
+  background: rgba(12,16,24,0.95);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  font-size: 11px;
+  pointer-events: none;
+  display: none;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+  min-width: 180px;
+  border-radius: 4px;
+}
+
+#tooltip .cell-type {
+  font-family: 'Cinzel', serif;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+#tooltip .prob-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+  font-size: 10px;
+}
+
+#tooltip .prob-bar .bar {
+  height: 4px;
+  border-radius: 2px;
+  transition: width 0.2s;
+}
+
+/* ── Side Panel ──────────────────────────────────────── */
+#sidebar {
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.panel-section {
+  margin-bottom: 20px;
+}
+
+.panel-section h3 {
+  font-family: 'Cinzel', serif;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin: 4px 0;
+}
+
+.stat-row .label { color: var(--text-dim); }
+.stat-row .value { font-weight: 500; }
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0;
+  font-size: 11px;
+}
+
+.legend-swatch {
+  width: 14px; height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Score history chart */
+.score-chart {
+  height: 80px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 4px 0;
+}
+
+.score-bar {
+  flex: 1;
+  background: var(--border);
+  border-radius: 2px 2px 0 0;
+  position: relative;
+  min-width: 12px;
+  transition: height 0.3s;
+}
+
+.score-bar .bar-label {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.score-bar.best { background: var(--gold); }
+
+/* Leaderboard */
+.lb-row {
+  display: grid;
+  grid-template-columns: 24px 1fr 50px;
+  font-size: 10px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(30,36,51,0.5);
+}
+
+.lb-row .rank { color: var(--text-dim); }
+.lb-row .score { text-align: right; font-weight: 500; }
+.lb-row.us { color: var(--gold); font-weight: 700; }
+
+/* Transition matrix */
+.trans-matrix {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  font-size: 9px;
+}
+
+.trans-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+}
+
+.trans-header {
+  color: var(--text-dim);
+  font-size: 8px;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>ÅSTAR ISLAND</h1>
+    <div class="controls">
+      <div class="seed-select" id="seed-btns"></div>
+    </div>
+    <div class="controls">
+      <button id="btn-initial" class="active">Initial</button>
+      <button id="btn-gt">Ground Truth</button>
+      <button id="btn-pred">Our Prediction</button>
+      <button id="btn-error">Error Map</button>
+    </div>
+    <div class="controls view-modes">
+      <button id="btn-flat" class="active">2D</button>
+      <button id="btn-iso">Isometric</button>
+    </div>
+  </header>
+
+  <div id="canvas-wrap">
+    <canvas id="map"></canvas>
+    <div id="tooltip"></div>
+  </div>
+
+  <div id="sidebar">
+    <div class="panel-section">
+      <h3>Map Info</h3>
+      <div id="map-info"></div>
+    </div>
+    <div class="panel-section">
+      <h3>Legend</h3>
+      <div id="legend"></div>
+    </div>
+    <div class="panel-section">
+      <h3>Score History</h3>
+      <div class="score-chart" id="score-chart"></div>
+    </div>
+    <div class="panel-section">
+      <h3>Leaderboard</h3>
+      <div id="leaderboard"></div>
+    </div>
+    <div class="panel-section">
+      <h3>Cell Detail</h3>
+      <div id="cell-detail">Hover over a cell</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TERRAIN = {
+  10: { name: 'Ocean', cls: 0, color: '#1a3a5c', height: -0.3 },
+  11: { name: 'Plains', cls: 0, color: '#8b9a6b', height: 0 },
+  0:  { name: 'Empty', cls: 0, color: '#7a8960', height: 0 },
+  1:  { name: 'Settlement', cls: 1, color: '#c9453a', height: 0.4 },
+  2:  { name: 'Port', cls: 2, color: '#d4913a', height: 0.3 },
+  3:  { name: 'Ruin', cls: 3, color: '#6b5b73', height: 0.15 },
+  4:  { name: 'Forest', cls: 4, color: '#2d5a27', height: 0.5 },
+  5:  { name: 'Mountain', cls: 5, color: '#5a5a6e', height: 1.0 },
+};
+
+const CLASS_NAMES = ['Empty', 'Settlement', 'Port', 'Ruin', 'Forest', 'Mountain'];
+const CLASS_COLORS = ['#8b9a6b', '#c9453a', '#d4913a', '#6b5b73', '#2d5a27', '#5a5a6e'];
+
+let data = null;
+let currentSeed = 0;
+let viewMode = 'initial'; // initial, gt, pred, error
+let renderMode = 'flat'; // flat, iso
+let zoom = 1;
+let panX = 0, panY = 0;
+let dragging = false, dragStart = null;
+
+// ── Data Loading ────────────────────────────────────────
+async function loadData() {
+  const resp = await fetch('viz_data.json');
+  data = await resp.json();
+  initUI();
+  render();
+}
+
+// ── UI Setup ────────────────────────────────────────────
+function initUI() {
+  // Seed buttons
+  const seedBtns = document.getElementById('seed-btns');
+  for (let i = 0; i < data.initial_states.length; i++) {
+    const btn = document.createElement('button');
+    btn.className = `seed-btn${i === 0 ? ' active' : ''}`;
+    btn.textContent = i + 1;
+    btn.onclick = () => { currentSeed = i; document.querySelectorAll('.seed-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); render(); };
+    seedBtns.appendChild(btn);
+  }
+
+  // View mode buttons
+  ['initial', 'gt', 'pred', 'error'].forEach(mode => {
+    document.getElementById(`btn-${mode}`).onclick = (e) => {
+      viewMode = mode;
+      document.querySelectorAll('.controls button').forEach(b => { if (['btn-initial','btn-gt','btn-pred','btn-error'].includes(b.id)) b.classList.remove('active'); });
+      e.target.classList.add('active');
+      render();
+    };
+  });
+
+  // Render mode
+  document.getElementById('btn-flat').onclick = () => { renderMode = 'flat'; document.getElementById('btn-flat').classList.add('active'); document.getElementById('btn-iso').classList.remove('active'); render(); };
+  document.getElementById('btn-iso').onclick = () => { renderMode = 'iso'; document.getElementById('btn-iso').classList.add('active'); document.getElementById('btn-flat').classList.remove('active'); render(); };
+
+  // Legend
+  const legend = document.getElementById('legend');
+  CLASS_NAMES.forEach((name, i) => {
+    legend.innerHTML += `<div class="legend-item"><div class="legend-swatch" style="background:${CLASS_COLORS[i]}"></div>${name}</div>`;
+  });
+
+  // Score chart
+  const chart = document.getElementById('score-chart');
+  const rounds = data.rounds.filter(r => r.round_score != null);
+  const maxScore = Math.max(...rounds.map(r => r.round_score), 1);
+  const bestRound = rounds.reduce((a, b) => (a.round_score > b.round_score ? a : b), rounds[0]);
+  rounds.forEach(r => {
+    const h = (r.round_score / maxScore) * 100;
+    const isBest = r === bestRound;
+    chart.innerHTML += `<div class="score-bar${isBest ? ' best' : ''}" style="height:${h}%"><div class="bar-label">R${r.round_number}<br>${r.round_score.toFixed(0)}</div></div>`;
+  });
+
+  // Leaderboard
+  const lb = document.getElementById('leaderboard');
+  data.leaderboard.slice(0, 10).forEach(e => {
+    const isUs = e.team_name.includes('Human') || e.team_name.includes('kåsa');
+    lb.innerHTML += `<div class="lb-row${isUs ? ' us' : ''}"><span class="rank">${e.rank}</span><span>${e.team_name.slice(0, 20)}</span><span class="score">${e.weighted_score.toFixed(1)}</span></div>`;
+  });
+
+  // Map info
+  updateMapInfo();
+
+  // Mouse events
+  const canvas = document.getElementById('map');
+  canvas.addEventListener('wheel', e => { e.preventDefault(); zoom *= e.deltaY > 0 ? 0.9 : 1.1; zoom = Math.max(0.3, Math.min(5, zoom)); render(); });
+  canvas.addEventListener('mousedown', e => { dragging = true; dragStart = { x: e.clientX - panX, y: e.clientY - panY }; });
+  canvas.addEventListener('mousemove', e => {
+    if (dragging && dragStart) { panX = e.clientX - dragStart.x; panY = e.clientY - dragStart.y; render(); }
+    else { handleHover(e); }
+  });
+  canvas.addEventListener('mouseup', () => { dragging = false; });
+  canvas.addEventListener('mouseleave', () => { dragging = false; document.getElementById('tooltip').style.display = 'none'; });
+
+  window.addEventListener('resize', render);
+}
+
+function updateMapInfo() {
+  const state = data.initial_states[currentSeed];
+  const settlements = state.settlements;
+  const ports = settlements.filter(s => s.has_port).length;
+  const info = document.getElementById('map-info');
+  info.innerHTML = `
+    <div class="stat-row"><span class="label">Size</span><span class="value">${data.map_width}×${data.map_height}</span></div>
+    <div class="stat-row"><span class="label">Seed</span><span class="value">${currentSeed + 1} of ${data.initial_states.length}</span></div>
+    <div class="stat-row"><span class="label">Settlements</span><span class="value">${settlements.length}</span></div>
+    <div class="stat-row"><span class="label">Ports</span><span class="value">${ports}</span></div>
+    <div class="stat-row"><span class="label">Round</span><span class="value">R${data.round_number}</span></div>
+    <div class="stat-row"><span class="label">View</span><span class="value">${viewMode}</span></div>
+  `;
+}
+
+// ── Rendering ───────────────────────────────────────────
+function render() {
+  const canvas = document.getElementById('map');
+  const wrap = document.getElementById('canvas-wrap');
+  const W = data.map_width, H = data.map_height;
+  const cellSize = renderMode === 'iso' ? 16 : 14;
+
+  if (renderMode === 'iso') {
+    canvas.width = (W + H) * cellSize + 40;
+    canvas.height = (W + H) * cellSize / 2 + 80;
+  } else {
+    canvas.width = W * cellSize * zoom;
+    canvas.height = H * cellSize * zoom;
+  }
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const grid = data.initial_states[currentSeed].grid;
+  const gt = data.analysis?.ground_truth;
+  const pred = data.analysis?.prediction;
+
+  if (renderMode === 'iso') {
+    renderIsometric(ctx, grid, gt, pred, W, H, cellSize);
+  } else {
+    renderFlat(ctx, grid, gt, pred, W, H, cellSize * zoom);
+  }
+
+  canvas.style.transform = `translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px))`;
+  updateMapInfo();
+}
+
+function getColor(grid, gt, pred, y, x) {
+  if (viewMode === 'initial') {
+    const code = grid[y][x];
+    return TERRAIN[code]?.color || '#555';
+  }
+  if (viewMode === 'gt' && gt) {
+    const probs = gt[y][x];
+    return blendClassColors(probs);
+  }
+  if (viewMode === 'pred' && pred) {
+    const probs = pred[y][x];
+    return blendClassColors(probs);
+  }
+  if (viewMode === 'error' && gt && pred) {
+    const kl = klDiv(gt[y][x], pred[y][x]);
+    return errorColor(kl);
+  }
+  const code = grid[y][x];
+  return TERRAIN[code]?.color || '#555';
+}
+
+function blendClassColors(probs) {
+  let r = 0, g = 0, b = 0;
+  for (let c = 0; c < 6; c++) {
+    const hex = CLASS_COLORS[c];
+    const cr = parseInt(hex.slice(1,3), 16);
+    const cg = parseInt(hex.slice(3,5), 16);
+    const cb = parseInt(hex.slice(5,7), 16);
+    r += cr * probs[c];
+    g += cg * probs[c];
+    b += cb * probs[c];
+  }
+  return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+}
+
+function klDiv(p, q) {
+  let kl = 0;
+  for (let i = 0; i < 6; i++) {
+    if (p[i] > 1e-8) kl += p[i] * Math.log(p[i] / Math.max(q[i], 1e-10));
+  }
+  return kl;
+}
+
+function errorColor(kl) {
+  const t = Math.min(kl / 0.5, 1);
+  const r = Math.round(30 + t * 200);
+  const g = Math.round(80 - t * 60);
+  const b = Math.round(30);
+  return `rgb(${r},${g},${b})`;
+}
+
+function getHeight(grid, y, x) {
+  const code = grid[y][x];
+  return TERRAIN[code]?.height || 0;
+}
+
+// ── Flat Render ─────────────────────────────────────────
+function renderFlat(ctx, grid, gt, pred, W, H, cs) {
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      ctx.fillStyle = getColor(grid, gt, pred, y, x);
+      ctx.fillRect(x * cs, y * cs, cs - 0.5, cs - 0.5);
+
+      // Settlement marker
+      if (viewMode === 'initial') {
+        const code = grid[y][x];
+        if (code === 1) {
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(x * cs + cs * 0.3, y * cs + cs * 0.2, cs * 0.4, cs * 0.5);
+          ctx.fillStyle = TERRAIN[1].color;
+          ctx.fillRect(x * cs + cs * 0.35, y * cs + cs * 0.45, cs * 0.12, cs * 0.2);
+        }
+        if (code === 2) {
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.moveTo(x * cs + cs * 0.5, y * cs + cs * 0.15);
+          ctx.lineTo(x * cs + cs * 0.8, y * cs + cs * 0.55);
+          ctx.lineTo(x * cs + cs * 0.2, y * cs + cs * 0.55);
+          ctx.fill();
+        }
+        if (code === 5) {
+          ctx.fillStyle = '#8a8a9e';
+          ctx.beginPath();
+          ctx.moveTo(x * cs + cs * 0.5, y * cs + cs * 0.1);
+          ctx.lineTo(x * cs + cs * 0.85, y * cs + cs * 0.85);
+          ctx.lineTo(x * cs + cs * 0.15, y * cs + cs * 0.85);
+          ctx.fill();
+          ctx.fillStyle = '#ccc';
+          ctx.beginPath();
+          ctx.moveTo(x * cs + cs * 0.5, y * cs + cs * 0.1);
+          ctx.lineTo(x * cs + cs * 0.65, y * cs + cs * 0.35);
+          ctx.lineTo(x * cs + cs * 0.35, y * cs + cs * 0.35);
+          ctx.fill();
+        }
+        if (code === 4) {
+          ctx.fillStyle = '#1e3d1a';
+          ctx.beginPath();
+          ctx.arc(x * cs + cs * 0.5, y * cs + cs * 0.4, cs * 0.3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#3a2a1a';
+          ctx.fillRect(x * cs + cs * 0.45, y * cs + cs * 0.55, cs * 0.1, cs * 0.3);
+        }
+      }
+    }
+  }
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 0.5;
+  for (let y = 0; y <= H; y++) { ctx.beginPath(); ctx.moveTo(0, y * cs); ctx.lineTo(W * cs, y * cs); ctx.stroke(); }
+  for (let x = 0; x <= W; x++) { ctx.beginPath(); ctx.moveTo(x * cs, 0); ctx.lineTo(x * cs, H * cs); ctx.stroke(); }
+}
+
+// ── Isometric Render ────────────────────────────────────
+function renderIsometric(ctx, grid, gt, pred, W, H, cs) {
+  const hScale = cs * 0.6;
+
+  function toIso(x, y, h) {
+    return {
+      x: (x - y) * cs + canvas.width / 2,
+      y: (x + y) * cs / 2 - h * hScale * 8 + 40,
+    };
+  }
+
+  // Render back to front
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const h = getHeight(grid, y, x);
+      const color = getColor(grid, gt, pred, y, x);
+      const p = toIso(x, y, h);
+
+      // Parse color
+      ctx.fillStyle = color;
+
+      // Top face
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + cs, p.y + cs / 2);
+      ctx.lineTo(p.x, p.y + cs);
+      ctx.lineTo(p.x - cs, p.y + cs / 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Right face (darker)
+      if (h > 0) {
+        ctx.fillStyle = darken(color, 0.6);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y + cs);
+        ctx.lineTo(p.x + cs, p.y + cs / 2);
+        ctx.lineTo(p.x + cs, p.y + cs / 2 + h * hScale * 8);
+        ctx.lineTo(p.x, p.y + cs + h * hScale * 8);
+        ctx.closePath();
+        ctx.fill();
+
+        // Left face (darkest)
+        ctx.fillStyle = darken(color, 0.4);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y + cs);
+        ctx.lineTo(p.x - cs, p.y + cs / 2);
+        ctx.lineTo(p.x - cs, p.y + cs / 2 + h * hScale * 8);
+        ctx.lineTo(p.x, p.y + cs + h * hScale * 8);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Ocean animation hint
+      if (grid[y][x] === 10) {
+        ctx.fillStyle = 'rgba(40, 100, 160, 0.15)';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + cs, p.y + cs / 2);
+        ctx.lineTo(p.x, p.y + cs);
+        ctx.lineTo(p.x - cs, p.y + cs / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+}
+
+function darken(color, factor) {
+  if (color.startsWith('rgb')) {
+    const m = color.match(/(\d+)/g);
+    return `rgb(${Math.round(m[0]*factor)},${Math.round(m[1]*factor)},${Math.round(m[2]*factor)})`;
+  }
+  const r = parseInt(color.slice(1,3),16);
+  const g = parseInt(color.slice(3,5),16);
+  const b = parseInt(color.slice(5,7),16);
+  return `rgb(${Math.round(r*factor)},${Math.round(g*factor)},${Math.round(b*factor)})`;
+}
+
+// ── Hover / Tooltip ─────────────────────────────────────
+function handleHover(e) {
+  if (!data) return;
+  const canvas = document.getElementById('map');
+  const rect = canvas.getBoundingClientRect();
+  const cs = renderMode === 'iso' ? 16 : 14 * zoom;
+
+  let cellX, cellY;
+  if (renderMode === 'flat') {
+    cellX = Math.floor((e.clientX - rect.left) / cs);
+    cellY = Math.floor((e.clientY - rect.top) / cs);
+  } else {
+    // Approximate iso hover (not perfect)
+    const mx = e.clientX - rect.left - canvas.width / 2;
+    const my = e.clientY - rect.top - 40;
+    cellX = Math.floor((mx / cs + my / (cs / 2)) / 2);
+    cellY = Math.floor((my / (cs / 2) - mx / cs) / 2);
+  }
+
+  const W = data.map_width, H = data.map_height;
+  if (cellX < 0 || cellX >= W || cellY < 0 || cellY >= H) {
+    document.getElementById('tooltip').style.display = 'none';
+    return;
+  }
+
+  const grid = data.initial_states[currentSeed].grid;
+  const code = grid[cellY][cellX];
+  const terrain = TERRAIN[code] || { name: 'Unknown', color: '#555' };
+
+  const tooltip = document.getElementById('tooltip');
+  let html = `<div class="cell-type" style="color:${terrain.color}">${terrain.name}</div>`;
+  html += `<div style="color:var(--text-dim);font-size:10px;margin-bottom:6px">(${cellX}, ${cellY})</div>`;
+
+  const gt = data.analysis?.ground_truth;
+  const pred = data.analysis?.prediction;
+
+  if (gt) {
+    html += '<div style="margin-top:6px;font-size:9px;color:var(--text-dim)">GROUND TRUTH</div>';
+    for (let c = 0; c < 6; c++) {
+      const pct = (gt[cellY][cellX][c] * 100).toFixed(1);
+      if (gt[cellY][cellX][c] > 0.005) {
+        html += `<div class="prob-bar"><span style="width:40px">${CLASS_NAMES[c].slice(0,4)}</span><div class="bar" style="width:${pct}px;background:${CLASS_COLORS[c]}"></div><span>${pct}%</span></div>`;
+      }
+    }
+  }
+
+  if (pred) {
+    html += '<div style="margin-top:6px;font-size:9px;color:var(--text-dim)">OUR PREDICTION</div>';
+    for (let c = 0; c < 6; c++) {
+      const pct = (pred[cellY][cellX][c] * 100).toFixed(1);
+      if (pred[cellY][cellX][c] > 0.005) {
+        html += `<div class="prob-bar"><span style="width:40px">${CLASS_NAMES[c].slice(0,4)}</span><div class="bar" style="width:${pct}px;background:${CLASS_COLORS[c]}"></div><span>${pct}%</span></div>`;
+      }
+    }
+
+    if (gt) {
+      const kl = klDiv(gt[cellY][cellX], pred[cellY][cellX]);
+      const ent = -gt[cellY][cellX].reduce((s, p) => s + (p > 1e-8 ? p * Math.log(p) : 0), 0);
+      html += `<div style="margin-top:6px;font-size:9px;border-top:1px solid var(--border);padding-top:4px">KL: ${kl.toFixed(4)} · H: ${ent.toFixed(3)}</div>`;
+    }
+  }
+
+  tooltip.innerHTML = html;
+  tooltip.style.display = 'block';
+  tooltip.style.left = (e.clientX + 16) + 'px';
+  tooltip.style.top = (e.clientY - 10) + 'px';
+
+  // Update sidebar detail
+  document.getElementById('cell-detail').innerHTML = html;
+}
+
+// ── Init ────────────────────────────────────────────────
+loadData();
+</script>
+</body>
+</html>

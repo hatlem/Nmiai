@@ -305,12 +305,14 @@ async function poll() {
 
     for (const round of active) {
       processing = true;
-      DONE.add(round.id); saveDone();
-      try { await processRound(round); }
-      catch (e) { console.error(`Round error: ${e.message}`); }
+      try {
+        await processRound(round);
+        DONE.add(round.id); saveDone();
+      }
+      catch (e) { console.error(`Round ${round.round_number} error: ${e.message}`); }
       finally { processing = false; }
     }
-  } catch (e) { /* silent poll error */ }
+  } catch (e) { console.error(`Poll error: ${e.message}`); }
 }
 
 console.log(`[init] v5 started. Polling every ${POLL/1000}s...`);

@@ -20,7 +20,7 @@ const TTC = {10:0, 11:0, 0:0, 1:1, 2:2, 3:3, 4:4, 5:5};
 const FL = 0.0005;
 const DAMP = 0.8;
 const COAST_DAMP = 0.3;
-const CLIP = [0.3, 5.0];
+const CLIP = [0.1, 10.0];
 const SIM_DELAY = 280;
 const SUB_DELAY = 600;
 const POLL = 30000;
@@ -44,9 +44,12 @@ const PYTHON = (() => {
 const MC_SCRIPT = path.join(__dirname, 'mc_predict.py');
 
 // ── Load lookup ─────────────────────────────────────────────────────────────
-const LOOKUP_FILE = path.join(__dirname, 'gt_lookup.json');
+// Try v2 (hierarchical Bayesian) first, fall back to v1
+const LOOKUP_V2 = path.join(__dirname, 'gt_lookup_v2.json');
+const LOOKUP_V1 = path.join(__dirname, 'gt_lookup.json');
+const LOOKUP_FILE = fs.existsSync(LOOKUP_V2) ? LOOKUP_V2 : LOOKUP_V1;
 let LOOKUP = JSON.parse(fs.readFileSync(LOOKUP_FILE, 'utf8'));
-console.log(`[init] Lookup: ${Object.keys(LOOKUP).length} bins`);
+console.log(`[init] Lookup: ${Object.keys(LOOKUP).length} bins (${path.basename(LOOKUP_FILE)})`);
 
 // ── Completed rounds (persisted) ────────────────────────────────────────────
 const DONE_FILE = path.join(__dirname, 'v6_completed.json');
@@ -136,8 +139,18 @@ function predict(ig, H, W, pre, shift) {
     const d = pre.sd[y][x], n = pre.nsett[y][x];
     const db = d <= 3 ? 'near' : d <= 7 ? 'mid' : d <= 12 ? 'far' : 'remote';
 
-    const keys = [`${ic}_${f}_${co}_${db}_${n}`, `${ic}_${f}_${co}_${db}_0`,
-                   `${ic}_${Math.min(f,2)}_${co}_${db}_0`, `${ic}_0_${co}_${db}_0`];
+    // Hierarchical fallback: finest -> coarsest
+    const keys = [
+      `${ic}_${f}_${co}_${db}_${n}`,   // level 0: full context
+      `${ic}_${f}_${co}_${db}`,          // level 1: drop nsett
+      `${ic}_${co}_${db}`,               // level 2: drop food
+      `${ic}_${db}`,                      // level 3: drop coastal
+      `${ic}`,                            // level 4: IC type only
+      // Legacy fallbacks for old lookup format
+      `${ic}_${f}_${co}_${db}_0`,
+      `${ic}_${Math.min(f,2)}_${co}_${db}_0`,
+      `${ic}_0_${co}_${db}_0`,
+    ];
     let p = null;
     for (const k of keys) { if (LOOKUP[k]) { p = [...LOOKUP[k]]; break; } }
     if (!p) p = [.5, .1, .05, .05, .25, .05];
@@ -304,12 +317,13 @@ async function processRound(round) {
   const log = m => console.log(`[${((Date.now()-t0)/1000).toFixed(0)}s] ${m}`);
   console.log(`\n[${new Date().toISOString().slice(11,19)}] R${round.round_number} ACTIVE (v6 — blended)`);
 
-  // Reload lookup if changed
+  // Reload lookup if changed (try v2 first)
   try {
-    const fresh = JSON.parse(fs.readFileSync(LOOKUP_FILE, 'utf8'));
+    const lf = fs.existsSync(LOOKUP_V2) ? LOOKUP_V2 : LOOKUP_V1;
+    const fresh = JSON.parse(fs.readFileSync(lf, 'utf8'));
     if (Object.keys(fresh).length !== Object.keys(LOOKUP).length) {
       LOOKUP = fresh;
-      log(`Lookup reloaded: ${Object.keys(LOOKUP).length} bins`);
+      log(`Lookup reloaded: ${Object.keys(LOOKUP).length} bins (${path.basename(lf)})`);
     }
   } catch {}
 
