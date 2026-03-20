@@ -74,9 +74,9 @@ except ImportError:
 TOTAL_TIMEOUT = 280          # seconds — leave 20s margin from 300s limit
 SAHI_TIME_BUDGET_RATIO = 0.7 # if avg time > budget, skip SAHI for rest
 
-# Detection — conf=0.15 filters noise early, 10x fewer crops to classify
-CONF_THRESHOLD = 0.15
-NMS_IOU = 0.45
+# Detection — low conf to maximize recall for detection mAP (70% of score)
+CONF_THRESHOLD = 0.001
+NMS_IOU = 0.65
 IMGSZ_FULL = 1280
 IMGSZ_SAHI_TILE = 640
 SAHI_OVERLAP = 0.3
@@ -86,14 +86,17 @@ SCALES = [640, 1280]
 WBF_IOU_THR = 0.6
 WBF_SKIP_BOX_THR = 0.001
 
-# Soft-NMS — higher threshold since conf is already 0.15
+# Soft-NMS
 SOFT_NMS_SIGMA = 0.5
-SOFT_NMS_SCORE_THR = 0.05
+SOFT_NMS_SCORE_THR = 0.001
 
-# Classification — larger batch = better GPU utilization
+# Classification
 CLASSIFIER_BATCH_SIZE = 128
 CROP_PAD_RATIO = 0.05
 MIN_BOX_SIZE = 5
+# Only classify top-N highest-confidence crops per image.
+# Rest get category_id=0 (still helps detection mAP, neutral for cls mAP).
+MAX_CLASSIFY_PER_IMAGE = 150
 
 
 # ── Time Budget Manager ───────────────────────────────────────────────
@@ -337,124 +340,73 @@ def process_image(
     if len(boxes) == 0:
         return []
 
-    # Step 4: Classification (if classifier is available)
+    # Step 4: Selective classification — only classify top-N crops for speed
+    # Strategy: ALL detections contribute to detection mAP (70% of score).
+    # Only top-N highest-confidence get classified for cls mAP (30%).
+    # Low-confidence detections get category_id=0 (neutral for cls mAP).
     detections = []
 
+    # Filter valid boxes
+    valid_boxes = []
+    for i, (box, score) in enumerate(zip(boxes, scores)):
+        x1, y1, x2, y2 = box
+        w = x2 - x1
+        h = y2 - y1
+        if w < MIN_BOX_SIZE or h < MIN_BOX_SIZE:
+            continue
+        valid_boxes.append((i, float(x1), float(y1), float(w), float(h), float(score)))
+
+    if not valid_boxes:
+        return []
+
+    # Sort by score descending for selective classification
+    valid_boxes.sort(key=lambda x: -x[5])
+
     if classifier.mode != "none":
-        # Prepare crops
+        # Prepare crops for top-N only
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(img_rgb)
         pil_w, pil_h = pil_img.size
 
+        n_classify = min(MAX_CLASSIFY_PER_IMAGE, len(valid_boxes))
         crops = []
-        valid_indices = []
 
-        for i, (box, score) in enumerate(zip(boxes, scores)):
-            x1, y1, x2, y2 = box
-            w = x2 - x1
-            h = y2 - y1
-
-            if w < MIN_BOX_SIZE or h < MIN_BOX_SIZE:
-                continue
-
-            valid_indices.append(i)
-
-            # Padded crop for better classification context
+        for idx, x1, y1, w, h, score in valid_boxes[:n_classify]:
             pad_x = w * CROP_PAD_RATIO
             pad_y = h * CROP_PAD_RATIO
             crop = pil_img.crop((
                 int(max(0, x1 - pad_x)),
                 int(max(0, y1 - pad_y)),
-                int(min(pil_w, x2 + pad_x)),
-                int(min(pil_h, y2 + pad_y)),
+                int(min(pil_w, x1 + w + pad_x)),
+                int(min(pil_h, y1 + h + pad_y)),
             ))
             crops.append(crop)
 
-        # Batch classification via unified ProductClassifier
-        all_classifications = classifier.classify(crops, batch_size=CLASSIFIER_BATCH_SIZE)
+        # Classify top-N
+        classifications = classifier.classify(crops, batch_size=CLASSIFIER_BATCH_SIZE)
 
-        # Step 4b: Multi-class YOLO cross-reference (hybrid classification)
-        # If multi-class YOLO also predicts the same category, boost confidence
-        if multi_class_model is not None:
-            try:
-                mc_results = multi_class_model(img, conf=0.1, iou=0.5, imgsz=1280)
-                mc_boxes = mc_results[0].boxes
-                if len(mc_boxes) > 0:
-                    mc_xyxy = mc_boxes.xyxy.numpy()
-                    mc_cls = mc_boxes.cls.numpy().astype(int)
-                    mc_conf = mc_boxes.conf.numpy()
-
-                    # For each detection, find matching multi-class prediction
-                    updated = []
-                    for i, (cat_id, cls_conf) in enumerate(all_classifications):
-                        idx = valid_indices[i]
-                        det_box = boxes[idx]
-
-                        # Find best IoU match in multi-class detections
-                        best_iou = 0
-                        best_mc_cat = -1
-                        best_mc_conf = 0
-                        for j in range(len(mc_xyxy)):
-                            # Quick IoU
-                            x1 = max(det_box[0], mc_xyxy[j][0])
-                            y1 = max(det_box[1], mc_xyxy[j][1])
-                            x2 = min(det_box[2], mc_xyxy[j][2])
-                            y2 = min(det_box[3], mc_xyxy[j][3])
-                            inter = max(0, x2-x1) * max(0, y2-y1)
-                            area1 = (det_box[2]-det_box[0]) * (det_box[3]-det_box[1])
-                            area2 = (mc_xyxy[j][2]-mc_xyxy[j][0]) * (mc_xyxy[j][3]-mc_xyxy[j][1])
-                            union = area1 + area2 - inter
-                            iou = inter / max(union, 1e-6)
-                            if iou > best_iou:
-                                best_iou = iou
-                                best_mc_cat = mc_cls[j]
-                                best_mc_conf = mc_conf[j]
-
-                        if best_iou > 0.5 and best_mc_cat == cat_id:
-                            # Both agree! Boost confidence
-                            updated.append((cat_id, min(1.0, cls_conf * 1.5)))
-                        elif best_iou > 0.5 and best_mc_conf > 0.5 and cls_conf < 0.1:
-                            # DINOv2 is uncertain, YOLO is confident — trust YOLO
-                            updated.append((best_mc_cat, best_mc_conf * 0.5))
-                        else:
-                            updated.append((cat_id, cls_conf))
-                    all_classifications = updated
-            except Exception as e:
-                print(f"[WARN] Multi-class hybrid failed: {e}")
-
-        # Step 5: Output — score = det_score ONLY
-        # Detection mAP (70% of total) ranks purely by score.
-        # Any modification (det*cls^0.15) changes ranking = hurts det mAP.
-        # Classifier only provides category_id for cls mAP (30%).
-        for idx, (cat_id, _cls_conf) in zip(valid_indices, all_classifications):
-            x1, y1, x2, y2 = boxes[idx]
-            det_score = float(scores[idx])
-
+        # Top-N: classified with real category_id
+        for j, (idx, x1, y1, w, h, score) in enumerate(valid_boxes[:n_classify]):
+            cat_id, _cls_conf = classifications[j]
             detections.append({
-                "x1": float(x1),
-                "y1": float(y1),
-                "w": float(x2 - x1),
-                "h": float(y2 - y1),
+                "x1": x1, "y1": y1, "w": w, "h": h,
                 "category_id": int(cat_id),
-                "score": det_score,
+                "score": score,
+            })
+
+        # Remaining: unclassified, category_id=0 (helps det mAP, neutral for cls mAP)
+        for idx, x1, y1, w, h, score in valid_boxes[n_classify:]:
+            detections.append({
+                "x1": x1, "y1": y1, "w": w, "h": h,
+                "category_id": 0,
+                "score": score,
             })
     else:
-        # Detection-only mode — category_id=0, use raw detection score
-        for box, score in zip(boxes, scores):
-            x1, y1, x2, y2 = box
-            w = x2 - x1
-            h = y2 - y1
-
-            if w < MIN_BOX_SIZE or h < MIN_BOX_SIZE:
-                continue
-
+        for idx, x1, y1, w, h, score in valid_boxes:
             detections.append({
-                "x1": float(x1),
-                "y1": float(y1),
-                "w": float(w),
-                "h": float(h),
+                "x1": x1, "y1": y1, "w": w, "h": h,
                 "category_id": 0,
-                "score": float(score),
+                "score": score,
             })
 
     return detections

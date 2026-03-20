@@ -37,6 +37,11 @@ from priors import (
     STATIC_FLOOR,
     REMOTE_FLOOR,
 )
+from adaptive_calibration import (
+    compute_observed_transitions,
+    blend_with_calibration,
+    create_adaptive_prior_fn,
+)
 
 TERRAIN_TO_CLASS = {10: 0, 11: 0, 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
 
@@ -577,6 +582,16 @@ class SwarmCoordinator:
         """Run all agents and combine predictions for all seeds."""
         predictions = {}
 
+        # ── Compute adaptive priors from this round's observations ──
+        obs_transitions, obs_counts = compute_observed_transitions(
+            self.initial_states, counts, observations,
+        )
+        blended_priors = blend_with_calibration(obs_transitions, obs_counts)
+        adaptive_prior_fn = create_adaptive_prior_fn(blended_priors)
+        total_obs = sum(obs_counts.values())
+        print(f"  Adaptive calibration: {total_obs} cell-observations across "
+              f"{sum(1 for v in obs_counts.values() if v > 0)} terrain classes")
+
         # Create contextual pooling agent with actual observation data
         ctx_agent = ContextualPoolingAgent(
             all_counts=counts, all_initial_states=self.initial_states,
@@ -620,7 +635,8 @@ class SwarmCoordinator:
             # Use informative Dirichlet priors instead of uniform Jeffreys
             init_grid_kt = np.asarray(self.initial_states[seed_idx]["grid"], dtype=np.int64)
             settlements_kt = self.initial_states[seed_idx].get("settlements", [])
-            kt_pred = _build_kt_with_priors(init_grid_kt, cell_counts, n_obs, settlements_kt, self.H, self.W)
+            kt_pred = _build_kt_with_priors(init_grid_kt, cell_counts, n_obs, settlements_kt, self.H, self.W,
+                                           adaptive_prior_fn=adaptive_prior_fn)
 
             # More observations → trust KT more
             # Default: n=1: 33%, n=3: 60%, n=5: 71%, n=10: 83%
@@ -676,7 +692,7 @@ class SwarmCoordinator:
                 for cls_id in range(NUM_CLASSES):
                     cls_mask = unobserved & (init_cls == cls_id)
                     if cls_mask.any():
-                        prior = get_domain_prior(cls_id)
+                        prior = adaptive_prior_fn(cls_id)
                         # 40% domain prior + 40% contextual pooling + 20% full ensemble
                         combined[cls_mask] = (
                             0.40 * prior +
@@ -927,34 +943,74 @@ def _neighbor_settlements(grid: np.ndarray, H: int, W: int) -> np.ndarray:
 
 
 def _get_cell_prior(init_cls: int, sett_dist: float, food: float,
-                    coastal: bool, neighbor_sett: int) -> np.ndarray:
-    """Return informative Dirichlet prior (6,) for a cell based on context."""
-    base = get_domain_prior(init_cls).copy()
+                    coastal: bool, neighbor_sett: int,
+                    base_prior_fn: Optional[callable] = None) -> np.ndarray:
+    """Return informative Dirichlet prior (6,) for a cell based on context.
 
-    if coastal and init_cls in (1, 2):
-        base[2] += 0.08
-        base[0] -= 0.04
+    Calibrated from ground truth across 5 completed competition rounds (25 seeds).
+    Distance-based priors are critical: far Empty cells are 98% Empty,
+    near Empty cells are only 79% Empty with 14% Settlement.
+    """
+    # ── Distance-based priors from real GT data (25 seeds) ──
+    # These override the base prior completely for Empty and Forest cells
+    if init_cls == 0:  # Empty
+        if sett_dist > 7:
+            # Far from settlements: almost always stays Empty
+            # GT: [0.980, 0.014, 0.003, 0.001, 0.002, 0.000]
+            base = np.array([0.980, 0.014, 0.003, 0.001, 0.002, 0.001])
+        elif sett_dist > 3:
+            # Mid distance: mostly Empty, some Settlement
+            # GT: [0.887, 0.077, 0.009, 0.008, 0.019, 0.000]
+            base = np.array([0.887, 0.077, 0.009, 0.008, 0.019, 0.001])
+        else:
+            # Near settlements: significant Settlement probability
+            # GT: [0.789, 0.144, 0.010, 0.014, 0.044, 0.000]
+            base = np.array([0.789, 0.144, 0.010, 0.014, 0.044, 0.001])
+            # More neighbors → more likely to become Settlement
+            if neighbor_sett >= 2:
+                base[1] += 0.02
+                base[0] -= 0.02
 
-    if food >= 2 and init_cls == 1:
-        base[1] += 0.10
-        base[0] -= 0.05
-        base[3] -= 0.03
+    elif init_cls == 4:  # Forest
+        if sett_dist > 7:
+            # Far forest: almost always stays Forest
+            # GT: [0.005, 0.017, 0.002, 0.002, 0.974, 0.000]
+            base = np.array([0.005, 0.017, 0.002, 0.002, 0.974, 0.001])
+        elif sett_dist > 3:
+            # Mid forest: mostly Forest
+            # GT: [0.042, 0.081, 0.009, 0.008, 0.861, 0.000]
+            base = np.array([0.042, 0.081, 0.009, 0.008, 0.861, 0.001])
+        else:
+            # Near settlements: can become Settlement
+            # GT: [0.095, 0.146, 0.009, 0.014, 0.736, 0.000]
+            base = np.array([0.095, 0.146, 0.009, 0.014, 0.736, 0.001])
 
-    if sett_dist > 6 and init_cls == 0:
-        base = np.array([0.91, 0.005, 0.005, 0.005, 0.07, 0.005])
+    elif init_cls == 1:  # Settlement
+        # GT: [0.470, 0.282, 0.004, 0.024, 0.220, 0.000]
+        base = np.array([0.470, 0.282, 0.004, 0.024, 0.220, 0.001])
+        if coastal:
+            base[2] += 0.04  # Port more likely on coast
+            base[0] -= 0.02
+        if food >= 2:
+            base[1] += 0.05  # More food → better survival
+            base[0] -= 0.03
 
-    if sett_dist > 6 and init_cls == 4:
-        base = np.array([0.03, 0.005, 0.005, 0.005, 0.95, 0.005])
+    elif init_cls == 2:  # Port
+        # GT: [0.483, 0.081, 0.184, 0.022, 0.230, 0.000]
+        base = np.array([0.483, 0.081, 0.184, 0.022, 0.230, 0.001])
 
-    if sett_dist <= 3 and init_cls == 0:
-        base[1] += 0.02
-        base[3] += 0.005
-        base[0] -= 0.02
-        base[4] += 0.01
+    elif init_cls == 3:  # Ruin
+        # From calibration (limited data)
+        base = np.array([0.15, 0.12, 0.03, 0.35, 0.30, 0.05])
 
-    if neighbor_sett >= 2 and init_cls == 0 and sett_dist <= 4:
-        base[1] += 0.01
-        base[0] -= 0.01
+    elif init_cls == 5:  # Mountain
+        base = np.array([0.001, 0.001, 0.001, 0.001, 0.001, 0.995])
+
+    else:
+        if base_prior_fn is not None:
+            base = base_prior_fn(init_cls).copy()
+        else:
+            base = get_domain_prior(init_cls).copy()
 
     base = np.maximum(base, PROB_FLOOR)
     base /= base.sum()
@@ -982,8 +1038,15 @@ def _get_prior_strength(init_cls: int, sett_dist: float, n_obs: float) -> float:
 
 def _build_kt_with_priors(init_grid: np.ndarray, cell_counts: np.ndarray,
                            n_obs: np.ndarray, settlements: list,
-                           H: int, W: int) -> np.ndarray:
-    """Build KT estimate with informative Dirichlet priors for all cells."""
+                           H: int, W: int,
+                           adaptive_prior_fn: Optional[callable] = None) -> np.ndarray:
+    """Build KT estimate with informative Dirichlet priors for all cells.
+
+    Args:
+        adaptive_prior_fn: If provided, used instead of get_domain_prior() as
+                          the base prior in _get_cell_prior. This allows using
+                          round-specific transition priors.
+    """
     init_cls = _classify_grid(init_grid)
     coastal = _coastal_mask(init_grid)
     food_map = _food_map(init_grid)
@@ -999,7 +1062,8 @@ def _build_kt_with_priors(init_grid: np.ndarray, cell_counts: np.ndarray,
             fd = float(food_map[y, x])
             cs = bool(coastal[y, x])
             ns = int(nsett[y, x])
-            prior_grid[y, x] = _get_cell_prior(ic, sd, fd, cs, ns)
+            prior_grid[y, x] = _get_cell_prior(ic, sd, fd, cs, ns,
+                                                base_prior_fn=adaptive_prior_fn)
             strength_grid[y, x] = _get_prior_strength(ic, sd, float(n_obs[y, x]))
 
     strength_3d = strength_grid[:, :, np.newaxis]
