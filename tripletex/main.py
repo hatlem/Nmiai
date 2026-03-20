@@ -15,6 +15,16 @@ from executor import execute_plan
 from template_engine import build_concrete_plan
 from tripletex_client import TripletexClient
 
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+try:
+    from dashboard_report import report_test, update_test, report_score
+except ImportError:
+    # Fallback stubs if dashboard_report is not available (e.g. in Cloud Run)
+    def report_test(*a, **kw): return None
+    def update_test(*a, **kw): return None
+    def report_score(*a, **kw): return None
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -40,7 +50,9 @@ HISTORY: deque = deque(maxlen=100)
 
 
 def _record(task_type: str, success: bool, elapsed: float, api_calls: int,
-            errors: int, repairs: int, prompt: str, verified: bool | None = None):
+            errors: int, repairs: int, prompt: str, verified: bool | None = None,
+            tier: int = 0, confidence: float = 0, extracted_keys: list | None = None,
+            error_detail: str = ""):
     STATS["total"] += 1
     STATS["total_api_calls"] += api_calls
     STATS["total_errors"] += errors
@@ -55,11 +67,19 @@ def _record(task_type: str, success: bool, elapsed: float, api_calls: int,
     bt["total_time"] += elapsed
     bt["success" if success else "failed"] += 1
 
+    from templates import TEMPLATES
+    optimal = TEMPLATES.get(task_type, {}).get("optimal_calls", 0)
+    efficiency = round(optimal / api_calls * 100) if api_calls > 0 and optimal > 0 else None
+
     HISTORY.appendleft({
         "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
         "type": task_type, "ok": success, "verified": verified,
         "elapsed": round(elapsed, 1), "api_calls": api_calls,
-        "errors": errors, "repairs": repairs, "prompt": prompt[:90],
+        "optimal_calls": optimal, "efficiency": efficiency,
+        "errors": errors, "repairs": repairs, "prompt": prompt[:300],
+        "tier": tier, "confidence": round(confidence, 2),
+        "extracted_keys": extracted_keys or [],
+        "error_detail": error_detail[:300],
     })
 
 
@@ -115,15 +135,15 @@ async def solve(request: Request):
     files = body.get("files", [])
     logger.info(f"Task: {prompt[:120]}...")
 
+    # Report test start to dashboard
+    test_id = report_test("tripletex", prompt[:80], status="running")
+
     client = TripletexClient(base_url, session_token)
     task_type = "unknown"
     retried = False
 
     try:
-        # 1. Classify
-        task_type, confidence = await classify_task(prompt)
-
-        # 2. Extract values + build plan from template
+        # 1. Classify + extract values + build plan from template
         plan = await create_plan(prompt, files)
         task_type = plan.get("task_type", task_type)
         logger.info(f"Plan: {task_type} ({len(plan.get('steps', []))} steps)")
@@ -132,28 +152,56 @@ async def solve(request: Request):
         result = await execute_plan(plan, client, start)
 
         # 4. If failed and time permits, re-extract and retry ONCE
-        if not result["success"] and time.monotonic() - start < 240:
+        if not result["success"] and time.monotonic() - start < 150:
             retried = True
-            errors = result.get("failed", [])
-            new_values = await re_extract_values(prompt, task_type, errors, files)
+            raw_errors = result.get("failed", [])
+            errors = [{"step": idx, "status_code": res.get("status_code", 0), "error": res.get("data", {})} for idx, res in raw_errors]
+            new_values = await re_extract_values(prompt, task_type, errors, files, original_values=plan.get("extracted_values", {}))
             new_plan = build_concrete_plan(task_type, new_values)
             result = await execute_plan(new_plan, client, start)
 
         elapsed = time.monotonic() - start
         success = result["success"]
+
+        # Collect debug info
+        tier = plan.get("tier", 0)
+        confidence = plan.get("classification_confidence", 0)
+        extracted_keys = list(plan.get("extracted_values", {}).keys())
+        error_detail = ""
+        if not success:
+            for _, res in result.get("failed", []):
+                detail = str(res.get("data", ""))[:150]
+                if detail:
+                    error_detail = detail
+                    break
+
         logger.info(
-            f"Done in {elapsed:.1f}s | type={task_type} | "
+            f"Done in {elapsed:.1f}s | type={task_type} | tier={tier} | "
             f"success={success} | retried={retried} | "
-            f"api_calls={client.call_count} | errors={client.error_count}"
+            f"api_calls={client.call_count} | errors={client.error_count} | "
+            f"extracted={extracted_keys}"
         )
         _record(task_type, success, elapsed, client.call_count,
-                client.error_count, int(retried), prompt)
+                client.error_count, int(retried), prompt,
+                tier=tier, confidence=confidence,
+                extracted_keys=extracted_keys, error_detail=error_detail)
+
+        # Report result to dashboard
+        update_test(
+            test_id,
+            status="passed" if success else "failed",
+            details=f"type={task_type} elapsed={elapsed:.1f}s calls={client.call_count} retried={retried}",
+            metadata={"task_type": task_type, "api_calls": client.call_count,
+                       "errors": client.error_count, "retried": retried},
+        )
 
     except Exception as e:
         logger.error(f"Agent error: {e}", exc_info=True)
         elapsed = time.monotonic() - start
         _record(task_type, False, elapsed, client.call_count,
-                client.error_count, int(retried), prompt, False)
+                client.error_count, int(retried), prompt, False,
+                error_detail=str(e)[:300])
+        update_test(test_id, status="failed", details=f"Error: {e}")
     finally:
         await client.close()
 
@@ -213,6 +261,8 @@ tr:hover td{background:#14141f}
   <div class="card info"><div class="num" id="c-calls">0</div><div class="label">API Calls</div></div>
   <div class="card"><div class="num" id="c-errs">0</div><div class="label">4xx Errors</div></div>
   <div class="card"><div class="num" id="c-rate">-</div><div class="label">Success %</div></div>
+  <div class="card info"><div class="num" id="c-types">0</div><div class="label">Types Seen</div></div>
+  <div class="card ok"><div class="num" id="c-perfect">0</div><div class="label">100% Types</div></div>
 </div>
 
 <div class="section">
@@ -223,7 +273,7 @@ tr:hover td{background:#14141f}
 <div class="section">
   <h2>Recent Submissions</h2>
   <table>
-    <thead><tr><th>Time</th><th>Type</th><th>Status</th><th>Verified</th><th>Time</th><th>Calls</th><th>Errs</th><th>Repairs</th><th>Prompt</th></tr></thead>
+    <thead><tr><th>Time</th><th>Type</th><th>T</th><th>Status</th><th>Time</th><th>Calls</th><th>Eff</th><th>Errs</th><th>Retry</th><th>Fields</th><th>Prompt / Error</th></tr></thead>
     <tbody id="hist"></tbody>
   </table>
   <div id="empty" class="empty">Waiting for first submission...</div>
@@ -241,11 +291,18 @@ async function r(){
     document.getElementById('c-calls').textContent=s.total_api_calls;
     document.getElementById('c-errs').textContent=s.total_errors;
     document.getElementById('c-rate').textContent=s.total>0?Math.round(s.success/s.total*100)+'%':'-';
-    const t=Object.entries(s.by_type).sort((a,b)=>b[1].total-a[1].total);
+    const btEntries=Object.entries(s.by_type);
+    document.getElementById('c-types').textContent=btEntries.length;
+    const perfect=btEntries.filter(([,d])=>d.failed===0&&d.success>0).length;
+    document.getElementById('c-perfect').textContent=perfect+'/'+btEntries.length;
+    const t=btEntries.sort((a,b)=>{const ar=a[1].success/(a[1].total||1),br=b[1].success/(b[1].total||1);return ar!==br?ar-br:b[1].total-a[1].total});
     const mx=t.length?Math.max(...t.map(x=>x[1].total)):1;
     document.getElementById('types').innerHTML=t.length?t.map(([n,d])=>{
       const avg=(d.total_time/d.total).toFixed(1);
-      return`<div class="type-row"><span class="name"><span class="type-tag">${esc(n)}</span></span><span class="count">${d.success}/${d.total}</span><div class="bar-bg"><div class="bar-fill" style="width:${d.total/mx*100}%"></div></div><span class="count">${avg}s</span></div>`;
+      const rate=d.success/d.total;
+      const color=rate>=1?'#22c55e':rate>=0.5?'#f59e0b':'#ef4444';
+      const pct=Math.round(rate*100);
+      return`<div class="type-row"><span class="name"><span class="type-tag">${esc(n)}</span></span><span class="count" style="color:${color};font-weight:700">${d.success}/${d.total}</span><div class="bar-bg"><div class="bar-fill" style="width:${d.total/mx*100}%;background:${color}"></div></div><span class="count">${avg}s</span></div>`;
     }).join(''):'<div class="empty">No tasks yet</div>';
   }catch(e){}
   try{
@@ -253,17 +310,27 @@ async function r(){
     const el=document.getElementById('hist'),em=document.getElementById('empty');
     if(h.length){
       em.style.display='none';
-      el.innerHTML=h.map(e=>`<tr>
+      el.innerHTML=h.map(e=>{
+        const eff=e.efficiency;
+        const effClass=eff>=100?'badge-ok':eff>=50?'badge-verify':'badge-fail';
+        const effText=eff!==null?`${e.api_calls}/${e.optimal_calls}`:e.api_calls;
+        const keys=(e.extracted_keys||[]).join(', ');
+        const tierColor=e.tier>=3?'#ef4444':e.tier>=2?'#f59e0b':'#888';
+        const promptOrErr=e.ok?esc(e.prompt):`<span style="color:#ef4444">${esc(e.error_detail||e.prompt)}</span>`;
+        const confText=e.confidence?` ${Math.round(e.confidence*100)}%`:'';
+        return`<tr>
         <td class="mono">${e.time}</td>
-        <td><span class="type-tag">${esc(e.type)}</span></td>
+        <td><span class="type-tag">${esc(e.type)}</span><span class="mono" style="color:${tierColor};margin-left:4px">${confText}</span></td>
+        <td class="mono" style="color:${tierColor};font-weight:700">T${e.tier||'?'}</td>
         <td><span class="badge ${e.ok?'badge-ok':'badge-fail'}">${e.ok?'OK':'FAIL'}</span></td>
-        <td>${e.verified===true?'<span class="badge badge-verify">YES</span>':e.verified===false?'<span class="badge badge-fail">NO</span>':'-'}</td>
         <td class="mono">${e.elapsed}s</td>
         <td class="mono">${e.api_calls}</td>
-        <td class="mono">${e.errors}</td>
-        <td class="mono">${e.repairs}</td>
-        <td class="prompt" title="${esc(e.prompt)}">${esc(e.prompt)}</td>
-      </tr>`).join('');
+        <td><span class="badge ${effClass}">${effText}</span></td>
+        <td class="mono">${e.errors>0?'<span style="color:#ef4444">'+e.errors+'</span>':e.errors}</td>
+        <td class="mono">${e.repairs>0?'<span style="color:#f59e0b">Y</span>':'-'}</td>
+        <td class="mono" style="font-size:.7rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(keys)}">${keys||'-'}</td>
+        <td class="prompt" style="max-width:350px" title="${esc(e.prompt)}">${promptOrErr}</td>
+      </tr>`}).join('');
     }
   }catch(e){}
 }
