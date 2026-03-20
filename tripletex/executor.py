@@ -401,6 +401,10 @@ async def _execute_step(
     if params:
         params = _pre_validate_params(params)
 
+    # Log body for POST/PUT to help debug 422 errors
+    if method in ("POST", "PUT") and body:
+        logger.info(f"Step {idx}: {method} {path} body keys: {list(body.keys()) if isinstance(body, dict) else type(body)}")
+
     # Fallback: if this is a /:payment step and paymentTypeId was stripped (unresolved),
     # fetch it on-the-fly from GET /invoice/paymentType
     if "/:payment" in str(path) and (params is None or "paymentTypeId" not in params):
