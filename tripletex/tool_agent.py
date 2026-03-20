@@ -158,17 +158,26 @@ STRATEGY:
 5. If a call fails, read the error and adapt (don't repeat the same call)
 6. When done, stop — don't make unnecessary verification calls
 
-ENDPOINTS THAT DO NOT EXIST (cause 404 — never use):
+ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
-- /orderline (use order body with orderLines array, NOT separate endpoint)
+- /orderline (orderLines go IN POST /order body, NOT as separate endpoint)
 - POST /supplierInvoice (returns 500 — use POST /ledger/voucher with supplier ref instead)
 - PUT /company/modules (returns 405)
+- PUT /salary/payslip/ID (returns 405 — payslips are READ-ONLY after creation)
+- PUT /salary/transaction/ID (returns 405 — transactions are READ-ONLY)
+- POST /salary/transaction/line (returns 405)
+- GET /salary/payslip/ID/line (returns 404)
 
-COMMON MISTAKES TO AVOID:
-- POST /employee MUST include userType:"STANDARD" (not 0, not empty)
-- POST /employee MUST include department.id (GET /department first)
-- Order lines go IN the POST /order body as orderLines array, NOT as separate POST /orderline
-- Account numbers are integers like 6700 — never send "67%" or strings with special chars
+MANDATORY FIELD RULES (violating these = instant 422):
+- POST /employee: MUST include userType:"STANDARD" AND department:{"id":X} (GET /department first!)
+- POST /travelExpense: isDayTrip and isForeignTravel go INSIDE travelDetails (NOT top-level body)
+- POST /travelExpense/cost: amountCurrencyIncVat is REQUIRED. costCategory must be {"id":X} object (NOT string)
+- GET /invoice: MUST include invoiceDateFrom AND invoiceDateTo params (both required)
+- PUT /:invoice: MUST include invoiceDueDate param (invoiceDate + 14 days if not specified)
+- PUT /:reverse: date goes as QUERY param (not body)
+- GET /ledger/voucher: MUST include dateFrom AND dateTo params (both required)
+- Voucher postings: row starts from 1, MUST include amountGrossCurrency AND vatType
+- ProjectHourlyRate: rate field is "fixedRate" (NOT hourlyRate). hourlyRateModel is a string like "TYPE_FIXED_HOURLY_RATE"
 """
 
 # ── API Guides (on-demand knowledge) ────────────────────────────────
@@ -255,8 +264,10 @@ TTC/inkl mva amounts: for postings with vatType 1 or 3, amountGross should be th
    - departureFrom, destination, purpose also go inside travelDetails
 3. GET /travelExpense/costCategory?fields=id,description — find cost category IDs
 4. GET /travelExpense/paymentType?fields=id,description — find payment type ID
-5. For EACH cost: POST /travelExpense/cost {"travelExpense":{"id":TE_ID}, "date":"YYYY-MM-DD", "amountCurrencyIncVat":AMOUNT, "vatType":{"id":0}, "paymentType":{"id":PT_ID}}
+5. For EACH cost: POST /travelExpense/cost {"travelExpense":{"id":TE_ID}, "date":"YYYY-MM-DD", "amountCurrencyIncVat":AMOUNT, "vatType":{"id":0}, "paymentType":{"id":PT_ID}, "costCategory":{"id":CAT_ID}}
    - amountCurrencyIncVat is the REQUIRED amount field (NOT costCurrency, NOT amount)
+   - costCategory MUST be an object {"id":X} (NOT a string! "category":"Flight" causes 422)
+   - Match category by description from GET /travelExpense/costCategory (e.g. find "Flyreise" for flights)
    - For per diem: use POST /travelExpense/cost with amountCurrencyIncVat = daily_rate * days (NOT /travelExpense/perDiemCompensation)
 
 ENDPOINTS THAT DON'T EXIST:
