@@ -68,9 +68,9 @@ TEMPLATES: dict[str, dict] = {
     # ===== CUSTOMERS =====
 
     "create_customer": {
-        "description": "Create a customer with contact details",
+        "description": "Create a customer with contact details and optional address",
         "relevant_schemas": ["Customer"],
-        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "isSupplier"],
+        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "isSupplier", "postalAddress"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -82,6 +82,11 @@ TEMPLATES: dict[str, dict] = {
                     "email": "{{email}}",
                     "phoneNumber": "{{phoneNumber}}",
                     "organizationNumber": "{{organizationNumber}}",
+                    "postalAddress": {
+                        "addressLine1": "{{addressLine1}}",
+                        "postalCode": "{{postalCode}}",
+                        "city": "{{city}}",
+                    },
                 },
             },
         ],
@@ -412,7 +417,12 @@ TEMPLATES: dict[str, dict] = {
     # ===== PROJECTS =====
 
     "create_project": {
-        "description": "Create a project linked to a customer. Must set projectManager with proper entitlements.",
+        "description": (
+            "Create a project linked to a NEW customer. Must set projectManager with proper entitlements.\n"
+            "If the prompt names a specific person as project manager (e.g. 'Sofia Costa'), create them as an employee first "
+            "(POST /employee), then grant ALL_PRIVILEGES entitlement, then create the project with that employee as projectManager.\n"
+            "Steps 1 (POST /customer) and 2 (PUT entitlement) can run in parallel since they have no dependency on each other."
+        ),
         "relevant_schemas": ["Project", "Customer"],
         "extract_fields": ["project_name", "customer_name", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "startDate", "endDate", "isInternal", "projectManager", "project_description"],
         "optimal_calls": 4,
@@ -420,16 +430,8 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "GET",
                 "path": "/employee",
-                "params": {"fields": "id", "count": 1},
-            },
-            {
-                "method": "PUT",
-                "path": "/employee/entitlement/:grantEntitlementsByTemplate",
-                "params": {
-                    "employeeId": "$step_0.values[0].id",
-                    "template": "ALL_PRIVILEGES",
-                },
-                "note": "Grant project manager access to employee",
+                "params": {"fields": "id,firstName,lastName", "count": 1},
+                "note": "Get default employee to use as project manager. If prompt names a specific person, use POST /employee to create them instead.",
             },
             {
                 "method": "POST",
@@ -441,6 +443,16 @@ TEMPLATES: dict[str, dict] = {
                     "organizationNumber": "{{customer_organizationNumber}}",
                     "phoneNumber": "{{customer_phoneNumber}}",
                 },
+                "note": "Can run in parallel with step 2 (entitlement grant).",
+            },
+            {
+                "method": "PUT",
+                "path": "/employee/entitlement/:grantEntitlementsByTemplate",
+                "params": {
+                    "employeeId": "$step_0.values[0].id",
+                    "template": "ALL_PRIVILEGES",
+                },
+                "note": "Grant project manager entitlements. Can run in parallel with step 1 (customer creation). Must complete before step 3.",
             },
             {
                 "method": "POST",
@@ -448,18 +460,24 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{project_name}}",
                     "description": "{{project_description}}",
-                    "customer": {"id": "$step_2.id"},
+                    "customer": {"id": "$step_1.id"},
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
                     "isInternal": False,
                     "projectManager": {"id": "$step_0.values[0].id"},
                 },
+                "note": "Depends on step 1 (customer) and step 2 (entitlement).",
             },
         ],
     },
 
     "create_project_existing_customer": {
-        "description": "Create a project linked to an existing customer (search by name first). Must set projectManager with proper entitlements.",
+        "description": (
+            "Create a project linked to an existing customer (search by name first). Must set projectManager with proper entitlements.\n"
+            "If the prompt names a specific person as project manager, create them as an employee first "
+            "(POST /employee), then grant ALL_PRIVILEGES entitlement, then create the project.\n"
+            "Steps 0 (GET /employee) and 1 (GET /customer) can run in parallel. Step 2 depends on step 0. Step 3 depends on steps 1+2."
+        ),
         "relevant_schemas": ["Project", "Customer"],
         "extract_fields": ["project_name", "customer_name", "startDate", "endDate", "project_description", "projectManager"],
         "optimal_calls": 4,
@@ -467,7 +485,14 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "GET",
                 "path": "/employee",
-                "params": {"fields": "id", "count": 1},
+                "params": {"fields": "id,firstName,lastName", "count": 1},
+                "note": "Can run in parallel with step 1 (customer search). If prompt names a specific person, use POST /employee instead.",
+            },
+            {
+                "method": "GET",
+                "path": "/customer",
+                "params": {"name": "{{customer_name}}", "fields": "id,name"},
+                "note": "Can run in parallel with step 0 (employee lookup).",
             },
             {
                 "method": "PUT",
@@ -476,12 +501,7 @@ TEMPLATES: dict[str, dict] = {
                     "employeeId": "$step_0.values[0].id",
                     "template": "ALL_PRIVILEGES",
                 },
-                "note": "Grant project manager access to employee",
-            },
-            {
-                "method": "GET",
-                "path": "/customer",
-                "params": {"name": "{{customer_name}}", "fields": "id,name"},
+                "note": "Grant project manager entitlements. Depends on step 0. Must complete before step 3.",
             },
             {
                 "method": "POST",
@@ -489,18 +509,23 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{project_name}}",
                     "description": "{{project_description}}",
-                    "customer": {"id": "$step_2.values[0].id"},
+                    "customer": {"id": "$step_1.values[0].id"},
                     "startDate": "{{startDate}}",
                     "endDate": "{{endDate}}",
                     "isInternal": False,
                     "projectManager": {"id": "$step_0.values[0].id"},
                 },
+                "note": "Depends on step 1 (customer) and step 2 (entitlement).",
             },
         ],
     },
 
     "create_internal_project": {
-        "description": "Create an internal project (no customer). Must set projectManager with proper entitlements.",
+        "description": (
+            "Create an internal project (no customer). Must set projectManager with proper entitlements.\n"
+            "If the prompt names a specific person as project manager, create them as an employee first "
+            "(POST /employee), then grant ALL_PRIVILEGES entitlement, then create the project."
+        ),
         "relevant_schemas": ["Project"],
         "extract_fields": ["project_name", "startDate", "endDate", "project_description"],
         "optimal_calls": 3,
@@ -508,7 +533,8 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "GET",
                 "path": "/employee",
-                "params": {"fields": "id", "count": 1},
+                "params": {"fields": "id,firstName,lastName", "count": 1},
+                "note": "Get default employee for project manager. If prompt names a specific person, use POST /employee instead.",
             },
             {
                 "method": "PUT",
@@ -517,7 +543,7 @@ TEMPLATES: dict[str, dict] = {
                     "employeeId": "$step_0.values[0].id",
                     "template": "ALL_PRIVILEGES",
                 },
-                "note": "Grant project manager access to employee",
+                "note": "Grant project manager entitlements. Depends on step 0. Must complete before step 2.",
             },
             {
                 "method": "POST",
@@ -530,6 +556,7 @@ TEMPLATES: dict[str, dict] = {
                     "endDate": "{{endDate}}",
                     "projectManager": {"id": "$step_0.values[0].id"},
                 },
+                "note": "Depends on step 1 (entitlement).",
             },
         ],
     },
@@ -557,9 +584,9 @@ TEMPLATES: dict[str, dict] = {
     # ===== SUPPLIERS =====
 
     "create_supplier": {
-        "description": "Create a supplier",
+        "description": "Create a supplier with optional address",
         "relevant_schemas": ["Supplier"],
-        "extract_fields": ["name", "organizationNumber", "email", "phoneNumber"],
+        "extract_fields": ["name", "organizationNumber", "email", "phoneNumber", "postalAddress"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -570,6 +597,11 @@ TEMPLATES: dict[str, dict] = {
                     "email": "{{email}}",
                     "phoneNumber": "{{phoneNumber}}",
                     "organizationNumber": "{{organizationNumber}}",
+                    "postalAddress": {
+                        "addressLine1": "{{addressLine1}}",
+                        "postalCode": "{{postalCode}}",
+                        "city": "{{city}}",
+                    },
                 },
             },
         ],
@@ -986,9 +1018,9 @@ TEMPLATES: dict[str, dict] = {
     # ===== CUSTOMER + SUPPLIER COMBO =====
 
     "create_customer_supplier": {
-        "description": "Create an entity that is both customer and supplier",
+        "description": "Create an entity that is both customer and supplier, with optional address",
         "relevant_schemas": ["Customer", "Supplier"],
-        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber"],
+        "extract_fields": ["name", "email", "organizationNumber", "phoneNumber", "postalAddress"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -1001,6 +1033,11 @@ TEMPLATES: dict[str, dict] = {
                     "email": "{{email}}",
                     "phoneNumber": "{{phoneNumber}}",
                     "organizationNumber": "{{organizationNumber}}",
+                    "postalAddress": {
+                        "addressLine1": "{{addressLine1}}",
+                        "postalCode": "{{postalCode}}",
+                        "city": "{{city}}",
+                    },
                 },
             },
         ],

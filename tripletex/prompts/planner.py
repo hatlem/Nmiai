@@ -112,6 +112,8 @@ After execution, the system verifies EVERY field against expected values.
 - For orders: ALWAYS include both orderDate AND deliveryDate (use same date if only one is given)
 - For invoices: ALWAYS include invoiceDueDate (default: invoiceDate + 14 days if not specified)
 - Phone numbers: Include as-is, preserve formatting (e.g., '+47 99887766', '99887766')
+- For customers/suppliers: If an address is mentioned, include postalAddress: {addressLine1: '...', postalCode: '...', city: '...'}
+- postalAddress is a nested object, not flat fields. Extract addressLine1, postalCode, city into extracted_values as top-level keys.
 """
 
 KNOWN_PITFALLS = """## CRITICAL PITFALLS
@@ -126,7 +128,7 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 8. Empty sandbox: Each submission starts fresh — no pre-existing entities.
 9. Supplier creation: Set name (required). Do NOT set isSupplier on /supplier endpoint.
 10. Travel expense employee: Always GET /employee first for the employee ID.
-11. Department on employee: If GET /department returns results, include "department": {"id": <first_dept_id>} in POST /employee body.
+11. Department on employee: MANDATORY — ALWAYS GET /department first. If results exist, include "department": {"id": <first_dept_id>} in POST /employee body. If GET returns empty, still include department with the ID from the sandbox. NEVER skip this step.
 11b. userType on employee: ALWAYS include "userType": "STANDARD" when creating employees. Without it you get 422.
 12. Version field for PUTs: ALL PUT requests require the 'version' field from the GET response. Include it in the body. Missing version causes 409 Conflict.
 19. POST /travelExpense/cost FIELD NAMES: The REQUIRED fields are: travelExpense({{\"id\":ID}}), vatType({{\"id\":ID}}), paymentType({{\"id\":ID}}), amountCurrencyIncVat(number), date(string). FORBIDDEN fields that cause 422: "amount", "title", "description", "name". Use "comments" instead of "description". Use "amountCurrencyIncVat" instead of "amount". GET /ledger/vatType first to get vatType ID.
@@ -280,13 +282,13 @@ Only ADD steps if the prompt requires additional operations not covered by the t
 The extracted_values dict MUST contain EVERY piece of data you extracted from the prompt.
 Keys MUST match Tripletex API field names exactly. For example:
 - Employee: firstName, lastName, email, phoneNumberMobile, dateOfBirth
-- Customer: name, email, organizationNumber, phoneNumber
+- Customer: name, email, organizationNumber, phoneNumber, addressLine1, postalCode, city
 - Product: name, priceExcludingVatCurrency, number, description
 - Project: project_name, description, startDate, endDate
 - Department: name, departmentNumber
 - Invoice: customer_name, customer_email, invoiceDate, invoiceDueDate, orderLines
 - Travel: departureDate, returnDate, departureFrom, destination, purpose
-- Supplier: name, email, organizationNumber, phoneNumber
+- Supplier: name, email, organizationNumber, phoneNumber, addressLine1, postalCode, city
 - Contact: firstName, lastName, email, phoneNumber
 - Voucher: date, description, account numbers, amounts
 

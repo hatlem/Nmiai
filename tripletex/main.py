@@ -104,6 +104,23 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             continue
         original_step = steps[fail_idx]
 
+        # 422 with "department.id" - need to GET department first then retry with it
+        if status == 422 and "department" in error_msg and "id" in error_msg:
+            fixed_step = dict(original_step)
+            fixed_body = dict(fixed_step.get("body", {}))
+            # Add GET department step
+            new_steps.append({
+                "method": "GET",
+                "path": "/department",
+                "params": {"fields": "id,name", "count": 1},
+                "note": "quick-fix: fetch department for employee",
+            })
+            dept_step = len(new_steps) - 1
+            fixed_body["department"] = {"id": f"$step_{dept_step}.values[0].id"}
+            fixed_step["body"] = fixed_body
+            new_steps.append(fixed_step)
+            continue
+
         # 422 with "version" - need to GET first then retry with version
         if status == 422 and "version" in error_msg:
             path = original_step.get("path", "")
@@ -289,7 +306,18 @@ async def _ensure_bank_account(client: TripletexClient):
     """Pre-flight: ensure the company has a bank account number for invoicing."""
     try:
         resp = await client.get("/company", params={"fields": "id,bankAccountNumber,version"})
-        values = resp.get("values", [])
+        if not resp.get("ok"):
+            logger.warning(f"Pre-flight: GET /company failed: {resp.get('status_code')}")
+            return
+        data = resp.get("data", {})
+        # Handle both list response and single-value response
+        values = data.get("values", [])
+        if not values:
+            inner = data.get("value", {})
+            if isinstance(inner, dict) and inner.get("id"):
+                values = [inner]
+            elif isinstance(inner, dict):
+                values = inner.get("values", [])
         if not values:
             logger.warning("Pre-flight: no company found")
             return
@@ -558,7 +586,7 @@ async function r(){
     const mx=t.length?Math.max(...t.map(x=>x[1].total)):1;
     document.getElementById('types').innerHTML=t.length?t.map(([n,d])=>{
       const avg=(d.total_time/d.total).toFixed(1);
-      return`<div class="type-row"><span class="name"><span class="type-tag">${n}</span></span><span class="count">${d.success}/${d.total}</span><div class="bar-bg"><div class="bar-fill" style="width:${d.total/mx*100}%"></div></div><span class="count">${avg}s</span></div>`;
+      return`<div class="type-row"><span class="name"><span class="type-tag">${esc(n)}</span></span><span class="count">${d.success}/${d.total}</span><div class="bar-bg"><div class="bar-fill" style="width:${d.total/mx*100}%"></div></div><span class="count">${avg}s</span></div>`;
     }).join(''):'<div class="empty">No tasks yet</div>';
   }catch(e){}
   try{
@@ -568,7 +596,7 @@ async function r(){
       em.style.display='none';
       el.innerHTML=h.map(e=>`<tr>
         <td class="mono">${e.time}</td>
-        <td><span class="type-tag">${e.type}</span></td>
+        <td><span class="type-tag">${esc(e.type)}</span></td>
         <td><span class="badge ${e.ok?'badge-ok':'badge-fail'}">${e.ok?'OK':'FAIL'}</span></td>
         <td>${e.verified===true?'<span class="badge badge-verify">YES</span>':e.verified===false?'<span class="badge badge-fail">NO</span>':'-'}</td>
         <td class="mono">${e.elapsed}s</td>

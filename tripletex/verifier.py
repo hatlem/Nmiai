@@ -37,7 +37,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         "entity_path": "/employee",
         "id_from_step": None,
         "id_from_search_step": 0,
-        "search_params": {"fields": "id,firstName,lastName,email,phoneNumberMobile"},
+        "search_params": {"fields": "id,firstName,lastName,email,phoneNumberMobile,dateOfBirth,version"},
         "check_fields": {},
         "dynamic_checks": True,
     },
@@ -45,13 +45,16 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_customer": {
         "entity_path": "/customer",
         "id_from_step": 0,
-        "search_params": {"fields": "id,name,email,organizationNumber,phoneNumber,isCustomer"},
+        "search_params": {"fields": "id,name,email,organizationNumber,phoneNumber,isCustomer,postalAddress"},
         "check_fields": {
             "name": "extract:name",
             "email": "extract:email",
             "isCustomer": "literal:True",
             "organizationNumber": "extract:organizationNumber",
             "phoneNumber": "extract:phoneNumber",
+            "postalAddress.addressLine1": "extract:addressLine1",
+            "postalAddress.postalCode": "extract:postalCode",
+            "postalAddress.city": "extract:city",
         },
     },
 
@@ -191,12 +194,15 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_supplier": {
         "entity_path": "/supplier",
         "id_from_step": 0,
-        "search_params": {"fields": "id,name,email,organizationNumber,phoneNumber"},
+        "search_params": {"fields": "id,name,email,organizationNumber,phoneNumber,postalAddress"},
         "check_fields": {
             "name": "extract:name",
             "email": "extract:email",
             "organizationNumber": "extract:organizationNumber",
             "phoneNumber": "extract:phoneNumber",
+            "postalAddress.addressLine1": "extract:addressLine1",
+            "postalAddress.postalCode": "extract:postalCode",
+            "postalAddress.city": "extract:city",
         },
     },
 
@@ -288,13 +294,16 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "create_customer_supplier": {
         "entity_path": "/customer",
         "id_from_step": 0,
-        "search_params": {"fields": "id,name,email,isCustomer,isSupplier,organizationNumber,phoneNumber"},
+        "search_params": {"fields": "id,name,email,isCustomer,isSupplier,organizationNumber,phoneNumber,postalAddress"},
         "check_fields": {
             "name": "extract:name",
             "email": "extract:email",
             "isCustomer": "literal:True",
             "isSupplier": "literal:True",
             "organizationNumber": "extract:organizationNumber",
+            "postalAddress.addressLine1": "extract:addressLine1",
+            "postalAddress.postalCode": "extract:postalCode",
+            "postalAddress.city": "extract:city",
         },
     },
 

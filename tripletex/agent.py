@@ -2,6 +2,7 @@
 """Two-stage agent with model routing, confidence-based classification,
 and extracted_values output for downstream verification."""
 
+import asyncio
 import json
 import base64
 import logging
@@ -442,14 +443,20 @@ async def classify_task(prompt: str) -> tuple[str, float]:
             hint_prefix = f"[Keyword hint: {task_type} ({confidence:.0%})] "
     model = _get_model(MODEL_FLASH_LITE, CLASSIFIER_PROMPT)
     try:
-        response = await model.generate_content_async(
-            hint_prefix + prompt,
-            generation_config={"temperature": 0.0, "max_output_tokens": 200},
+        response = await asyncio.wait_for(
+            model.generate_content_async(
+                hint_prefix + prompt,
+                generation_config={"temperature": 0.0, "max_output_tokens": 200},
+            ),
+            timeout=15.0,
         )
         result = _parse_json(response.text)
         task_type = result.get("task_type", "unknown")
         confidence = float(result.get("confidence", 0.5))
         logger.info(f"Flash-Lite classify: {task_type} (conf={confidence:.2f})")
+    except asyncio.TimeoutError:
+        logger.error("Flash-Lite classification timed out (15s)")
+        task_type, confidence = "unknown", 0.0
     except Exception as e:
         logger.error(f"Flash-Lite classification failed: {e}")
         task_type, confidence = "unknown", 0.0
@@ -459,14 +466,19 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         logger.info(f"Very low Flash-Lite confidence ({confidence:.2f}), escalating to Pro")
         pro_model = _get_model(MODEL_PRO, CLASSIFIER_PROMPT_PRO)
         try:
-            response = await pro_model.generate_content_async(
-                prompt,
-                generation_config={"temperature": 0.0, "max_output_tokens": 300},
+            response = await asyncio.wait_for(
+                pro_model.generate_content_async(
+                    prompt,
+                    generation_config={"temperature": 0.0, "max_output_tokens": 300},
+                ),
+                timeout=20.0,
             )
             result = _parse_json(response.text)
             task_type = result.get("task_type", "unknown")
             confidence = float(result.get("confidence", 0.5))
             logger.info(f"Pro classify: {task_type} (conf={confidence:.2f})")
+        except asyncio.TimeoutError:
+            logger.error("Pro classification timed out (20s)")
         except Exception as e:
             logger.error(f"Pro classification failed: {e}")
 
@@ -531,9 +543,12 @@ async def create_plan(prompt: str, files: list[dict] | None = None) -> dict:
 
     max_tokens = 8192
     logger.info(f"Planning {task_type} (tier={tier}): {prompt[:80]}...")
-    response = await model.generate_content_async(
-        parts,
-        generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
+    response = await asyncio.wait_for(
+        model.generate_content_async(
+            parts,
+            generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
+        ),
+        timeout=60.0,
     )
 
     try:
@@ -602,9 +617,12 @@ async def self_repair(
     parts.append(Part.from_text(repair_prompt))
 
     logger.info(f"Self-repair (verification_errors={bool(verification_errors)}, files={len(files or [])})")
-    response = await model.generate_content_async(
-        parts,
-        generation_config={"temperature": 0.0, "max_output_tokens": 8192},
+    response = await asyncio.wait_for(
+        model.generate_content_async(
+            parts,
+            generation_config={"temperature": 0.0, "max_output_tokens": 8192},
+        ),
+        timeout=45.0,
     )
 
     try:
