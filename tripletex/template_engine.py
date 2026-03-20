@@ -621,11 +621,13 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
     elif task_type == "create_purchase_order" and isinstance(values.get("orderLines"), list):
         steps = _expand_purchase_order_lines(steps, values)
 
-    elif task_type == "create_travel_expense" and isinstance(values.get("costs"), list):
-        steps = _expand_travel_costs(steps, values)
-
-    # Apply conditional steps (e.g. role entitlement)
+    # Apply conditional steps BEFORE travel cost expansion
+    # (travel cost step is in conditional_steps, needs to be in steps first)
     steps = _apply_conditional_steps(steps, values, template)
+
+    # Expand travel costs AFTER conditional steps have been added
+    if task_type == "create_travel_expense" and isinstance(values.get("costs"), list):
+        steps = _expand_travel_costs(steps, values)
 
     # Fill {{placeholders}} with extracted values
     steps = _fill_placeholders(steps, values)
