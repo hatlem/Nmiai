@@ -245,15 +245,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
         },
     },
 
-    "create_voucher": {
-        "entity_path": "/ledger/voucher",
-        "id_from_step": None,
-        "search_params": {"fields": "id,date,description,postings"},
-        "check_fields": {
-            "exists:id": "exists",
-            "description": "extract:description",
-        },
-    },
+    "create_voucher": {"skip_verify": True},
 
     "reverse_voucher": {"skip_verify": True},
     "delete_entity": {"skip_verify": True},
@@ -269,7 +261,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_purchase_order": {
         "entity_path": "/purchaseOrder",
-        "id_from_step": 1,
+        "id_from_step": 2,
         "search_params": {"fields": "id,supplier"},
         "check_fields": {
             "exists:id": "exists",

@@ -53,7 +53,12 @@ TEMPLATES: dict[str, dict] = {
     },
 
     "update_employee": {
-        "description": "Update an existing employee's details (phone, email, address, etc.)",
+        "description": (
+            "Update an existing employee's details (phone, email, address, etc.).\n"
+            "IMPORTANT: PUT body MUST include 'id' and 'version' from the GET response.\n"
+            "The fields_to_update should be merged with id+version in the PUT body.\n"
+            "Example: if updating email, PUT body = {\"id\": X, \"version\": Y, \"email\": \"new@email.com\"}"
+        ),
         "relevant_schemas": ["Employee"],
         "extract_fields": ["search_firstName", "search_lastName", "fields_to_update"],
         "optimal_calls": 2,
@@ -66,7 +71,12 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "PUT",
                 "path": "/employee/$step_0.values[0].id",
-                "body": "{{fields_to_update}}",
+                "body": {
+                    "id": "$step_0.values[0].id",
+                    "version": "$step_0.values[0].version",
+                    "email": "{{new_email}}",
+                },
+                "note": "MUST include id and version from GET. Merge with fields_to_update.",
             },
         ],
     },
@@ -736,32 +746,28 @@ TEMPLATES: dict[str, dict] = {
             "For vouchers with MORE than 2 accounts, add additional GET /ledger/account steps. "
             "Each posting needs the account ID from the GET response. If parsing a file, "
             "each line in the file becomes a posting — parse EVERY line.\n"
-            "POSTING FORMAT: Each posting MUST have 'row' (starting from 1, NEVER 0), 'account.id', "
-            "'amountGross', and 'amountGrossCurrency' (same value as amountGross).\n"
-            "VATTYPE: Some accounts (e.g. 3000 Salgsinntekt, 3100) are locked to a specific VAT code. "
-            "If you get a 422 about 'vatType' or 'mva-kode', include vatType in the posting. "
-            "For revenue accounts (3xxx): GET /ledger/vatType first, find the one matching the account's requirement."
+            "POSTING FORMAT: Each posting MUST have: row (starting from 1, NEVER 0), account.id, "
+            "amountGross, amountGrossCurrency (same as amountGross), and vatType.id.\n"
+            "VATTYPE IDs (standard, hardcode these — same in ALL Tripletex sandboxes):\n"
+            "  vatType 0 = No VAT — for bank/asset accounts (1xxx, 2xxx)\n"
+            "  vatType 3 = Outgoing VAT 25% — for revenue accounts (3xxx)\n"
+            "  vatType 1 = Incoming VAT 25% — for expense accounts (6xxx, 7xxx)\n"
+            "ALWAYS include vatType in EVERY posting. Use 0 if unsure."
         ),
         "relevant_schemas": ["Voucher", "Posting", "Account"],
         "extract_fields": ["date", "description", "postings_with_account_numbers", "debit_account_number", "credit_account_number", "debit_amount", "credit_amount"],
-        "optimal_calls": 4,
+        "optimal_calls": 3,
         "steps": [
             {
                 "method": "GET",
-                "path": "/ledger/vatType",
-                "params": {"fields": "id,number,name"},
-                "note": "Get vatType IDs. Key: id for number 0=no VAT, 3=outgoing 25%, 1=incoming 25%. Revenue accts (3xxx) need vatType 3.",
+                "path": "/ledger/account",
+                "params": {"number": "{{debit_account_number}}", "fields": "id,number,name"},
+                "note": "Add one GET step per unique account number. For 3+ accounts, add more GET steps.",
             },
             {
                 "method": "GET",
                 "path": "/ledger/account",
-                "params": {"number": "{{debit_account_number}}", "fields": "id,number,name,vatType"},
-                "note": "Add one GET step per unique account number. Check vatType field to see if locked.",
-            },
-            {
-                "method": "GET",
-                "path": "/ledger/account",
-                "params": {"number": "{{credit_account_number}}", "fields": "id,number,name,vatType"},
+                "params": {"number": "{{credit_account_number}}", "fields": "id,number,name"},
             },
             {
                 "method": "POST",
@@ -770,11 +776,11 @@ TEMPLATES: dict[str, dict] = {
                     "date": "{{date}}",
                     "description": "{{description}}",
                     "postings": [
-                        {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{debit_amount}}", "amountGrossCurrency": "{{debit_amount}}", "vatType": {"id": "{{vatType_id_for_debit_account_or_0}}"}},
-                        {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{credit_amount}}", "amountGrossCurrency": "-{{credit_amount}}", "vatType": {"id": "{{vatType_id_for_credit_account_or_0}}"}},
+                        {"row": 1, "account": {"id": "$step_0.values[0].id"}, "amountGross": "{{debit_amount}}", "amountGrossCurrency": "{{debit_amount}}", "vatType": {"id": 0}},
+                        {"row": 2, "account": {"id": "$step_1.values[0].id"}, "amountGross": "-{{credit_amount}}", "amountGrossCurrency": "-{{credit_amount}}", "vatType": {"id": 3}},
                     ],
                 },
-                "note": "Row MUST start from 1. Include vatType from step 0 matching account's requirement. Bank (1xxx)->0, Revenue (3xxx)->3.",
+                "note": "Row starts from 1 (NEVER 0). vatType: 0=no VAT (1xxx,2xxx), 3=outgoing 25% (3xxx), 1=incoming 25% (6xxx,7xxx). ALWAYS include vatType.",
             },
         ],
     },
@@ -811,9 +817,9 @@ TEMPLATES: dict[str, dict] = {
     # ===== SUPPLIER INVOICES =====
 
     "create_supplier_invoice": {
-        "description": "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, due date, and voucher postings.",
+        "description": "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, and voucher postings. NOTE: dueDate/invoiceDueDate causes errors — do NOT include it.",
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
-        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
+        "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "amount", "account_number", "description", "expense_account_number"],
         "optimal_calls": 4,
         "steps": [
             {
@@ -851,7 +857,6 @@ TEMPLATES: dict[str, dict] = {
                     "invoiceNumber": "{{invoiceNumber}}",
                     "invoiceDate": "{{invoiceDate}}",
                     "supplier": {"id": "$step_0.id"},
-                    "dueDate": "{{dueDate}}",
                     "voucher": {
                         "date": "{{invoiceDate}}",
                         "description": "{{description}}",
@@ -868,11 +873,17 @@ TEMPLATES: dict[str, dict] = {
     # ===== PURCHASE ORDERS =====
 
     "create_purchase_order": {
-        "description": "Create a purchase order to a supplier",
+        "description": "Create a purchase order to a supplier. NOTE: ourContact is REQUIRED — must reference an employee.",
         "relevant_schemas": ["Supplier"],
         "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "deliveryDate", "orderLines", "ourContact"],
-        "optimal_calls": 2,
+        "optimal_calls": 3,
         "steps": [
+            {
+                "method": "GET",
+                "path": "/employee",
+                "params": {"fields": "id,firstName,lastName", "count": 1},
+                "note": "Get employee for ourContact (REQUIRED on purchase order).",
+            },
             {
                 "method": "POST",
                 "path": "/supplier",
@@ -894,7 +905,8 @@ TEMPLATES: dict[str, dict] = {
                 "method": "POST",
                 "path": "/purchaseOrder",
                 "body": {
-                    "supplier": {"id": "$step_0.id"},
+                    "supplier": {"id": "$step_1.id"},
+                    "ourContact": {"id": "$step_0.values[0].id"},
                     "deliveryDate": "{{deliveryDate}}",
                     "orderLines": "{{orderLines}}",
                 },
@@ -1010,11 +1022,13 @@ TEMPLATES: dict[str, dict] = {
             },
             {
                 "method": "POST",
-                "path": "/ledger/voucher/openingBalance",
+                "path": "/ledger/voucher",
                 "body": {
                     "date": "{{date}}",
+                    "description": "Åpningsbalanse",
                     "postings": "{{postings_using_account_ids — must sum to zero}}",
                 },
+                "note": "Use regular /ledger/voucher for opening balance. Row starts from 1. Include vatType on each posting (0 for 1xxx/2xxx accounts).",
             },
         ],
     },
@@ -1022,9 +1036,9 @@ TEMPLATES: dict[str, dict] = {
     # ===== ASSETS =====
 
     "create_asset": {
-        "description": "Register a fixed asset (anleggsmiddel)",
+        "description": "Register a fixed asset (anleggsmiddel). NOTE: The date field is 'dateOfAcquisition' (NOT 'acquisitionDate'). Module moduleFixedAssetRegister must be enabled.",
         "relevant_schemas": ["Voucher", "Posting"],
-        "extract_fields": ["name", "description", "acquisitionDate", "acquisitionCost", "account_number", "depreciationAccount_number"],
+        "extract_fields": ["name", "description", "dateOfAcquisition", "acquisitionCost", "account_number", "depreciationAccount_number"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -1033,7 +1047,7 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "name": "{{name}}",
                     "description": "{{description}}",
-                    "acquisitionDate": "{{acquisitionDate}}",
+                    "dateOfAcquisition": "{{dateOfAcquisition}}",
                     "acquisitionCost": "{{acquisitionCost}}",
                 },
             },

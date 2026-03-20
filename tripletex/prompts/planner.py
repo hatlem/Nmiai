@@ -151,6 +151,16 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
     a VAT-locked account. Revenue accounts (3xxx) typically need vatType 3 (utgående mva, høy sats).
     Expense accounts (6xxx-7xxx) may need vatType 1 (inngående mva). Bank/asset accounts (1xxx, 2xxx)
     usually need vatType 0 (ingen mva). If unsure, GET /ledger/account/{id}?fields=vatType to check.
+21. Employee email: email CANNOT be changed via PUT /employee. Only phoneNumberMobile, firstName,
+    lastName, dateOfBirth, address can be updated. If task asks to change email, skip it — the API
+    does not allow it.
+22. Bank reconciliation dateTo: The field "dateTo" does NOT exist on POST /bank/reconciliation.
+    Instead, GET /ledger/accountingPeriod with periodEnd={{date_to}} to find the period ID,
+    then use "accountingPeriod": {{"id": <period_id>}} in the POST body.
+23. Employment fields: POST /employee/employment does NOT accept "employmentType" or
+    "percentageOfFullTimeEquivalent". The minimal body is just employee and startDate.
+24. Contact phoneNumber: The field "phoneNumber" does NOT exist on /contact. Use "phoneNumberMobile"
+    or "phoneNumberWork" instead.
 14. Bank reconciliation — accounting period must be open: The reconciliation date range must fall within
     an open accounting period. If you get a 422 error about closed period, the dates are wrong.
     After creating the reconciliation, you may need to POST individual payment/match entries.
@@ -173,10 +183,11 @@ These tasks are scored with a 3x multiplier — getting them right matters enorm
 - Example: 1920 bank 100000 (debit) + 1500 inventory 50000 (debit) -> 2050 equity -150000 (credit).
 
 ### Bank Reconciliation
-- The date range (dateFrom, dateTo) MUST fall within an open accounting period.
+- The field "dateTo" does NOT exist on POST /bank/reconciliation. Use "accountingPeriod": {"id": X} instead.
+- First GET /ledger/accountingPeriod?periodEnd={{date_to}}&fields=id,start,end,isClosed&count=1 to find the period ID.
 - Always use type: "MANUAL" for the reconciliation.
-- If you get a 422 about closed period, adjust dates to the current open period.
 - dateFrom is REQUIRED in the POST /bank/reconciliation body.
+- If you get a 422 about closed period, the accounting period is closed — find an open one.
 
 ### Complex Invoicing (Invoice with Payment)
 - Follow the EXACT sequence: customer -> order (with orderLines + deliveryDate) -> PUT /:invoice -> PUT /:payment.
@@ -375,6 +386,12 @@ To fix field mismatches:
 11. 422 "deliveryDate" or "orderDate" null on order -> Add deliveryDate and orderDate (use invoiceDate or today)
 12. 422 "systemgenererte" or "rad 0" on voucher postings -> Row numbers MUST start from 1, NEVER 0. Row 0 is reserved. Fix: set "row": 1, 2, 3... Also include BOTH "amountGross" AND "amountGrossCurrency" (same value). Example: {{"row": 1, "account": {{"id": X}}, "amountGross": 1500, "amountGrossCurrency": 1500}}
 13. 422 "Feltet eksisterer ikke" on /travelExpense/cost -> You used WRONG field names. CORRECT fields: travelExpense({{\"id\":ID}}), vatType({{\"id\":ID}}), paymentType({{\"id\":ID}}), amountCurrencyIncVat(number), date(string). WRONG: "amount"→use "amountCurrencyIncVat", "description"→use "comments", "title"→remove it, "name"→remove it. Must also GET /ledger/vatType for vatType ID.
+14. 422 on /contact with "phoneNumber" -> Field does NOT exist. Use "phoneNumberMobile" instead.
+15. 422 on /bank/reconciliation with "dateTo" -> Field does NOT exist. Use "accountingPeriod": {{"id": X}} instead. GET /ledger/accountingPeriod?periodEnd=DATE first.
+16. 422 on /employee/employment with "employmentType" or "percentageOfFullTimeEquivalent" -> These fields do NOT exist. Only use employee and startDate.
+17. 422 on /purchaseOrder missing "ourContact" -> ourContact is REQUIRED. Add GET /employee first, then "ourContact": {{"id": <employee_id>}}.
+18. 422 on /asset with "acquisitionDate" -> Field is "dateOfAcquisition", NOT "acquisitionDate".
+19. 422/500 on /supplierInvoice with "dueDate" or "invoiceDueDate" -> These fields cause errors. Remove them.
 
 ## Instructions
 1. Analyze WHY each step failed
