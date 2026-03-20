@@ -348,6 +348,7 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "bestilling fra leverandør": ("create_purchase_order", 0.88),
         # Supplier invoice extras
         "opprett leverandorfaktura": ("create_supplier_invoice", 0.95),
+        "opprett leverandørfaktura": ("create_supplier_invoice", 0.95),
         "registrer leverandørfaktura": ("create_supplier_invoice", 0.95),
         "ny leverandorfaktura": ("create_supplier_invoice", 0.90),
         "create supplier invoice": ("create_supplier_invoice", 0.95),
@@ -442,7 +443,8 @@ def _quick_classify(prompt: str) -> tuple[str, float] | None:
         "enable module": ("enable_modules", 0.90),
         "aktivere modul": ("enable_modules", 0.90),
     }
-    for phrase, (task_type, conf) in high_conf_keywords.items():
+    # Sort by phrase length descending so longer (more specific) matches win
+    for phrase, (task_type, conf) in sorted(high_conf_keywords.items(), key=lambda x: len(x[0]), reverse=True):
         if phrase in prompt_lower:
             return task_type, conf
 

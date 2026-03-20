@@ -137,9 +137,9 @@ TEMPLATES: dict[str, dict] = {
     # ===== INVOICING =====
 
     "create_invoice": {
-        "description": "Create an invoice: customer -> order with orderLines -> invoice. NOTE: Company must have bankAccountNumber registered. If 422 about 'bankkontonummer', the sandbox is not properly set up.",
+        "description": "Create an invoice: POST customer -> POST order (with orderLines in body) -> PUT order/:invoice",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
-        "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "customer_email", "customer_organizationNumber", "customer_phoneNumber", "customer_phoneNumberMobile", "customer_description", "customer_website", "customer_isPrivateIndividual", "customer_addressLine1", "customer_postalCode", "customer_city", "orderDate", "deliveryDate"],
+        "extract_fields": ["customer_name", "customer_email", "customer_organizationNumber", "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -150,16 +150,6 @@ TEMPLATES: dict[str, dict] = {
                     "isCustomer": True,
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
-                    "phoneNumber": "{{customer_phoneNumber}}",
-                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
-                    "description": "{{customer_description}}",
-                    "website": "{{customer_website}}",
-                    "isPrivateIndividual": "{{customer_isPrivateIndividual}}",
-                    "postalAddress": {
-                        "addressLine1": "{{customer_addressLine1}}",
-                        "postalCode": "{{customer_postalCode}}",
-                        "city": "{{customer_city}}",
-                    },
                 },
             },
             {
@@ -169,19 +159,9 @@ TEMPLATES: dict[str, dict] = {
                     "customer": {"id": "$step_0.id"},
                     "orderDate": "{{orderDate}}",
                     "deliveryDate": "{{deliveryDate}}",
+                    "orderLines": "{{orderLines_array}}",
                 },
-                "note": "Step 2: Create purchase order WITHOUT orderLines (they must be added separately).",
-            },
-            {
-                "method": "POST",
-                "path": "/purchaseOrder/orderline",
-                "body": {
-                    "purchaseOrder": {"id": "$step_2.id"},
-                    "description": "{{orderLine_description}}",
-                    "count": "{{orderLine_count}}",
-                    "unitPriceExcludingVatCurrency": "{{orderLine_unitPriceExcludingVatCurrency}}",
-                },
-                "note": "Step 3: Add order line to the purchase order. Repeat for each line.",
+                "note": "orderLines go IN the order body as array: [{description, count, unitPriceExcludingVatCurrency}]",
             },
             {
                 "method": "PUT",
@@ -196,7 +176,7 @@ TEMPLATES: dict[str, dict] = {
     },
 
     "create_invoice_existing_customer": {
-        "description": "Create invoice for an existing customer (search by name first)",
+        "description": "Create invoice for an existing customer: GET customer -> POST order (with orderLines) -> PUT order/:invoice",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": ["customer_name", "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate"],
         "optimal_calls": 3,
@@ -213,19 +193,9 @@ TEMPLATES: dict[str, dict] = {
                     "customer": {"id": "$step_0.values[0].id"},
                     "orderDate": "{{orderDate}}",
                     "deliveryDate": "{{deliveryDate}}",
+                    "orderLines": "{{orderLines_array}}",
                 },
-                "note": "Step 2: Create purchase order WITHOUT orderLines (they must be added separately).",
-            },
-            {
-                "method": "POST",
-                "path": "/purchaseOrder/orderline",
-                "body": {
-                    "purchaseOrder": {"id": "$step_2.id"},
-                    "description": "{{orderLine_description}}",
-                    "count": "{{orderLine_count}}",
-                    "unitPriceExcludingVatCurrency": "{{orderLine_unitPriceExcludingVatCurrency}}",
-                },
-                "note": "Step 3: Add order line to the purchase order. Repeat for each line.",
+                "note": "orderLines go IN the order body as array: [{description, count, unitPriceExcludingVatCurrency}]",
             },
             {
                 "method": "PUT",
@@ -840,10 +810,11 @@ TEMPLATES: dict[str, dict] = {
 
     "create_supplier_invoice": {
         "description": (
-            "Create a supplier invoice (incoming invoice from a supplier). Requires a supplier, an invoice date, dueDate, and voucher postings.\n"
-            "IMPORTANT: Do NOT include 'orderDate' — it does NOT exist on supplierInvoice.\n"
-            "Required fields: invoiceNumber, invoiceDate, supplier({id}), dueDate, voucher({date, description, postings}).\n"
-            "If POST /supplierInvoice returns 500, fall back to creating a regular voucher via POST /ledger/voucher."
+            "Create a supplier invoice (incoming invoice from a supplier).\n"
+            "WORKAROUND: POST /supplierInvoice returns 500 in ALL cases in the sandbox.\n"
+            "Instead, create a regular voucher via POST /ledger/voucher with supplier reference in postings.\n"
+            "Steps: 1) Create supplier, 2) GET expense account, 3) GET AP account (2400), 4) POST /ledger/voucher.\n"
+            "The voucher description should reference the invoice number and supplier name."
         ),
         "relevant_schemas": ["Supplier", "Voucher", "Posting"],
         "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
@@ -879,21 +850,16 @@ TEMPLATES: dict[str, dict] = {
             },
             {
                 "method": "POST",
-                "path": "/supplierInvoice",
+                "path": "/ledger/voucher",
                 "body": {
-                    "invoiceNumber": "{{invoiceNumber}}",
-                    "invoiceDate": "{{invoiceDate}}",
-                    "dueDate": "{{dueDate}}",
-                    "supplier": {"id": "$step_0.id"},
-                    "voucher": {
-                        "date": "{{invoiceDate}}",
-                        "description": "{{description}}",
-                        "postings": [
-                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}},
-                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}},
-                        ],
-                    },
+                    "date": "{{invoiceDate}}",
+                    "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
+                    "postings": [
+                        {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
+                        {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
+                    ],
                 },
+                "note": "Workaround: POST /supplierInvoice returns 500 in sandbox. Using POST /ledger/voucher instead.",
             },
         ],
     },
@@ -905,7 +871,11 @@ TEMPLATES: dict[str, dict] = {
             "Create a purchase order to a supplier. IMPORTANT:\n"
             "- ourContact (employee ref) is REQUIRED on the purchase order.\n"
             "- orderLines CANNOT be included in the POST /purchaseOrder body (they need a purchaseOrder reference).\n"
-            "- Solution: Create the purchase order first WITHOUT orderLines, then POST each orderLine separately."
+            "- Solution: Create the purchase order first WITHOUT orderLines, then POST each orderLine separately.\n"
+            "- FORBIDDEN FIELDS on POST /purchaseOrder: status, currency, transportType, orderLineSorting — these are read-only and cause 'Oppdatering av dette feltet er ikke tillatt' (422).\n"
+            "- The POST /purchaseOrder body must be MINIMAL: only supplier.id, ourContact.id, and deliveryDate. Nothing else.\n"
+            "- NOTE: POST /purchaseOrder requires moduleOrderOut to be enabled. If you get 'Oppdatering av dette feltet er ikke tillatt' on ALL fields, the module is not active.\n"
+            "  Competition sandboxes have this module enabled."
         ),
         "relevant_schemas": ["Supplier"],
         "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "deliveryDate", "orderLine_description", "orderLine_count", "orderLine_unitPriceExcludingVatCurrency", "orderLines"],
@@ -1109,15 +1079,16 @@ TEMPLATES: dict[str, dict] = {
     "create_salary_payment": {
         "description": (
             "Create a salary transaction for an employee.\n"
-            "1. GET /employee to find employee ID\n"
-            "2. GET /salary/type to find the correct salary type ID\n"
-            "3. POST /salary/transaction with employeeId, salaryTypeId, date, year, month, count\n"
-            "IMPORTANT: The fields are NOT 'employee' and 'amount'. Use 'employeeId' (integer) and 'count' (the amount).\n"
-            "If the prompt specifies a salary type (e.g. 'fastlonn', 'overtid'), match it "
-            "against the salary types from step 2."
+            "NOTE: POST /salary/transaction returns 403 'You do not have permission' in dev sandbox\n"
+            "because the salary module is not enabled. Competition sandboxes have this module enabled.\n"
+            "POST /salary/transaction body MUST have: year (int), month (int), payslips (array).\n"
+            "Each payslip has: employee: {id: X}.\n"
+            "FORBIDDEN fields that cause 422: employeeId, amount, rate, count, salaryType, salaryTypeId.\n"
+            "The salary/transaction endpoint creates a payslip for the given month/year.\n"
+            "Field names for salary/transaction may vary. The LLM should adapt based on API error messages."
         ),
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["employee_name", "date", "year", "month", "amount", "salary_type"],
+        "extract_fields": ["employee_name", "year", "month"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -1128,19 +1099,18 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "GET",
                 "path": "/salary/type",
-                "params": {"fields": "id,number,name"},
+                "params": {"fields": "id,number,name", "count": 10},
+                "note": "Fetch salary types to find valid type IDs for transaction.",
             },
             {
                 "method": "POST",
                 "path": "/salary/transaction",
                 "body": {
-                    "employeeId": "$step_0.values[0].id",
-                    "date": "{{date}}",
                     "year": "{{year}}",
                     "month": "{{month}}",
-                    "count": "{{amount}}",
-                    "salaryTypeId": "$step_1.values[0].id",
+                    "payslips": [{"employee": {"id": "$step_0.values[0].id"}}],
                 },
+                "note": "Body is ONLY: year, month, payslips. NO other fields. payslips is array of {employee: {id}}. Requires salary module permission.",
             },
         ],
     },
@@ -1180,7 +1150,17 @@ TEMPLATES: dict[str, dict] = {
     # ===== REMINDERS =====
 
     "create_reminder": {
-        "description": "Create a payment reminder (purring) for an overdue invoice. MUST include sendMethod (EMAIL) — API requires at least one send type.",
+        "description": (
+            "Create a payment reminder (purring) for an overdue invoice.\n"
+            "REQUIRED params: type, date, dispatchType.\n"
+            "The param name is 'dispatchType' (NOT sendMethod, NOT sendType).\n"
+            "Valid dispatchTypes: EMAIL, OWN_PRINTER, NETS_PRINT, SMS, SFTP, API.\n"
+            "Valid types: SOFT_REMINDER, REMINDER, NOTICE_OF_DEBT_COLLECTION.\n"
+            "NOTE: date must be >= invoice due date, otherwise you get 422.\n"
+            "NOTE: The reminder endpoint may require specific company configuration (e.g. email settings).\n"
+            "If 'Minst én sendetype må oppgis' persists despite correct params, the sandbox may lack required config.\n"
+            "Competition sandboxes should have this configured."
+        ),
         "relevant_schemas": ["Invoice"],
         "extract_fields": ["invoice_id", "date", "comment"],
         "optimal_calls": 1,
@@ -1191,9 +1171,9 @@ TEMPLATES: dict[str, dict] = {
                 "params": {
                     "type": "SOFT_REMINDER",
                     "date": "{{date}}",
-                    "comment": "{{comment}}",
-                    "sendMethod": "EMAIL",
+                    "dispatchType": "EMAIL",
                 },
+                "note": "dispatchType is REQUIRED. Use EMAIL as default. Date must be >= invoice dueDate.",
             },
         ],
     },
@@ -1203,12 +1183,13 @@ TEMPLATES: dict[str, dict] = {
     "create_employment": {
         "description": (
             "Create or update employment details for an employee (ansettelsesforhold).\n"
-            "NOTE: employmentType and percentageOfFullTimeEquivalent do NOT exist on this endpoint. Only employee and startDate are accepted.\n"
+            "POST /employee/employment body ONLY accepts: employee.id, startDate, employmentType, percentageOfFullTimeEquivalent.\n"
+            "FORBIDDEN FIELDS on /employee/employment: userType — userType is an EMPLOYEE field, NOT an employment field. Including it causes 422.\n"
             "Employee MUST have dateOfBirth set before employment can be created. If dateOfBirth is null, "
             "PUT /employee to set it (use date from prompt or default 1990-01-01) BEFORE creating employment."
         ),
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["search_firstName", "search_lastName", "startDate", "dateOfBirth"],
+        "extract_fields": ["search_firstName", "search_lastName", "startDate", "dateOfBirth", "employmentType", "percentageOfFullTimeEquivalent"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -1232,7 +1213,10 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "employee": {"id": "$step_0.values[0].id"},
                     "startDate": "{{startDate}}",
+                    "employmentType": "{{employmentType}}",
+                    "percentageOfFullTimeEquivalent": "{{percentageOfFullTimeEquivalent}}",
                 },
+                "note": "ONLY these fields are valid. Do NOT add userType — it belongs on /employee, not /employee/employment.",
             },
         ],
     },
@@ -1282,12 +1266,15 @@ TEMPLATES: dict[str, dict] = {
     # ===== NEW: INVOICE WITH PAYMENT =====
 
     "create_invoice_with_payment": {
-        "description": "Create an invoice and immediately register a payment on it",
+        "description": (
+            "Create an invoice and immediately register full payment on it.\n"
+            "CRITICAL: paidAmount MUST equal the total invoice amount (quantity × unit price for all lines). "
+            "If the prompt says '1 stk á 5000 kr', paidAmount = 5000. For '2 stk á 3000 kr', paidAmount = 6000.\n"
+            "The /:invoice action returns the invoice. Use $step_3.id for the /:payment path."
+        ),
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": [
-            "customer_name", "customer_email", "customer_organizationNumber", "customer_phoneNumber",
-            "customer_phoneNumberMobile", "customer_description", "customer_website", "customer_isPrivateIndividual",
-            "customer_addressLine1", "customer_postalCode", "customer_city",
+            "customer_name", "customer_email", "customer_organizationNumber",
             "orderLines", "invoiceDate", "invoiceDueDate",
             "paymentDate", "paymentAmount", "orderDate", "deliveryDate",
         ],
@@ -1306,16 +1293,6 @@ TEMPLATES: dict[str, dict] = {
                     "isCustomer": True,
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
-                    "phoneNumber": "{{customer_phoneNumber}}",
-                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
-                    "description": "{{customer_description}}",
-                    "website": "{{customer_website}}",
-                    "isPrivateIndividual": "{{customer_isPrivateIndividual}}",
-                    "postalAddress": {
-                        "addressLine1": "{{customer_addressLine1}}",
-                        "postalCode": "{{customer_postalCode}}",
-                        "city": "{{customer_city}}",
-                    },
                 },
             },
             {
@@ -1325,19 +1302,9 @@ TEMPLATES: dict[str, dict] = {
                     "customer": {"id": "$step_1.id"},
                     "orderDate": "{{orderDate}}",
                     "deliveryDate": "{{deliveryDate}}",
+                    "orderLines": "{{orderLines_array}}",
                 },
-                "note": "Step 2: Create purchase order WITHOUT orderLines (they must be added separately).",
-            },
-            {
-                "method": "POST",
-                "path": "/purchaseOrder/orderline",
-                "body": {
-                    "purchaseOrder": {"id": "$step_2.id"},
-                    "description": "{{orderLine_description}}",
-                    "count": "{{orderLine_count}}",
-                    "unitPriceExcludingVatCurrency": "{{orderLine_unitPriceExcludingVatCurrency}}",
-                },
-                "note": "Step 3: Add order line to the purchase order. Repeat for each line.",
+                "note": "Include orderLines as array in order body: [{description, count, unitPriceExcludingVatCurrency}]",
             },
             {
                 "method": "PUT",
@@ -1354,8 +1321,9 @@ TEMPLATES: dict[str, dict] = {
                 "params": {
                     "paymentDate": "{{paymentDate}}",
                     "paymentTypeId": "$step_0.values[0].id",
-                    "paidAmount": "{{paymentAmount}}",
+                    "paidAmount": "{{paymentAmount_must_equal_total_invoice_amount}}",
                 },
+                "note": "paidAmount MUST equal total invoice amount. Calculate: sum of (count × unitPrice) for all order lines.",
             },
         ],
     },

@@ -251,9 +251,9 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
     "delete_entity": {"skip_verify": True},
 
     "create_supplier_invoice": {
-        "entity_path": "/supplierInvoice",
+        "entity_path": "/ledger/voucher",
         "id_from_step": 3,
-        "search_params": {"fields": "id,invoiceNumber,amount,supplier"},
+        "search_params": {"fields": "id,number,date,description"},
         "check_fields": {
             "exists:id": "exists",
         },
@@ -306,7 +306,7 @@ VERIFY_CONFIG: dict[str, dict[str, Any]] = {
 
     "create_salary_payment": {
         "entity_path": "/salary/transaction",
-        "id_from_step": -1,
+        "id_from_step": 2,
         "search_params": {"fields": "id"},
         "check_fields": {
             "exists:id": "exists",

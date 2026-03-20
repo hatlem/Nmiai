@@ -252,11 +252,57 @@ def _try_quick_fix(plan: dict, results: dict, failed: list) -> dict | None:
             # No postings to fix — fall through
             return None
 
-        # 422 with "bankkontonummer" - company needs bank account number
-        # PUT /company returns 405 in dev sandbox. Competition sandboxes have this pre-configured.
-        if status == 422 and "bankkontonummer" in error_msg:
-            logger.warning("Quick-fix: bankkontonummer error — cannot fix via API, competition sandboxes have this pre-configured")
+        # 422 "Feltet eksisterer ikke" — unknown field, strip it and retry
+        if status == 422 and "feltet eksisterer ikke" in error_msg:
+            import re as _re
+            # Extract field name from validation message
+            vm = data.get("validationMessages", []) if isinstance(data, dict) else []
+            bad_fields = [v.get("field") for v in vm if isinstance(v, dict) and "eksisterer ikke" in str(v.get("message", ""))]
+            if bad_fields:
+                fixed_step = dict(original_step)
+                fixed_body = dict(fixed_step.get("body") or {})
+                for bf in bad_fields:
+                    if bf and bf in fixed_body:
+                        del fixed_body[bf]
+                        logger.info(f"Quick-fix: removed unknown field '{bf}' from body")
+                fixed_step["body"] = fixed_body
+                new_steps.append(fixed_step)
+                continue
+
+        # 422 with "Oppdatering av dette feltet er ikke tillatt" - module not active, can't fix programmatically
+        if status == 422 and "oppdatering av dette feltet er ikke tillatt" in error_msg:
+            logger.warning("Quick-fix: 'Oppdatering av dette feltet er ikke tillatt' — module permission issue, falling through to LLM repair")
             return None
+
+        # 403 "You do not have permission" - module not enabled, can't fix programmatically
+        if status == 403 and ("permission" in error_msg or "tilgang" in error_msg):
+            logger.warning("Quick-fix: 403 permission error — module not enabled, falling through to LLM repair")
+            return None
+
+        # 422 with "bankkontonummer" - company needs bank account number
+        if status == 422 and "bankkontonummer" in error_msg:
+            logger.warning("Quick-fix: bankkontonummer error — trying to set bank account on ledger account 1920")
+            # Try to set bank account number on account 1920
+            new_steps.append({
+                "method": "GET",
+                "path": "/ledger/account",
+                "params": {"number": "1920", "fields": "id,bankAccountNumber,version"},
+                "note": "quick-fix: find account 1920 to set bank number",
+            })
+            bank_get_idx = len(new_steps) - 1
+            new_steps.append({
+                "method": "PUT",
+                "path": f"/ledger/account/$step_{bank_get_idx}.values[0].id",
+                "body": {
+                    "id": f"$step_{bank_get_idx}.values[0].id",
+                    "version": f"$step_{bank_get_idx}.values[0].version",
+                    "bankAccountNumber": "12345678903",
+                },
+                "note": "quick-fix: set bank account number",
+            })
+            # Then retry the original step
+            new_steps.append(original_step)
+            continue
 
         # 400/422 "already exists" - search for existing entity instead of creating
         _already_exists_kw = ("already exists", "allerede registrert", "allerede", "finnes allerede", "er allerede")

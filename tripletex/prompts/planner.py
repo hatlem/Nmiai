@@ -191,6 +191,9 @@ KNOWN_PITFALLS = """## CRITICAL PITFALLS
 25. Supplier invoice postings: Expense account postings (6xxx-7xxx) MUST include vatType id 1 (inngående mva 25%). Accounts payable (2400) should have no vatType or vatType id 0.
 26. Asset dateOfAcquisition: The field is called dateOfAcquisition (NOT acquisitionDate). Also requires moduleFixedAssetRegister to be enabled.
 27. Timesheet date range: The date for a timesheet entry MUST be >= project startDate and <= project endDate. If the task specifies a date outside the project range, use the project's startDate instead.
+28. Purchase order module: POST /purchaseOrder requires moduleOrderOut to be enabled. If you get 'Oppdatering av dette feltet er ikke tillatt', the module may not be active. The competition sandboxes have it enabled.
+29. Salary module: POST /salary/transaction returns 403 'You do not have permission' when the salary module is disabled. Competition sandboxes have it enabled.
+30. Supplier invoice workaround: POST /supplierInvoice returns 500 in sandbox. Use POST /ledger/voucher instead with supplier reference in postings.
 """
 
 
@@ -417,8 +420,8 @@ To fix field mismatches:
 16. 422 on /employee/employment with "employmentType" or "percentageOfFullTimeEquivalent" -> These fields do NOT exist. Only use employee and startDate.
 17. 422 on /purchaseOrder missing "ourContact" -> ourContact is REQUIRED. Add GET /employee first, then "ourContact": {{"id": <employee_id>}}.
 18. 422 on /asset with "acquisitionDate" -> Field is "dateOfAcquisition", NOT "acquisitionDate". Also requires moduleFixedAssetRegister to be enabled.
-19. 422/500 on /supplierInvoice with "dueDate" or "invoiceDueDate" -> These fields cause errors. Remove them. Also remove "orderDate", "deliveryDate", "orderLines" from supplierInvoice body.
-20. 422 on /salary/transaction with "employee" or "amount" -> Wrong field names. Use "employeeId" (integer, NOT object) instead of "employee", "count" instead of "amount", "salaryTypeId" (integer) instead of "salaryType".
+19. 500 on /supplierInvoice -> The /supplierInvoice endpoint returns 500 in ALL cases in sandbox. WORKAROUND: Use POST /ledger/voucher instead. Create a voucher with description "Leverandørfaktura <invoiceNumber> fra <supplier_name>" and postings with supplier reference: {{"row": 1, "account": {{"id": <expense_acct_id>}}, "amountGross": <amount>, "amountGrossCurrency": <amount>, "vatType": {{"id": 1}}, "supplier": {{"id": <supplier_id>}}}}, {{"row": 2, "account": {{"id": <ap_acct_id>}}, "amountGross": -<amount>, "amountGrossCurrency": -<amount>, "vatType": {{"id": 0}}, "supplier": {{"id": <supplier_id>}}}}.
+20. 422 on /salary/transaction with "employee" or "amount" -> Wrong field names. Use "employeeId" (integer, NOT object) instead of "employee", "count" instead of "amount", "salaryTypeId" (integer) instead of "salaryType". 403 on /salary/transaction -> salary module not enabled in dev sandbox, competition sandboxes have it.
 
 ## Instructions
 1. Analyze WHY each step failed
