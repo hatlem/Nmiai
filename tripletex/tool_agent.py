@@ -389,10 +389,23 @@ PUT /invoice/ID/:send?sendType=EMAIL
 """,
 
     "salary": """\
-## Salary Transaction (lønn)
-POST /salary/transaction {"year":2026, "month":3, "payslips":[{"employee":{"id":X}}]}
-- Does NOT accept "salaryLines" or "salaryTransaction" fields
-- year and month are required
+## Salary (lønn)
+Steps to run payroll:
+1. POST /employee (create the employee if needed, with dateOfBirth!)
+2. POST /employee/employment {"employee":{"id":X}, "startDate":"YYYY-MM-DD"} (employment required for salary)
+3. GET /salary/type?fields=id,number,name — find salary type IDs
+   - Common types: number "2000" = Fastlønn (base salary), number "2001" = Timelønn
+4. POST /salary/transaction {"date":"YYYY-MM-DD", "year":2026, "month":3, "payslips":[{"employee":{"id":EMP_ID}}]}
+   - Returns transaction with payslip IDs
+5. To add salary lines/specifications to the payslip, use the returned payslip data
+   - The payslip has "specifications" array with salary details
+
+FORBIDDEN fields on /salary/transaction: salaryLines, salaryTransaction, line, amount, baseSalary
+FORBIDDEN endpoints: /salary/transaction/line (405), /salary/payslip/ID/line (404)
+
+For bonus: create a second specification on the same payslip with a different salary type
+
+Note: Salary requires employee to have dateOfBirth set AND an active employment record.
 """,
 
     "opening_balance": """\
