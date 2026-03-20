@@ -41,7 +41,7 @@ if not WBF_AVAILABLE:
 
 # ── Config ────────────────────────────────────────────────────────────
 TOTAL_TIMEOUT = 285
-CONF_THRESHOLD = 0.05
+CONF_THRESHOLD = 0.001  # Lower = more recall = better mAP (0.01 gave 0.9139, 0.05 gave 0.9119)
 NMS_IOU = 0.65
 IMGSZ = 1280
 MIN_BOX_SIZE = 4
