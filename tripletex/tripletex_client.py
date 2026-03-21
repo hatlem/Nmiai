@@ -132,6 +132,32 @@ class TripletexClient:
                     params["dateTo"] = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
                 except (ValueError, TypeError):
                     pass
+        # Bug fix: Auto-default invoiceDate/invoiceDueDate/sendToCustomer for /:invoice action
+        if "/:invoice" in path and method == "PUT":
+            if params is None:
+                params = {}
+            if "invoiceDate" not in params:
+                from datetime import date
+                params["invoiceDate"] = date.today().isoformat()
+            if "invoiceDueDate" not in params:
+                from datetime import date, timedelta
+                inv = params.get("invoiceDate", date.today().isoformat())
+                try:
+                    from datetime import datetime as _dt
+                    d = _dt.strptime(inv, "%Y-%m-%d")
+                    params["invoiceDueDate"] = (d + timedelta(days=14)).strftime("%Y-%m-%d")
+                except Exception:
+                    params["invoiceDueDate"] = (date.today() + timedelta(days=14)).isoformat()
+            if "sendToCustomer" not in params:
+                params["sendToCustomer"] = "false"
+
+        # Bug fix: Block POST /customer without name (extraction failure)
+        if "/customer" in path and method == "POST" and body:
+            if not body.get("name"):
+                logger.warning("POST /customer without name — extraction likely failed, skipping call")
+                self._log_call(method, path, 400, False, "name missing — blocked by client")
+                return {"status_code": 400, "ok": False, "data": {"error": "Customer name is required but was not extracted from the task"}}
+
         url = f"{self.base_url}{path}"
         self.call_count += 1
 
