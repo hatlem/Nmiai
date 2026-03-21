@@ -185,11 +185,52 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | 9 | 2026-03-20 | 20:55 | submission_20260320_203746.zip | pseudo + fold4 + fold2, conf=0.05, TTA | 0.9119 | 38.5s. conf=0.05 VERRE enn 0.01 |
 | 10 | 2026-03-20 | 22:49 | submission_20260320_224900.zip | pseudo + **1600px**(0.771) + fold2, conf=**0.001**, TTA | **0.9158** | 42.6s. NY BEST! 1600px + lavere conf hjelper |
 
-### Nåværende status (oppdatert 20. mars 22:55)
-- **Beste score: 0.9158** (submission #10)
-- **Topp 3 leaderboard:** Havvind (0.9200), prompt injection 1678 (0.9199), sf (0.9193)
-- **Oss:** ~4. plass, **gap til topp: 0.004 (4 tusendeler!)**
-- **Submissions igjen:** 1 i dag (resetter 01:00 CET), 6 i morgen, 6 søndag
+### Nåværende status (oppdatert 21. mars 08:15)
+
+#### Samlet konkurranse — Astar Island leaderboard
+- **Rank: #19** med weighted_score=151.2, hot_streak=65.8
+- **Topp 5:** Six Seven (158.1), People Made Machines (157.8), Laurbærene (157.7), Meme Dream Team (157.3), Kult Byrå (156.7)
+- **Gap til topp:** 6.9 poeng (151.2 vs 158.1)
+- **R13 aktiv**, lukkes kl 09:02 CET — agent_v7 kjører
+
+#### Astar Island — Per-runde scores (API: /my-rounds)
+| Runde | Raw Score | Rank | Queries | Agent | Notater |
+|---|---|---|---|---|---|
+| R1 | 55.4 | #23 | 50 | tidlig v1 | Lookup only, ingen calibration |
+| R2 | 76.9 | #35 | 50 | v3? | Bedre, men langt fra topp |
+| R3 | — | — | 0 | MISSING | Ingen submission! |
+| R4 | 78.8 | #35 | 50 | ? | OK |
+| R5 | 67.6 | #68 | 50 | ? | Dårlig — trolig query-bug |
+| R6 | 60.6 | #83 | 50 | ? | Dårlig — trolig query-bug |
+| R7 | 63.2 | #55 | 50 | ? | Dårlig |
+| R8 | 64.8 | #115 | 50 | ? | Vår verste rank! |
+| **R9** | **90.4** | **#29** | 50 | agent_final | Beste runde! |
+| R10 | 59.1 | #133 | 50 | agent_final | Katastrofe — noe gikk galt |
+| **R11** | **88.4** | **#18** | 50 | agent_final | Nest beste |
+| R12 | 50.0 | #71 | 50 | agent_final | Veldig dårlig |
+| R13 | ? | ? | 50 | agent_v7 | v7 submittet lookup, queries allerede brukt av agent_final |
+
+**Mønster:** Veksler mellom gode (88-90) og dårlige (50-65) runder. Bugfixene i v7 skal stabilisere dette.
+
+#### Astar Island — agent_v7 fixes (deployed 21. mars 07:05)
+1. Rate limit: bruker API budget response i stedet for rlCount heuristic
+2. Survival: beregner fra observert grid (var alltid 100% fra metadata)
+3. KT n>=1: adaptive alpha (0.25/0.35/0.5) i stedet for n>=3 cutoff
+4. Port suppression FØR KT blend
+5. Konsentrerte viewports: 1 per seed, gjentatt for sterk KT
+6. SIM_DELAY 350ms (var 280ms)
+
+#### NorgesGruppen — Beste score: 0.9158
+- **Rank:** Ukjent (NorgesGruppen API ikke tilgjengelig via CLI)
+- **Submissions brukt:** 10+ (se tabell under)
+- **Submissions igjen:** 3 per dag, søndag er siste dag
+
+#### Tripletex — Score: 23.4
+- **Rank: #150** av 329 lag
+- **Tasks touched:** 18/30
+- **Submissions:** 152
+- **Tier1: 13.09, Tier2: 10.32, Tier3: 0**
+- **Topp 5:** Ave Christus Rex, Slop Overflow, Propulsion Optimizers, websecured.io, Proof Left to the Reader
 
 ### Hva vi har lært
 | Endring | Effekt | Lærdom |
@@ -208,6 +249,16 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 - **DINOv2 classifier:** Topper på 91% val_acc. Ikke verdt mer investering.
 - **conf=0.05:** Verre enn 0.01. Ikke øk confidence threshold.
 - **Fold-swapping (same arch):** Null effekt. Diversitet krever annen arkitektur/oppløsning/data.
+- **Model Soup (vekt-averaging):** mAP50=0.536 — katastrofalt dårlig. Modeller trent med forskjellige data/aug er ikke kompatible for vekt-averaging.
+- **Sterkere individuelle modeller i ensemble:** pseudo_long(0.781) ga 0.9141 vs fold2(0.749) ga 0.9158. Sterkere ≠ bedre ensemble.
+- **Lengre trening (500ep):** train9 ga 0.761, VERRE enn train8(0.771) med 167ep. Overtrent.
+- **Multi-scale TTA (640+960+1280):** 0.9149 vs 0.9158 med bare 1280+flip. Lavere oppløsninger legger til støy.
+- **Soft-NMS etter WBF:** Ingen forbedring (testet sammen med multi-scale TTA).
+
+### Beste submission: 0.9158
+- **Modeller:** pseudo(0.789) + 1600px(0.771) + fold2(0.749)
+- **Config:** conf=0.001, WBF iou=0.55, TTA=1280+flip ONLY
+- **Fil:** submission_20260320_224900.zip
 
 ### Regler for submission-logging
 - **ALLTID** oppdater tabellen over når en ny submission lages
@@ -268,21 +319,32 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 
 **Max 3 filer × ~110 MB = 330 MB / 420 MB**
 
-### Score-historikk
+### Score-historikk — NorgesGruppen
 
 | Sub | Score | Metode |
 |---|---|---|
 | #1 | 0.476 | YOLOv8x single model |
 | #4 | 0.674 | YOLO26-x + DINOv2 (timeout) |
 | **#8** | **0.914** | **3-modell WBF ensemble + TTA** |
+| **#10** | **0.9158** | **pseudo+1600px+fold2, conf=0.001** |
 | Topp | 0.920 | Havvind |
-| Mål | 0.920+ | Bedre ensemble-kombinasjon |
 
-### Neste steg
-1. ⏳ Vent ~30 min til fold 3 ferdig + pseudo trener videre
-2. 🔜 Test lokalt: hvilken 3-modell kombinasjon gir best eval
-3. 🔜 Submit beste ensemble
-4. 💡 Mulig: tune WBF iou_thr, confidence threshold, TTA scales
+### Neste steg (oppdatert 21. mars 08:15)
+
+**Astar Island (høyest prioritet — mest å hente):**
+1. Overvåk agent_v7 på R14+ — target: 88+ raw konsistent
+2. Hvis v7 fikser ustabiliteten: weighted_score stiger raskt (dårlige runder trekker oss ned)
+3. Mulig forbedring: legg til ground truth fra R9/R11 (våre beste) i gt_lookup.json
+
+**NorgesGruppen:**
+1. Beste: 0.9158, nær toppen (0.920)
+2. Sjekk om nye modeller er ferdigtrent på GCP
+3. 3 submissions per dag — bruk dem klokt
+
+**Tripletex:**
+1. #150 — langt bak, men tier-multipliers gir stor oppside
+2. Fokuser på tier 2/3 tasks for å øke score
+3. Cloud Run agent kjører allerede
 
 ## MCP Docs Server
 ```
