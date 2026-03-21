@@ -172,7 +172,7 @@ EFFICIENCY (you have 290 seconds total):
 ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
 - /orderline (orderLines go IN POST /order body, NOT as separate endpoint)
-- POST /supplierInvoice (ALWAYS returns 500 on ALL sandboxes — use POST /ledger/voucher with supplier ref instead. NEVER try /supplierInvoice)
+- POST /supplierInvoice may return 500 — TRY it first, if 500 fall back to POST /ledger/voucher with supplier ref
 - PUT /company/modules (returns 405)
 - PUT /salary/payslip/ID (returns 405 — payslips are READ-ONLY after creation)
 - PUT /salary/transaction/ID (returns 405 — transactions are READ-ONLY)

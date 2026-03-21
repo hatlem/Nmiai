@@ -58,8 +58,11 @@ TOOL_AGENT_SIGNALS = [
     ("bankutskrift",), ("kontoutskrift",), ("bank statement",),
     ("extracto bancario",), ("extrait bancaire",), ("kontoauszug",),
     ("csv",), ("vedlagt csv",), ("attached csv",),
-    # Complex multi-step
-    ("vencida", "lembrete"), ("vencida", "parcial"),  # overdue + reminder/partial
+    # Complex multi-step (overdue + reminder/partial payment in all languages)
+    ("vencida", "lembrete"), ("vencida", "parcial"),
+    ("overdue",), ("forfalt",), ("überfällig",), ("vencida",), ("impayé",), ("en mora",),
+    ("reminder fee",), ("purregebyr",), ("partial payment",), ("delbetaling",), ("delbetalinger",),
+    ("Mahngebühr",), ("tasa de recordatorio",), ("frais de rappel",),
     ("tipo de cambio",), ("valutakurs",), ("exchange rate",), ("agio",),
     # Contract PDF
     ("arbeidskontrakt",), ("employment contract",), ("contrato de trabajo",),
