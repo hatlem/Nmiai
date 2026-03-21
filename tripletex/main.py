@@ -92,6 +92,9 @@ TOOL_AGENT_SIGNALS = [
     ("budget", "hours", "invoice"), ("budsjett", "timer", "faktura"),
     # Complex voucher tasks (multiple postings, calculations)
     ("beregn",), ("calcule",), ("calculate",), ("berechne",),
+    # Reverse payment (complex multi-step: create→invoice→pay→find voucher→reverse)
+    ("reverser",), ("reverse",), ("stornieren",), ("zurückgebucht",), ("zuruckgebucht",),
+    ("returnert",), ("returned",), ("retourné",), ("devuelto",), ("devolvido",),
 ]
 
 async def _create_products_from_plan(plan: dict, client) -> None:

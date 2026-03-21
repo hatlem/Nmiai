@@ -62,27 +62,37 @@ class TripletexClient:
         if isinstance(val, (int, float)):
             body["paymentType"] = {"id": int(val)}
         # vatType must be {"id": X}, not a bare number
+        # LLM sometimes sends VAT percentages (25, 15) instead of vatType IDs
+        _VAT_PCT_TO_NUMBER = {25: 3, 15: 5, 10: 4, 12: 6, 6: 6, 8: 7}
+        def _fix_vat_value(v):
+            """Convert bare vatType (int/str) to {"id": X}, mapping percentages to IDs."""
+            if isinstance(v, (int, float)):
+                n = int(v)
+                return {"id": _VAT_PCT_TO_NUMBER.get(n, n)}
+            elif isinstance(v, str) and v.isdigit():
+                n = int(v)
+                return {"id": _VAT_PCT_TO_NUMBER.get(n, n)}
+            return v
+
         val = body.get("vatType")
-        if isinstance(val, (int, float)):
-            body["vatType"] = {"id": int(val)}
-        elif isinstance(val, str) and val.isdigit():
-            body["vatType"] = {"id": int(val)}
+        if isinstance(val, (int, float, str)) and not isinstance(val, dict):
+            body["vatType"] = _fix_vat_value(val)
         # Fix vatType in nested orderLines
         for line in body.get("orderLines", []):
             if isinstance(line, dict):
                 vt = line.get("vatType")
                 if isinstance(vt, (int, float)):
-                    line["vatType"] = {"id": int(vt)}
+                    line["vatType"] = _fix_vat_value(vt)
                 elif isinstance(vt, str) and vt.isdigit():
-                    line["vatType"] = {"id": int(vt)}
+                    line["vatType"] = _fix_vat_value(vt)
         # Fix vatType in nested postings
         for posting in body.get("postings", []):
             if isinstance(posting, dict):
                 vt = posting.get("vatType")
                 if isinstance(vt, (int, float)):
-                    posting["vatType"] = {"id": int(vt)}
+                    posting["vatType"] = _fix_vat_value(vt)
                 elif isinstance(vt, str) and vt.isdigit():
-                    posting["vatType"] = {"id": int(vt)}
+                    posting["vatType"] = _fix_vat_value(vt)
         # Bug fix 1: Auto-convert postings amount fields from string to number
         if "postings" in body and isinstance(body["postings"], list):
             for posting in body["postings"]:
@@ -349,7 +359,10 @@ class TripletexClient:
                 num = vt.get("number")
                 vid = vt.get("id")
                 if num is not None and vid is not None:
-                    self.vat_number_to_id[int(num)] = int(vid)
+                    try:
+                        self.vat_number_to_id[int(num)] = int(vid)
+                    except (ValueError, TypeError):
+                        pass  # Skip non-numeric vatType numbers like "UT-2"
             logger.info(f"Resolved {len(self.vat_number_to_id)} vatType mappings: {self.vat_number_to_id}")
         else:
             logger.warning(f"Failed to fetch vatTypes: {resp}")
