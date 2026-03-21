@@ -855,18 +855,12 @@ async def tool_agent_solve(
 ) -> bool:
     """Run the tool-use agent. Returns True if task completed without errors."""
 
-    model_name = "gemini-3.1-pro-preview"
-    location = "global"
-    try:
-        vertexai.init(project="ainm26osl-710", location="global")
-        model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
-        logger.info(f"Tool agent trying {model_name} ({location})")
-    except Exception as e:
-        logger.warning(f"Failed to init {model_name}: {e}, falling back to 2.5-pro")
-        model_name = "gemini-2.5-pro"
-        location = "europe-north1"
-        vertexai.init(project="ainm26osl-710", location=location)
-        model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
+    # Use 2.5 Pro directly — 3.1 Pro is too slow for function calling (60s/turn = timeout)
+    model_name = "gemini-2.5-pro"
+    location = "europe-north1"
+    vertexai.init(project="ainm26osl-710", location=location)
+    model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
+    logger.info(f"Tool agent using {model_name} ({location})")
 
     # Build initial user message
     parts = []
@@ -901,15 +895,6 @@ async def tool_agent_solve(
             )
         except asyncio.TimeoutError:
             logger.error(f"Tool agent: LLM timeout at turn {turn} ({model_name})")
-            if model_name == "gemini-3.1-pro-preview" and turn <= 2:
-                model_name = "gemini-2.5-pro"
-                location = "europe-north1"
-                vertexai.init(project="ainm26osl-710", location=location)
-                model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
-                logger.info(f"Falling back to {model_name} ({location})")
-                chat = model.start_chat()
-                parts = user_parts  # Reset to original user message
-                continue
             had_errors = True
             break
         except Exception as e:
