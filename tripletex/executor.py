@@ -590,6 +590,21 @@ async def _execute_step(
             logger.error(f"Step {idx} fallback exception: {e2}")
             response = {"status_code": 0, "ok": False, "data": {"error": str(e2)}}
 
+    # Handle vatType lock errors: retry with vatType 0 on affected postings
+    if response.get("status_code") == 422 and body and "postings" in body:
+        error_data = response.get("data", {})
+        msgs = error_data.get("validationMessages", [])
+        has_vat_lock = any("låst til mva-kode" in (m.get("message", "") or "").lower() for m in msgs)
+        if has_vat_lock:
+            logger.warning(f"Step {idx}: vatType lock detected, retrying ALL postings with vatType 0")
+            for posting in body.get("postings", []):
+                if isinstance(posting, dict):
+                    posting["vatType"] = {"id": 0}
+            try:
+                response = await client.request(method, path, body=body, params=params)
+            except Exception:
+                pass
+
     # Handle "already exists" 422 errors by searching for the existing entity
     if method == "POST" and response.get("status_code") == 422:
         error_data = response.get("data", {})
