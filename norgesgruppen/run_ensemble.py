@@ -55,13 +55,13 @@ SOFT_NMS_SIGMA = 0.5
 SOFT_NMS_SCORE_THR = 0.001
 # Temperature scaling: sharpen confidence scores for better mAP ranking
 # T < 1.0 = sharper (more confident), T > 1.0 = softer
-TEMPERATURE = 0.7  # Research: sharpening helps classification mAP
+TEMPERATURE = 1.0  # Disabled - caused NaN in sandbox  # Research: sharpening helps classification mAP
 
 
 def load_models(model_dir: Path):
     """Load all available ONNX multi-class detectors."""
     models = []
-    names = ["pseudo_best.onnx", "yolov8x_best.onnx", "yolo11x_best.onnx",
+    names = ["pseudo_best.onnx", "yolo11x_best.onnx", "img1600_best.onnx",
              "fold0_best.onnx", "fold1_best.onnx", "best.onnx"]
 
     for name in names:

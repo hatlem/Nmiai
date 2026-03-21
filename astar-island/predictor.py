@@ -376,15 +376,15 @@ def predict_all(
                 n = n_obs[y, x]
                 if n >= 1:
                     # KT estimator with informative prior.
-                    # n=1: weak signal but still one MC sample. Use higher
-                    # prior strength so base_pred dominates.
-                    # n=2+: progressively trust observations more.
+                    # Prior strength = effective pseudo-counts from base_pred.
+                    # With n₀=5 (empirical Bayes), data should dominate quickly.
+                    # Settlement/port cells are most variable → lower strength.
                     if n == 1:
-                        strength = 8.0 if ic in (1, 2) else 10.0
+                        strength = 4.0 if ic in (1, 2) else 6.0
                     else:
-                        strength = 3.5 if ic in (1, 2) else 5.0
+                        strength = 2.0 if ic in (1, 2) else 3.5
                     if sd > 6:
-                        strength = max(strength, 6.0)
+                        strength = max(strength, 4.0)
                     kt_pred = (cell_counts[y, x] + base_pred * strength) / (n + strength)
                     kt_weight = n / (n + strength)
                     pred[y, x] = kt_weight * kt_pred + (1 - kt_weight) * base_pred

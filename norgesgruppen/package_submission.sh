@@ -89,7 +89,7 @@ elif [ "$MODE" = "ensemble" ]; then
     cp src/onnx_detector.py submission_pkg/src/
     echo "  Included: src/onnx_detector.py"
 
-    for f in "pseudo_best.onnx" "yolov8x_best.onnx" "yolo11x_best.onnx"; do
+    for f in "pseudo_best.onnx" "yolo11x_best.onnx" "img1600_best.onnx"; do
         if [ -f "$f" ]; then
             cp "$f" submission_pkg/
             echo "  Included: $f"
