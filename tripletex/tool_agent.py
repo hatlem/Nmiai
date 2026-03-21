@@ -179,6 +179,9 @@ MANDATORY FIELD RULES (violating these = instant 422):
 - GET /ledger/voucher: MUST include dateFrom AND dateTo params (both required). dateTo must be AFTER dateFrom (not same day! use dateFrom=2026-03-20&dateTo=2026-03-21)
 - Voucher postings: row starts from 1, MUST include amountGrossCurrency AND vatType
 - ProjectHourlyRate: rate field is "fixedRate" (NOT hourlyRate). hourlyRateModel is a string like "TYPE_FIXED_HOURLY_RATE"
+- orderLine.vatType MUST be an object {{"id": N}}, NOT a bare number. Common IDs: 3=25% outgoing, 33=15% food, 5=0% exempt
+- NEVER PUT /activity — activities are read-only. Use GET /activity to find existing ones, don't try to modify them.
+- If timesheet date < project startDate, PUT /project to change startDate (NOT PUT /activity)
 """
 
 # ── API Guides (on-demand knowledge) ────────────────────────────────
@@ -223,7 +226,7 @@ POST /employee/employment {"employee":{{"id":X}}, "startDate":"2026-01-01"}
     "invoice": """\
 ## Invoice (faktura) — Create via Order
 1. POST /customer (if new) — see get_api_guide("customer")
-2. POST /order {"customer":{{"id":X}}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"Item", "count":1, "unitPriceExcludingVatCurrency":1000}]}
+2. POST /order {"customer":{{"id":X}}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"Item", "count":1, "unitPriceExcludingVatCurrency":1000, "vatType":{{"id":3}}}]}
    - BOTH orderDate AND deliveryDate are REQUIRED
    - deliveryDate defaults to orderDate if not specified in task
 3. PUT /order/ORDER_ID/:invoice?sendToCustomer=false&invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD
@@ -420,7 +423,8 @@ PUT /invoice/ID/:send?sendType=EMAIL
 IMPORTANT: The invoice amount = hours x hourlyRate. Calculate this from the prompt values.
 FORBIDDEN on /timesheet/entry: description, title, name, type — use "comment" instead.
 Activity MUST have isProjectActivity=true.
-If timesheet date < project startDate, adjust project startDate first via PUT /project.
+NEVER PUT /activity — activities are read-only (403 Forbidden). Only GET /activity to find existing ones.
+If timesheet date < project startDate, PUT /project to change startDate (NOT PUT /activity).
 """,
 
     "salary": """\

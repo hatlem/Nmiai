@@ -589,7 +589,8 @@ async def _execute_step(
             search_params = {"fields": entity_fields}
             search_key = None
             # For products, prioritize "number" (unique product number) over "name"
-            if path.rstrip("/") == "/product" or path.startswith("/product/"):
+            is_product = path.rstrip("/") == "/product" or path.startswith("/product/")
+            if is_product:
                 search_order = ("number", "name", "email", "organizationNumber", "firstName")
             else:
                 search_order = ("name", "email", "organizationNumber", "number", "firstName")
@@ -598,6 +599,10 @@ async def _execute_step(
                     search_key = key
                     search_params[key] = str(body[key])
                     break
+            # For products: if no search key found yet, try productNumber alias
+            if is_product and search_key is None and "productNumber" in body and body["productNumber"]:
+                search_key = "number"
+                search_params["number"] = str(body["productNumber"])
             if search_key:
                 try:
                     search_resp = await client.request("GET", path, params=search_params)

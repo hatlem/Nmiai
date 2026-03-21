@@ -61,6 +61,28 @@ class TripletexClient:
         val = body.get("paymentType")
         if isinstance(val, (int, float)):
             body["paymentType"] = {"id": int(val)}
+        # vatType must be {"id": X}, not a bare number
+        val = body.get("vatType")
+        if isinstance(val, (int, float)):
+            body["vatType"] = {"id": int(val)}
+        elif isinstance(val, str) and val.isdigit():
+            body["vatType"] = {"id": int(val)}
+        # Fix vatType in nested orderLines
+        for line in body.get("orderLines", []):
+            if isinstance(line, dict):
+                vt = line.get("vatType")
+                if isinstance(vt, (int, float)):
+                    line["vatType"] = {"id": int(vt)}
+                elif isinstance(vt, str) and vt.isdigit():
+                    line["vatType"] = {"id": int(vt)}
+        # Fix vatType in nested postings
+        for posting in body.get("postings", []):
+            if isinstance(posting, dict):
+                vt = posting.get("vatType")
+                if isinstance(vt, (int, float)):
+                    posting["vatType"] = {"id": int(vt)}
+                elif isinstance(vt, str) and vt.isdigit():
+                    posting["vatType"] = {"id": int(vt)}
         return body
 
     async def request(
