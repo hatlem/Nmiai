@@ -504,6 +504,9 @@ Each posting needs:
      ]}}
 5. If /supplierInvoice returns 500: FALL BACK to POST /ledger/voucher with same postings
 
+CRITICAL: Each posting in the voucher MUST include supplier: {"id": SUPPLIER_ID}
+Without supplier reference, you get "Leverandør mangler" error.
+
 DO NOT include: orderDate, deliveryDate, dueDate (cause 422)
 amountGross = GROSS amount (including VAT). Tripletex calculates VAT automatically.
 

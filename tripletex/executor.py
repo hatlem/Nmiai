@@ -414,7 +414,7 @@ _ENTITLEMENT_NORMALIZE = {
 }
 
 
-def _pre_validate_params(params: dict | None) -> dict | None:
+def _pre_validate_params(params: dict | None, path: str = "") -> dict | None:
     """Clean query params - ensure proper types."""
     if params is None:
         return None
@@ -449,13 +449,20 @@ def _pre_validate_params(params: dict | None) -> dict | None:
             if v not in ("EMAIL", "SMS", "OWN_PRINTER", "NETS_PRINT", "SFTP", "API", "LETTER"):
                 v = "EMAIL"
         cleaned[k] = v
-    # Fix wrong param names for reminders
-    for wrong in ("sendType", "sendTypes", "sendMethod", "selectedReminderSendTypes"):
-        if wrong in cleaned and "dispatchType" not in cleaned:
-            cleaned["dispatchType"] = cleaned.pop(wrong)
-            logger.info(f"Pre-validate params: renamed '{wrong}' -> 'dispatchType'")
-        elif wrong in cleaned:
-            del cleaned[wrong]
+    # /:send uses sendType, /:createReminder uses dispatchType — don't mix them up
+    if "/:send" in path:
+        # For /:send, ensure sendType is used (not dispatchType)
+        if "dispatchType" in cleaned and "sendType" not in cleaned:
+            cleaned["sendType"] = cleaned.pop("dispatchType")
+            logger.info("Pre-validate params: renamed 'dispatchType' -> 'sendType' for /:send")
+    else:
+        # Fix wrong param names for reminders
+        for wrong in ("sendType", "sendTypes", "sendMethod", "selectedReminderSendTypes"):
+            if wrong in cleaned and "dispatchType" not in cleaned:
+                cleaned["dispatchType"] = cleaned.pop(wrong)
+                logger.info(f"Pre-validate params: renamed '{wrong}' -> 'dispatchType'")
+            elif wrong in cleaned:
+                del cleaned[wrong]
     return cleaned
 
 
@@ -502,7 +509,7 @@ async def _execute_step(
     if body:
         body = _pre_validate_body(method, path, body, params)
     if params:
-        params = _pre_validate_params(params)
+        params = _pre_validate_params(params, path)
 
     # Log body for POST/PUT to help debug 422 errors
     if method in ("POST", "PUT") and body:

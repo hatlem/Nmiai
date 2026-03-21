@@ -51,6 +51,8 @@ Rules:
 - Output ONLY a valid JSON object. No markdown fences, no explanation.
 - Keys must match field names above exactly.
 - Dates as YYYY-MM-DD. "today" or unspecified = {date.today().isoformat()}.
+- ALL amounts MUST be numbers (e.g. 42100, not "-" or "null"). If you cannot determine the exact amount, use 0.
+- For voucher postings: ALWAYS include numeric amountGross on EVERY posting. Never use "-" or empty string.
 - Amounts as numbers (1500.00 not "1500.00"). Never calculate VAT yourself.
 - "ekskl. mva" -> use amount as priceExcludingVatCurrency. "inkl. mva" -> priceIncludingVatCurrency.
 - Booleans as true/false.
