@@ -160,13 +160,15 @@ CRITICAL UNIVERSAL RULES:
 STRATEGY:
 1. Parse the task to understand what entity types are involved
 2. Call get_api_guide ONCE for the main entity type — don't call it for every sub-entity
-3. For tasks with PDF/image attachments: The file content is provided as base64 in the request. The LLM can read it directly. Extract EVERY piece of data: names, numbers, dates, amounts, account numbers, department names, salary details.
-4. For analysis tasks: query existing data via GET endpoints before creating new entities
-5. Create prerequisites first (customer before invoice, accounts before voucher)
-6. Call MULTIPLE tools in a single turn when they are independent (e.g. GET department + GET employee can be parallel)
-7. If a call fails, read the error and adapt — NEVER repeat the same failing call
-8. When done, stop IMMEDIATELY — no verification calls, no summaries
-9. After the last required write call, STOP. Do not verify, summarize, or make extra calls.
+3. Do NOT call get_api_guide or get_api_schema more than ONCE per task. If you already called it, use the info you got.
+4. Plan ALL your API calls upfront before making the first one. Don't explore — execute.
+5. For tasks with PDF/image attachments: The file content is provided as base64 in the request. The LLM can read it directly. Extract EVERY piece of data: names, numbers, dates, amounts, account numbers, department names, salary details.
+6. For analysis tasks: query existing data via GET endpoints before creating new entities
+7. Create prerequisites first (customer before invoice, accounts before voucher)
+8. Call MULTIPLE tools in a single turn when they are independent (e.g. GET department + GET employee can be parallel)
+9. If a call fails, read the error and adapt — NEVER repeat the same failing call
+10. When done, stop IMMEDIATELY — no verification calls, no summaries
+11. After the last required write call, STOP. Do not verify, summarize, or make extra calls.
 
 EFFICIENCY (you have 290 seconds total):
 - GET requests are FREE — they don't count toward efficiency score. Read as much as you need!
@@ -192,6 +194,7 @@ ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - Account 3400: vatType MUST be 0 (locked to "Ingen avgiftsbehandling"), NOT 1 or 3
 - PUT /invoice/ID/:send MUST include sendType param (e.g. sendType=EMAIL)
 - GET /currency: fields are id, code, description, displayName, factor (NOT name — causes 400)
+- Employment lookup: GET /employee/employment?employeeId=ID (NOT /employee/ID/employment)
 
 MANDATORY FIELD RULES (violating these = instant 422):
 - Product: field is "number" (NOT productNumber, NOT productNo)
@@ -720,6 +723,9 @@ CRITICAL: Invoice amount must be MANUALLY CALCULATED:
     "employment_details": """\
 ## Employment Details (salary, working hours, position)
 For tasks like "Configure employment with salary and working hours":
+
+CRITICAL: Employment URL is GET /employee/employment?employeeId=ID
+NOT GET /employee/ID/employment (returns 404!)
 
 Employment details are on a SEPARATE endpoint from basic employment:
 POST /employee/employment/details {{"employment":{{"id":EMPLOYMENT_ID}}, "date":"YYYY-MM-DD", "annualSalary":AMOUNT, "percentageOfFullTimeEquivalent":1.0}}

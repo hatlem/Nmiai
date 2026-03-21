@@ -686,5 +686,56 @@
   "employmentDetails": "array",
   "isRemoveAccessAtEmploymentEnded": "boolean",
   "latestSalary": "EmploymentDetails"
+ },
+ "EmploymentDetails": {
+  "id": "integer",
+  "version": "integer",
+  "employment": "Employment",
+  "date": "string",
+  "employmentType": "integer",
+  "remunerationType": "integer",
+  "workingHoursScheme": "integer",
+  "occupationCode": "integer",
+  "percentageOfFullTimeEquivalent": "number",
+  "annualSalary": "number",
+  "hourlyWage": "number"
+ },
+ "TimesheetEntry": {
+  "id": "integer",
+  "version": "integer",
+  "employee": "Employee",
+  "project": "Project",
+  "activity": "Activity",
+  "date": "string",
+  "hours": "number",
+  "comment": "string"
+ },
+ "Activity": {
+  "id": "integer",
+  "version": "integer",
+  "name": "string",
+  "number": "string",
+  "isProjectActivity": "boolean",
+  "isGeneral": "boolean",
+  "isChargeable": "boolean",
+  "isInactive": "boolean"
+ },
+ "TravelExpenseCost": {
+  "id": "integer",
+  "travelExpense": "TravelExpense",
+  "vatType": "VatType",
+  "paymentType": "TravelPaymentType",
+  "costCategory": "TravelCostCategory",
+  "amountCurrencyIncVat": "number",
+  "date": "string",
+  "comments": "string"
+ },
+ "Currency": {
+  "id": "integer",
+  "code": "string",
+  "description": "string",
+  "displayName": "string",
+  "factor": "number",
+  "isDisabled": "boolean"
  }
 }
