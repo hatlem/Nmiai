@@ -862,8 +862,9 @@ async def tool_agent_solve(
 ) -> bool:
     """Run the tool-use agent. Returns True if task completed without errors."""
 
-    # Use 2.5 Pro directly — 3.1 Pro is too slow for function calling (60s/turn = timeout)
-    model_name = "gemini-2.5-pro"
+    # Use Flash for speed — Pro is too slow (15-20s/turn = timeout on complex tasks)
+    # Flash: 2-5s/turn, handles API routing fine, gives us 5x more turns in same budget
+    model_name = "gemini-2.5-flash"
     location = "europe-north1"
     vertexai.init(project="ainm26osl-710", location=location)
     model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
@@ -889,6 +890,10 @@ async def tool_agent_solve(
         remaining = deadline - time.monotonic()
         if remaining < DEADLINE_BUFFER:
             logger.warning(f"Tool agent: deadline approaching ({remaining:.0f}s), stopping at turn {turn}")
+            break
+        # Hard limit: stop after 20 API calls to prevent runaway loops
+        if client.call_count > 20:
+            logger.warning(f"Tool agent: hard limit — {client.call_count} API calls, stopping at turn {turn}")
             break
 
         # Send message to LLM
