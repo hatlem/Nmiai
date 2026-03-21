@@ -68,6 +68,11 @@ TOOL_AGENT_SIGNALS = [
     ("overdue",), ("forfalt",), ("überfällig",), ("vencida",), ("impayé",), ("en mora",),
     ("reminder fee",), ("purregebyr",), ("partial payment",), ("delbetaling",), ("delbetalinger",),
     ("Mahngebühr",), ("tasa de recordatorio",), ("frais de rappel",),
+    ("inkasso",), ("forsinkelsesrente",), ("late fee",),
+    ("teilzahlung",), ("paiement partiel",), ("pago parcial",), ("pagamento parcial",),
+    # Overdue invoice + reminder combo (need full flow, not just reminder template)
+    ("purring", "faktura"), ("purregebyr", "faktura"), ("reminder", "invoice"),
+    ("purring", "forfalt"), ("reminder", "overdue"),
     ("tipo de cambio",), ("valutakurs",), ("exchange rate",), ("agio",),
     # Contract PDF
     ("arbeidskontrakt",), ("employment contract",), ("contrato de trabajo",),
@@ -356,6 +361,16 @@ async def solve(request: Request):
         client.error_count = 0
 
         # ══════════════════════════════════════════════════════════
+        # TIER 0: Keyword-based routing to tool agent for complex tasks
+        #   - Overdue, reminder, partial payment, supplier invoice, etc.
+        #   - These are too complex for simple templates
+        # ══════════════════════════════════════════════════════════
+
+        force_tool_agent = _should_use_tool_agent(prompt)
+        if force_tool_agent:
+            logger.info(f"Keyword match → routing directly to tool agent")
+
+        # ══════════════════════════════════════════════════════════
         # TIER 1: Template path (fast, 1-10s, no tool agent needed)
         #   - Classify + extract with LLM (1 call)
         #   - Build plan from template (no LLM)
@@ -363,9 +378,12 @@ async def solve(request: Request):
         #   - If fails: tool agent fallback with FRESH client
         # ══════════════════════════════════════════════════════════
 
-        plan = await create_plan(prompt, files)
+        if force_tool_agent:
+            plan = {"task_type": "tool_agent", "steps": []}
+        else:
+            plan = await create_plan(prompt, files)
         task_type = plan.get("task_type", "unknown")
-        has_template = task_type != "unknown" and len(plan.get("steps", [])) > 0
+        has_template = task_type != "unknown" and task_type != "tool_agent" and len(plan.get("steps", [])) > 0
         logger.info(f"Classify: {task_type} (conf={plan.get('classification_confidence', 0):.2f}, steps={len(plan.get('steps', []))})")
 
         if has_template:

@@ -526,6 +526,7 @@ def _expand_dimension_steps(steps: list[dict], values: dict) -> list[dict]:
         return steps
 
     # Build new steps: replace single dimval step with N steps
+    # dimensionIndex references step 0 (POST /ledger/accountingDimensionName) response's number field
     new_steps = steps[:dimval_idx]
     for dv in dim_values:
         name = dv if isinstance(dv, str) else str(dv)
@@ -534,7 +535,7 @@ def _expand_dimension_steps(steps: list[dict], values: dict) -> list[dict]:
             "path": "/ledger/accountingDimensionValue",
             "body": {
                 "displayName": name,
-                "dimensionIndex": 1,
+                "dimensionIndex": "$step_0.number",
             },
         })
 
@@ -874,6 +875,24 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
 
     elif task_type == "create_dimensions_voucher" and isinstance(values.get("dimension_values"), list):
         steps = _expand_dimension_steps(steps, values)
+
+    # reverse_voucher: if voucher_id is known, skip the search step and reverse directly
+    if task_type == "reverse_voucher" and values.get("voucher_id"):
+        vid = values["voucher_id"]
+        steps = [
+            {
+                "method": "PUT",
+                "path": f"/ledger/voucher/{vid}/:reverse",
+                "params": {"date": "{{date}}"},
+            },
+        ]
+    elif task_type == "reverse_voucher":
+        # Ensure dateFrom/dateTo have defaults for the voucher search
+        from datetime import date as _date, timedelta
+        if "dateFrom" not in values:
+            values["dateFrom"] = (_date.today() - timedelta(days=30)).isoformat()
+        if "dateTo" not in values:
+            values["dateTo"] = (_date.today() + timedelta(days=1)).isoformat()
 
     # Apply conditional steps BEFORE travel cost expansion
     # (travel cost step is in conditional_steps, needs to be in steps first)

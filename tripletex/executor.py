@@ -269,6 +269,9 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
     # Strip known-invalid fields for specific endpoints
     for endpoint_pattern, bad_fields in _ENDPOINT_INVALID_FIELDS.items():
         if endpoint_pattern in path:
+            # /employee/employment fields are valid on /employee/employment/details
+            if endpoint_pattern == "/employee/employment" and "/employment/details" in path:
+                continue
             for bf in bad_fields:
                 if bf in body:
                     logger.warning(f"Pre-validate: stripping invalid field '{bf}' from {path}")
@@ -363,10 +366,8 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
 
     # Strip fields that don't exist on certain endpoints
     if isinstance(path, str):
-        if "/supplierInvoice" in path and "/orderline" not in path.lower():
-            for bad_field in ("orderDate", "deliveryDate", "dueDate", "orderLines"):
-                cleaned.pop(bad_field, None)
-        if "/employee/employment" in path:
+        if "/employee/employment" in path and "/employment/details" not in path:
+            # These fields are invalid on /employee/employment but VALID on /employee/employment/details
             for bad_field in ("userType", "employmentType", "percentageOfFullTimeEquivalent", "type", "role", "department", "email"):
                 if bad_field in cleaned:
                     logger.warning(f"Pre-validate: stripping '{bad_field}' from /employee/employment")
@@ -397,6 +398,12 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
             pass
     if "invoiceDate" in cleaned and "orderDate" not in cleaned:
         cleaned["orderDate"] = cleaned["invoiceDate"]
+
+    # Strip fields invalid for POST /supplierInvoice (must run AFTER date defaults above)
+    if isinstance(path, str) and "/supplierInvoice" in path and "/orderline" not in path.lower():
+        for bad_field in ("orderDate", "deliveryDate", "dueDate", "invoiceDueDate",
+                          "amount", "amountCurrency", "orderLines"):
+            cleaned.pop(bad_field, None)
 
     return cleaned
 

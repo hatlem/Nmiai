@@ -145,6 +145,12 @@ class TripletexClient:
             for bad in ("position", "title", "jobTitle", "role", "userType"):
                 body.pop(bad, None)
 
+        # Fix: Strip fields that cause 500 on POST /supplierInvoice
+        if "/supplierInvoice" in path and "/orderline" not in path.lower():
+            for bad in ("orderDate", "deliveryDate", "dueDate", "invoiceDueDate",
+                        "amount", "amountCurrency", "orderLines"):
+                body.pop(bad, None)
+
         return body
 
     async def request(

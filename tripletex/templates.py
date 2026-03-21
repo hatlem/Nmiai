@@ -770,15 +770,29 @@ TEMPLATES: dict[str, dict] = {
     },
 
     "reverse_voucher": {
-        "description": "Reverse a voucher",
+        "description": (
+            "Reverse a voucher. If voucher_id is known, reverse directly. "
+            "If only a description is given, search for it first via GET /ledger/voucher."
+        ),
         "relevant_schemas": ["Voucher"],
-        "extract_fields": ["voucher_id", "date"],
-        "optimal_calls": 1,
+        "extract_fields": ["voucher_id", "voucher_description", "date", "dateFrom", "dateTo"],
+        "optimal_calls": 2,
         "steps": [
             {
+                "method": "GET",
+                "path": "/ledger/voucher",
+                "params": {
+                    "dateFrom": "{{dateFrom}}",
+                    "dateTo": "{{dateTo}}",
+                    "fields": "id,date,description,number",
+                },
+                "note": "Search for the voucher. dateFrom/dateTo are required params. Use dates from prompt context.",
+            },
+            {
                 "method": "PUT",
-                "path": "/ledger/voucher/{{voucher_id}}/:reverse",
+                "path": "/ledger/voucher/$step_0.values[-1].id/:reverse",
                 "params": {"date": "{{date}}"},
+                "note": "Reverse the found voucher. If voucher_id was extracted, template_engine overrides the path.",
             },
         ],
     },
@@ -1213,21 +1227,16 @@ TEMPLATES: dict[str, dict] = {
 
     "create_employment": {
         "description": (
-            "Create or update employment details for an employee (ansettelsesforhold).\n"
-            "VALID POST /employee/employment body fields: employee (required), startDate (required), endDate (optional), division (optional), employmentDetails (optional).\n"
-            "FORBIDDEN FIELDS that cause 422 'Feltet eksisterer ikke':\n"
-            "  - employmentType (DOES NOT EXIST)\n"
-            "  - percentageOfFullTimeEquivalent (DOES NOT EXIST)\n"
-            "  - userType (DOES NOT EXIST — this is an Employee field, NOT an Employment field)\n"
-            "  - type (DOES NOT EXIST)\n"
-            "  - jobTitle (DOES NOT EXIST)\n"
-            "Do NOT include ANY of these fields. The body must contain ONLY the valid fields listed above.\n"
-            "Employee MUST have dateOfBirth set before employment can be created. If dateOfBirth is null, "
-            "PUT /employee to set it (use date from prompt or default 1990-01-01) BEFORE creating employment."
+            "Create employment + employment details for an employee (ansettelsesforhold).\n"
+            "Step 1: GET employee. Step 2: PUT employee (set dateOfBirth). "
+            "Step 3: POST /employee/employment (creates employment record). "
+            "Step 4: POST /employee/employment/details (sets percentage, salary, occupation code etc.).\n"
+            "Employment and employment/details are SEPARATE endpoints!\n"
+            "Employee MUST have dateOfBirth set before employment can be created."
         ),
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["search_firstName", "search_lastName", "startDate", "dateOfBirth"],
-        "optimal_calls": 3,
+        "extract_fields": ["search_firstName", "search_lastName", "startDate", "dateOfBirth", "percentageOfFullTimeEquivalent", "annualSalary", "occupationCode"],
+        "optimal_calls": 4,
         "steps": [
             {
                 "method": "GET",
@@ -1242,7 +1251,7 @@ TEMPLATES: dict[str, dict] = {
                     "version": "$step_0.values[0].version",
                     "dateOfBirth": "{{dateOfBirth}}",
                 },
-                "note": "Set dateOfBirth if missing. Use date from prompt or default 1990-01-01. Skip if already set.",
+                "note": "Set dateOfBirth if missing. Use date from prompt or default 1990-01-01.",
             },
             {
                 "method": "POST",
@@ -1251,7 +1260,19 @@ TEMPLATES: dict[str, dict] = {
                     "employee": {"id": "$step_0.values[0].id"},
                     "startDate": "{{startDate}}",
                 },
-                "note": "ONLY employee.id and startDate are valid. Do NOT add employmentType, percentageOfFullTimeEquivalent, userType, or type — they cause 422.",
+                "note": "Creates the employment record. ONLY employee.id and startDate are valid here.",
+            },
+            {
+                "method": "POST",
+                "path": "/employee/employment/details",
+                "body": {
+                    "employment": {"id": "$step_2.id"},
+                    "date": "{{startDate}}",
+                    "percentageOfFullTimeEquivalent": "{{percentageOfFullTimeEquivalent}}",
+                    "annualSalary": "{{annualSalary}}",
+                    "occupationCode": "{{occupationCode}}",
+                },
+                "note": "Sets employment details like percentage, salary, occupation code. Separate endpoint from /employee/employment.",
             },
         ],
     },
@@ -1548,7 +1569,7 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/ledger/accountingDimensionValue",
                 "body": {
                     "displayName": "{{first_dimension_value}}",
-                    "dimensionIndex": 1,
+                    "dimensionIndex": "$step_0.number",
                 },
             },
             {
@@ -1719,9 +1740,9 @@ TEMPLATES: dict[str, dict] = {
                 "params": {
                     "dateFrom": "{{paymentDate}}",
                     "dateTo": "{{paymentDatePlusOne}}",
-                    "fields": "id,date",
+                    "fields": "id,date,description,number",
                 },
-                "note": "Step 5: Find the payment voucher created by the payment registration.",
+                "note": "Step 5: Find the payment voucher created by the payment registration. dateFrom=paymentDate, dateTo=paymentDate+1.",
             },
             {
                 "method": "PUT",
@@ -1729,7 +1750,7 @@ TEMPLATES: dict[str, dict] = {
                 "params": {
                     "date": "{{reverseDate}}",
                 },
-                "note": "Step 6: Reverse the last voucher (the payment voucher).",
+                "note": "Step 6: Reverse the last voucher (the payment voucher). reverseDate defaults to paymentDate if not specified.",
             },
         ],
     },
