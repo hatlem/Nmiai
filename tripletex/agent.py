@@ -32,8 +32,9 @@ warnings.filterwarnings("ignore", message=".*REST async clients.*")
 warnings.filterwarnings("ignore", message=".*deprecated.*")
 
 # ---------- Model IDs ----------
-MODEL_PRO = "gemini-3.1-pro-preview"
-MODEL_FLASH_LITE = "gemini-3.1-flash-lite-preview"
+# Use 2.5 models — 3.1 is too slow (90s timeout on extraction)
+MODEL_PRO = "gemini-2.5-pro"
+MODEL_FLASH_LITE = "gemini-2.5-flash"
 
 # ---------- Tier mapping ----------
 TIER_MAP: dict[str, int] = {
@@ -407,9 +408,8 @@ _HIGH_CONF_KEYWORDS = sorted({
 
 
 def _get_model(model_id: str, system_instruction: str) -> GenerativeModel:
-    # Re-init to global for 3.1 models (tool_agent may have switched to europe-north1)
-    if "3.1" in model_id:
-        vertexai.init(project="ainm26osl-710", location="global")
+    # All models now use europe-north1 (2.5 Pro/Flash)
+    vertexai.init(project="ainm26osl-710", location="europe-north1")
     return GenerativeModel(model_id, system_instruction=system_instruction)
 
 
