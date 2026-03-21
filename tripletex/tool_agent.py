@@ -191,7 +191,8 @@ ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - GET /invoice with field "totalAmountExcludingVatCurrency" or "description" (invalid fields)
 - DELETE /employee/employment/ID (returns 405 — employments cannot be deleted)
 - PUT /employee/employment/ID with "department" field (doesn't exist on employment — department is on employee)
-- Account 3400: vatType MUST be 0 (locked to "Ingen avgiftsbehandling"), NOT 1 or 3
+- Some accounts are LOCKED to vatType 0: 1500, 1920, 2400, 3400, 7350, 8060, 8160 and other non-VAT accounts. If you get "Kontoen er låst til mva-kode 0", use vatType:{"id":0} for that posting
+- ALWAYS use GET /ledger/account?number=X&fields=id,vatType to check if account has locked vatType BEFORE posting
 - PUT /invoice/ID/:send MUST include sendType param (e.g. sendType=EMAIL)
 - GET /currency: fields are id, code, description, displayName, factor (NOT name — causes 400)
 - Employment lookup: GET /employee/employment?employeeId=ID (NOT /employee/ID/employment)
