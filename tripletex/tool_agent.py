@@ -161,12 +161,13 @@ STRATEGY:
 7. If a call fails, read the error and adapt — NEVER repeat the same failing call
 8. When done, stop IMMEDIATELY — no verification calls, no summaries
 
-EFFICIENCY (you have 280 seconds total — every turn costs 10-15s):
-- Call get_api_guide ONLY for unfamiliar entity types, not for simple ones like customer/product
+EFFICIENCY (you have 290 seconds total):
+- GET requests are FREE — they don't count toward efficiency score. Read as much as you need!
+- Only POST/PUT/DELETE count as "write calls" — minimize these
 - Combine independent API calls in the same turn (parallel function calling)
-- Do NOT make GET calls to verify your work — trust the 201 Created response
-- Do NOT retry more than once — if it fails twice, move on
-- Maximum ~15 API calls per task — plan your calls carefully before starting
+- Use GET to verify data, understand structure, find existing entities — it's FREE
+- Minimize write ERRORS (4xx on POST/PUT/DELETE) — each error reduces efficiency bonus
+- Do NOT retry a failing write more than once — read the error, fix the issue, try once more
 
 ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
@@ -891,9 +892,10 @@ async def tool_agent_solve(
         if remaining < DEADLINE_BUFFER:
             logger.warning(f"Tool agent: deadline approaching ({remaining:.0f}s), stopping at turn {turn}")
             break
-        # Hard limit: stop after 20 API calls to prevent runaway loops
-        if client.call_count > 20:
-            logger.warning(f"Tool agent: hard limit — {client.call_count} API calls, stopping at turn {turn}")
+        # Hard limit on WRITE calls only (GET is free per scoring rules)
+        write_count = sum(1 for c in getattr(client, 'call_log', []) if c.get('method') in ('POST', 'PUT', 'DELETE'))
+        if write_count > 25:
+            logger.warning(f"Tool agent: hard limit — {write_count} write calls, stopping at turn {turn}")
             break
 
         # Send message to LLM
