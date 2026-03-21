@@ -172,7 +172,7 @@ EFFICIENCY (you have 290 seconds total):
 ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
 - /orderline (orderLines go IN POST /order body, NOT as separate endpoint)
-- POST /supplierInvoice may return 500 — TRY it first, if 500 fall back to POST /ledger/voucher with supplier ref
+- POST /supplierInvoice may return 500 in some sandboxes — try it first, fall back to voucher
 - PUT /company/modules (returns 405)
 - PUT /salary/payslip/ID (returns 405 — payslips are READ-ONLY after creation)
 - PUT /salary/transaction/ID (returns 405 — transactions are READ-ONLY)
@@ -482,17 +482,18 @@ Each posting needs:
 
     "supplier_invoice": """\
 ## Supplier Invoice (leverandørfaktura)
-IMPORTANT: POST /supplierInvoice ALWAYS returns 500. Use POST /ledger/voucher instead!
-
-Steps:
 1. POST /supplier {"name":"X", "organizationNumber":"X"} — create supplier
-2. GET /ledger/account?number=EXPENSE_ACCT&fields=id — get expense account (e.g. 6500, 6700, 7100)
-3. GET /ledger/account?number=2400&fields=id — get accounts payable (leverandørgjeld)
-4. POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"Leverandørfaktura INV-XXX fra SupplierName",
-     "postings":[
-       {"row":1, "account":{"id":EXPENSE_ACCT_ID}, "amountGross":FULL_AMOUNT, "amountGrossCurrency":FULL_AMOUNT, "vatType":{"id":1}, "supplier":{"id":SUPPLIER_ID}},
-       {"row":2, "account":{"id":2400_ACCT_ID}, "amountGross":-FULL_AMOUNT, "amountGrossCurrency":-FULL_AMOUNT, "vatType":{"id":0}, "supplier":{"id":SUPPLIER_ID}}
-     ]}
+2. GET /ledger/account?number=EXPENSE_ACCT&fields=id (expense account, e.g. 6500, 6700, 7100)
+3. GET /ledger/account?number=2400&fields=id (accounts payable)
+4. TRY: POST /supplierInvoice {"invoiceNumber":"X", "invoiceDate":"YYYY-MM-DD", "supplier":{"id":X},
+     "voucher":{"date":"YYYY-MM-DD", "description":"X", "postings":[
+       {"row":1, "account":{"id":EXPENSE_ID}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{"id":1}},
+       {"row":2, "account":{"id":AP_2400_ID}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{"id":0}}
+     ]}}
+5. If /supplierInvoice returns 500: FALL BACK to POST /ledger/voucher with same postings
+
+DO NOT include: orderDate, deliveryDate, dueDate (cause 422)
+amountGross = GROSS amount (including VAT). Tripletex calculates VAT automatically.
 
 AMOUNT RULES:
 - amountGross = the FULL amount (including VAT if applicable)
@@ -505,8 +506,6 @@ AMOUNT RULES:
 vatType mapping:
 - Expense accounts 4xxx,6xxx,7xxx → vatType:1 (incoming VAT 25%)
 - AP account 2400 → vatType:0 (no VAT)
-
-NEVER use POST /supplierInvoice — it returns 500!
 """,
 
     "purchase_order": """\
