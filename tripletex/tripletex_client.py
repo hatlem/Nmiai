@@ -83,6 +83,29 @@ class TripletexClient:
                     posting["vatType"] = {"id": int(vt)}
                 elif isinstance(vt, str) and vt.isdigit():
                     posting["vatType"] = {"id": int(vt)}
+        # Bug fix 1: Auto-convert postings amount fields from string to number
+        if "postings" in body and isinstance(body["postings"], list):
+            for posting in body["postings"]:
+                if isinstance(posting, dict):
+                    for field in ("amountGross", "amountGrossCurrency", "amount"):
+                        if field in posting and isinstance(posting[field], str):
+                            try:
+                                posting[field] = float(posting[field])
+                            except (ValueError, TypeError):
+                                pass
+        # Bug fix 2: Voucher description must not be null
+        if "/ledger/voucher" in path and isinstance(body, dict):
+            body.setdefault("description", "Bilag")
+        # Bug fix 3: Ensure orderLines vatType wrapping handles all cases
+        if "orderLines" in body and isinstance(body["orderLines"], list):
+            for line in body["orderLines"]:
+                if isinstance(line, dict):
+                    vt = line.get("vatType")
+                    # Handle plain dict without "id" key (e.g. {"number": 3})
+                    if isinstance(vt, dict) and "id" not in vt:
+                        line["vatType"] = {"id": 3}  # default 25% outgoing VAT
+                    elif vt is None:
+                        line["vatType"] = {"id": 3}  # default 25% outgoing VAT
         return body
 
     async def request(
@@ -90,6 +113,15 @@ class TripletexClient:
     ) -> dict:
         if body and method in ("POST", "PUT"):
             body = self._fix_body(body, path)
+        # Bug fix 6: Auto-add dateTo if dateFrom is present but dateTo is missing on GET /ledger/voucher
+        if "/ledger/voucher" in path and method == "GET" and params:
+            if "dateFrom" in params and "dateTo" not in params:
+                from datetime import datetime, timedelta
+                try:
+                    d = datetime.strptime(params["dateFrom"], "%Y-%m-%d")
+                    params["dateTo"] = (d + timedelta(days=1)).strftime("%Y-%m-%d")
+                except Exception:
+                    params["dateTo"] = params["dateFrom"]
         # Fix dateFrom=dateTo on GET requests (dateTo must be > dateFrom)
         if params and method == "GET" and "dateFrom" in params and "dateTo" in params:
             if params["dateFrom"] == params["dateTo"]:

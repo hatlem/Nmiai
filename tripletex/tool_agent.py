@@ -183,6 +183,8 @@ MANDATORY FIELD RULES (violating these = instant 422):
 - ProjectHourlyRate: rate field is "fixedRate" (NOT hourlyRate). hourlyRateModel is a string like "TYPE_FIXED_HOURLY_RATE"
 - orderLine.vatType MUST be an object {{"id": N}}, NOT a bare number. Common IDs: 3=25% outgoing, 33=15% food, 5=0% exempt
 - NEVER PUT /activity — activities are read-only. Use GET /activity to find existing ones, don't try to modify them.
+- POST /activity requires activityType field. But NEVER create activities — use GET /activity?isProjectActivity=true to find existing ones.
+- /activityType endpoint does NOT exist (404). Activity types are predefined.
 - If timesheet date < project startDate, PUT /project to change startDate (NOT PUT /activity)
 """
 
@@ -511,9 +513,11 @@ POST /bank/reconciliation {"account":{{"id":X}}, "type":"MANUAL", "dateFrom":"YY
     "dimensions": """\
 ## Accounting Dimensions (fri regnskapsdimensjon)
 1. POST /ledger/accountingDimensionName {"dimensionName":"Kostsenter"} — creates dimension (field is dimensionName, NOT name)
+   - If dimensionName "er i bruk": GET /ledger/accountingDimensionName?fields=id,dimensionName to find existing ID — use it instead of creating
 2. POST /ledger/accountingDimensionValue {"displayName":"Økonomi", "dimensionIndex":1} — creates value
    - displayName is the value name (NOT name)
    - dimensionIndex: 1 for first free dimension, 2 for second, 3 for third
+   - If dimensionValue "er i bruk": GET /ledger/accountingDimensionValue?fields=id,displayName to find existing ID — use it instead of creating
 3. Then create a voucher with the dimension linked to a posting:
    - GET /ledger/account?number=XXXX&fields=id for the debit account
    - GET /ledger/account?number=1920&fields=id for the credit (bank) account
