@@ -187,6 +187,10 @@ ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - GET /salary/payslip/ID/line (returns 404)
 - PUT /invoice/ID/:reverse (does NOT exist — use PUT /ledger/voucher/ID/:reverse instead)
 - GET /invoice with field "totalAmountExcludingVatCurrency" or "description" (invalid fields)
+- DELETE /employee/employment/ID (returns 405 — employments cannot be deleted)
+- PUT /employee/employment/ID with "department" field (doesn't exist on employment — department is on employee)
+- Account 3400: vatType MUST be 0 (locked to "Ingen avgiftsbehandling"), NOT 1 or 3
+- PUT /invoice/ID/:send MUST include sendType param (e.g. sendType=EMAIL)
 
 MANDATORY FIELD RULES (violating these = instant 422):
 - Product: field is "number" (NOT productNumber, NOT productNo)
