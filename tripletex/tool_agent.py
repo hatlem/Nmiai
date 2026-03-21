@@ -269,7 +269,7 @@ TTC/inkl mva amounts: for postings with vatType 1 or 3, amountGross should be th
    - amountCurrencyIncVat is the REQUIRED amount field (NOT costCurrency, NOT amount)
    - costCategory MUST be an object {{"id":X}} (NOT a string! "category":"Flight" causes 422)
    - Match category by description from GET /travelExpense/costCategory (e.g. find "Flyreise" for flights)
-   - For per diem: use POST /travelExpense/cost with amountCurrencyIncVat = daily_rate * days (NOT /travelExpense/perDiemCompensation)
+   - For per diem (diett/dieta): use POST /travelExpense/cost with amountCurrencyIncVat = daily_rate * days (e.g. 800kr/day * 4 days = 3200). Use a separate cost entry for per diem alongside other costs (flight, taxi etc.)
 
 ENDPOINTS THAT DON'T EXIST:
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
@@ -371,9 +371,16 @@ To reverse/undo a payment:
 
     "credit_note": """\
 ## Credit Note (kreditnota)
-PUT /invoice/ID/:createCreditNote
-- Creates a credit note for the specified invoice
-- Returns the credit note invoice object
+Full flow (sandbox is empty — must create everything from scratch):
+1. POST /customer {"name":"X", "isCustomer":true, "organizationNumber":"123456789"}
+2. POST /order {"customer":{"id":CUST_ID}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"X", "count":1, "unitPriceExcludingVatCurrency":AMOUNT}]}
+3. PUT /order/ORDER_ID/:invoice?invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD&sendToCustomer=false
+4. PUT /invoice/INV_ID/:createCreditNote?date=YYYY-MM-DD&comment=Kreditering
+   - date is REQUIRED as query param
+   - comment is optional query param
+   - Returns the credit note invoice object
+
+IMPORTANT: The sandbox starts EMPTY. There is NO pre-existing invoice. You MUST create customer → order → invoice → credit note.
 """,
 
     "reminder": """\
@@ -481,11 +488,17 @@ POST /bank/reconciliation {"account":{{"id":X}}, "type":"MANUAL", "dateFrom":"YY
 
     "dimensions": """\
 ## Accounting Dimensions (fri regnskapsdimensjon)
-1. POST /ledger/accountingDimensionName {"dimensionName":"Kostsenter"} — creates dimension
+1. POST /ledger/accountingDimensionName {"dimensionName":"Kostsenter"} — creates dimension (field is dimensionName, NOT name)
 2. POST /ledger/accountingDimensionValue {"displayName":"Økonomi", "dimensionIndex":1} — creates value
-3. In voucher postings, link with: "freeAccountingDimension1":{"id":VALUE_ID}
-   - Field is freeAccountingDimension1 (NOT freeDimension1)
+   - displayName is the value name (NOT name)
    - dimensionIndex: 1 for first free dimension, 2 for second, 3 for third
+3. Then create a voucher with the dimension linked to a posting:
+   - GET /ledger/account?number=XXXX&fields=id for the debit account
+   - GET /ledger/account?number=1920&fields=id for the credit (bank) account
+   - POST /ledger/voucher with postings:
+     [{"row":1, "account":{"id":DEBIT_ID}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{"id":0}, "freeAccountingDimension1":{"id":DIM_VALUE_ID}},
+      {"row":2, "account":{"id":BANK_ID}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{"id":0}}]
+   - freeAccountingDimension1 links to the FIRST dimension value (NOT freeDimension1)
 """,
 
     "fixed_price_project": """\

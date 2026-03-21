@@ -323,19 +323,31 @@ TEMPLATES: dict[str, dict] = {
             "  - count (WRONG — not a valid field)"
         ),
         "relevant_schemas": ["TravelExpense", "TravelDetails", "TravelExpenseCost"],
-        "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel", "title", "cost_amount", "cost_description_if_any"],
+        "extract_fields": ["departureDate", "returnDate", "departureFrom", "destination", "purpose", "costs", "isDayTrip", "isForeignTravel", "title", "cost_amount", "cost_description_if_any", "perDiem_dailyRate", "perDiem_days", "employeeEmail", "employeeFirstName", "employeeLastName"],
         "optimal_calls": 2,
         "steps": [
             {
                 "method": "GET",
+                "path": "/department",
+                "params": {"fields": "id,name", "count": 1},
+            },
+            {
+                "method": "POST",
                 "path": "/employee",
-                "params": {"fields": "id", "count": 1},
+                "body": {
+                    "firstName": "{{employeeFirstName}}",
+                    "lastName": "{{employeeLastName}}",
+                    "email": "{{employeeEmail}}",
+                    "userType": "STANDARD",
+                    "department": {"id": "$step_0.values[0].id"},
+                },
+                "note": "Create employee (sandbox is empty). If firstName/lastName not extracted, will be cleaned up.",
             },
             {
                 "method": "POST",
                 "path": "/travelExpense",
                 "body": {
-                    "employee": {"id": "$step_0.values[0].id"},
+                    "employee": {"id": "$step_1.id"},
                     "travelDetails": {
                         "departureDate": "{{departureDate}}",
                         "returnDate": "{{returnDate}}",
@@ -360,9 +372,9 @@ TEMPLATES: dict[str, dict] = {
                     "method": "POST",
                     "path": "/travelExpense/cost",
                     "body": {
-                        "travelExpense": {"id": "$step_1.id"},
+                        "travelExpense": {"id": "$step_2.id"},
                         "vatType": {"id": 0},
-                        "paymentType": {"id": "$step_2.values[0].id"},
+                        "paymentType": {"id": "$step_3.values[0].id"},
                         "amountCurrencyIncVat": "{{cost_amount}}",
                         "date": "{{departureDate}}",
                         "comments": "{{cost_description_if_any}}",
@@ -1448,7 +1460,7 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "PUT",
                 "path": "/employee/entitlement/:grantEntitlementsByTemplate",
-                "params": {"employeeId": "$step_2.id", "template": "OFFICER_FULL_ACCESS"},
+                "params": {"employeeId": "$step_2.id", "template": "ALL_PRIVILEGES"},
             },
             {
                 "method": "POST",

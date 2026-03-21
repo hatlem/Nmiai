@@ -59,6 +59,9 @@ Rules:
 - Addresses: extract addressLine1, postalCode, city as separate keys.
 - For update tasks: put changed fields in a "fields_to_update" dict.
 - For orderLines: array of {{"description": "...", "count": N, "unitPriceExcludingVatCurrency": N}}.
+  If a product number is given (e.g. "Opplæring (7579)" or "producto 6042"), include "productNumber" in the orderLine: {{"description": "Opplæring", "productNumber": "7579", "count": 1, "unitPriceExcludingVatCurrency": 2350}}
+  If different VAT rates are specified per line (e.g. "25% IVA", "15% IVA alimentos", "0% IVA exento"), include "vatType" in the orderLine: {{"vatType": 25}} or {{"vatType": 15}} or {{"vatType": 0}}
+- For per diem / diett / dieta: include in costs array as {{"description": "Diett", "amount": DAILY_RATE * DAYS, "perDiem": true, "dailyRate": DAILY_RATE, "days": DAYS}}
 - For voucher/opening balance: "accounts" list of {{"number": "1920", "amount": 100000}} (positive=debit, negative=credit).
 - If files attached, extract ALL data from them (every line, amount, account).
 - Omit fields not mentioned in the prompt. But NEVER omit fields that ARE mentioned — every data point in the prompt MUST appear in the output.
@@ -90,6 +93,9 @@ FIELD EXTRACTION CHECKLIST — scan the prompt for ALL of these:
 - deliveryDate / leveringsdato: if not given, use orderDate
 - departureFrom / fra / from: departure city for travel
 - title: travel expense title (use purpose if not explicit)
+- employeeFirstName + employeeLastName + employeeEmail: for travel expenses, extract the employee's name and email
+- perDiem_dailyRate + perDiem_days: for per diem / diett / dieta, extract daily rate and number of days
+- costs: array of cost items for travel expenses, each with description and amount. E.g. [{{"description": "Flybillett", "amount": 3800}}, {{"description": "Taxi", "amount": 200}}]
 
 COMMON EXTRACTION MISTAKES TO AVOID:
 - "org.nr 912345678" → organizationNumber: "912345678" (NOT "org.nr 912345678")

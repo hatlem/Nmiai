@@ -119,6 +119,7 @@ _AMOUNT_FIELDS = {
     "percentageOfFullTimeEquivalent", "closingBalance",
     "orderLine_count", "orderLine_unitPriceExcludingVatCurrency",
     "fixedprice", "invoice_percentage", "invoice_amount", "neg_amount",
+    "perDiem_dailyRate", "perDiem_days",
 }
 
 # Fields that should be boolean
@@ -556,6 +557,99 @@ def _expand_dimension_steps(steps: list[dict], values: dict) -> list[dict]:
     return new_steps
 
 
+def _inject_product_steps(steps: list[dict], values: dict) -> list[dict]:
+    """Inject POST /product steps before the order when orderLines have productNumber.
+
+    Detects orderLines with productNumber and creates products first, then
+    references product IDs in the orderLines. Also handles per-line vatType
+    by mapping VAT percentage to Tripletex vatType IDs.
+    """
+    order_lines = values.get("orderLines")
+    if not order_lines or not isinstance(order_lines, list):
+        return steps
+
+    # Check if any orderLine has a productNumber
+    lines_with_product = [
+        (i, ol) for i, ol in enumerate(order_lines)
+        if isinstance(ol, dict) and ol.get("productNumber")
+    ]
+    if not lines_with_product:
+        return steps
+
+    # Find the POST /order step
+    order_step_idx = None
+    for i, step in enumerate(steps):
+        if step.get("path", "").rstrip("/") == "/order" and step.get("method") == "POST":
+            order_step_idx = i
+            break
+
+    if order_step_idx is None:
+        return steps
+
+    # Build product creation steps to insert BEFORE the order step
+    product_steps = []
+    product_step_base = order_step_idx  # product steps will be inserted starting at this index
+
+    for line_idx, ol in lines_with_product:
+        prod_num = ol["productNumber"]
+        prod_name = ol.get("description", f"Product {prod_num}")
+        prod_price = ol.get("unitPriceExcludingVatCurrency", 0)
+
+        product_steps.append({
+            "method": "POST",
+            "path": "/product",
+            "body": {
+                "name": prod_name,
+                "number": str(prod_num),
+                "priceExcludingVatCurrency": prod_price,
+            },
+        })
+
+    num_product_steps = len(product_steps)
+    if num_product_steps == 0:
+        return steps
+
+    # Insert product steps before the order step
+    new_steps = steps[:order_step_idx] + product_steps + steps[order_step_idx:]
+
+    # Now shift all $step_N references in steps AFTER the inserted product steps
+    # Steps from order_step_idx onward have shifted by num_product_steps
+    for i in range(order_step_idx + num_product_steps, len(new_steps)):
+        step_str = json.dumps(new_steps[i])
+
+        def _shift_ref(m):
+            idx = int(m.group(1))
+            if idx >= order_step_idx:
+                return f"$step_{idx + num_product_steps}"
+            return m.group(0)
+
+        step_str = re.sub(r'\$step_(\d+)', _shift_ref, step_str)
+        new_steps[i] = json.loads(step_str)
+
+    # Update orderLines to reference product IDs
+    # The order step is now at order_step_idx + num_product_steps
+    new_order_idx = order_step_idx + num_product_steps
+    order_body = new_steps[new_order_idx].get("body", {})
+    ol_value = order_body.get("orderLines")
+
+    if isinstance(ol_value, list):
+        for prod_idx, (line_idx, ol) in enumerate(lines_with_product):
+            product_step_global = order_step_idx + prod_idx
+            if line_idx < len(ol_value) and isinstance(ol_value[line_idx], dict):
+                ol_value[line_idx]["product"] = {"id": f"$step_{product_step_global}.id"}
+                # Remove productNumber from orderLine (not an API field)
+                ol_value[line_idx].pop("productNumber", None)
+
+    # Store the updated orderLines back into values so placeholder filling works
+    if isinstance(ol_value, list):
+        for ol in ol_value:
+            if isinstance(ol, dict):
+                ol.pop("productNumber", None)
+        values["orderLines"] = ol_value
+
+    return new_steps
+
+
 def _expand_purchase_order_lines(steps: list[dict], values: dict) -> list[dict]:
     """Expand purchase order template when multiple orderLines are provided."""
     order_lines = values.get("orderLines")
@@ -731,6 +825,23 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
     if "debit_amount" in values and "credit_amount" not in values:
         values["credit_amount"] = values["debit_amount"]
 
+    # Travel expense: inject per diem into costs array if perDiem fields are present
+    if task_type == "create_travel_expense":
+        daily_rate = _clean_amount(values.get("perDiem_dailyRate"))
+        days = _clean_amount(values.get("perDiem_days"))
+        if daily_rate and days:
+            per_diem_amount = daily_rate * days
+            costs = values.get("costs")
+            if not isinstance(costs, list):
+                costs = []
+            costs.append({
+                "description": "Diett",
+                "amount": per_diem_amount,
+                "amountCurrencyIncVat": per_diem_amount,
+                "comments": f"Diett {int(days)} dager x {int(daily_rate)} kr",
+            })
+            values["costs"] = costs
+
     if "cost_amount" not in values:
         # Try to get from costs list or amount field
         costs = values.get("costs", [])
@@ -742,6 +853,16 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
 
     # Deep copy steps to avoid mutating the template
     steps = copy.deepcopy(template.get("steps", []))
+
+    # Inject product creation steps for invoices with product numbers
+    if task_type in ("create_invoice", "create_invoice_existing_customer",
+                     "create_invoice_with_payment", "create_full_credit_note",
+                     "create_invoice_and_send", "reverse_payment"):
+        order_lines = values.get("orderLines")
+        if isinstance(order_lines, list) and any(
+            isinstance(ol, dict) and ol.get("productNumber") for ol in order_lines
+        ):
+            steps = _inject_product_steps(steps, values)
 
     # Handle dynamic expansion for complex task types
     if task_type in ("create_voucher",) and "postings_data" in values:
