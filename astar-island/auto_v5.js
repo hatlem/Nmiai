@@ -22,7 +22,7 @@ const TTC = {10:0, 11:0, 0:0, 1:1, 2:2, 3:3, 4:4, 5:5};
 const FL = 0.0005;
 const DAMP = 0.8;
 const COAST_DAMP = 0.3;
-const CLIP = [0.3, 5.0];
+const CLIP = [0.1, 10.0];
 const SIM_DELAY = 280;
 const SUB_DELAY = 600;
 const POLL = 30000;
@@ -117,7 +117,7 @@ function precompute(ig, H, W) {
 }
 
 // ── Predict ─────────────────────────────────────────────────────────────────
-function predict(ig, H, W, pre, shift) {
+function predict(ig, H, W, pre, shift, counts) {
   const pred = Array.from({length: H}, () => Array.from({length: W}, () => new Array(NC)));
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const raw = ig[y][x];
@@ -128,20 +128,33 @@ function predict(ig, H, W, pre, shift) {
     const d = pre.sd[y][x], n = pre.nsett[y][x];
     const db = d <= 3 ? 'near' : d <= 7 ? 'mid' : d <= 12 ? 'far' : 'remote';
 
-    // Lookup with fallback
+    // Lookup with fallback (prior)
     const keys = [`${ic}_${f}_${co}_${db}_${n}`, `${ic}_${f}_${co}_${db}_0`,
                    `${ic}_${Math.min(f,2)}_${co}_${db}_0`, `${ic}_0_${co}_${db}_0`];
-    let p = null;
-    for (const k of keys) { if (LOOKUP[k]) { p = [...LOOKUP[k]]; break; } }
-    if (!p) p = [.5, .1, .05, .05, .25, .05];
+    let prior = null;
+    for (const k of keys) { if (LOOKUP[k]) { prior = [...LOOKUP[k]]; break; } }
+    if (!prior) prior = [.5, .1, .05, .05, .25, .05];
 
-    // Shift
+    // Apply shift to prior
     if (shift && shift[ic]) {
       const damp = co ? COAST_DAMP : DAMP;
       for (let c = 0; c < NC; c++) {
         const s = Math.max(CLIP[0], Math.min(CLIP[1], shift[ic][c]));
-        p[c] *= Math.pow(s, damp);
+        prior[c] *= Math.pow(s, damp);
       }
+    }
+
+    // Per-cell KT estimator: blend observations with shifted prior
+    let p;
+    const nObs = counts ? counts[y][x].reduce((a,b) => a+b, 0) : 0;
+    if (nObs >= 3) {
+      // Bayesian: (obs + alpha * prior) / (n + alpha)
+      const alpha = 2.0; // prior strength
+      p = new Array(NC);
+      const denom = nObs + alpha;
+      for (let c = 0; c < NC; c++) p[c] = (counts[y][x][c] + alpha * prior[c]) / denom;
+    } else {
+      p = prior;
     }
 
     // Port suppression for non-coastal
@@ -182,9 +195,10 @@ function computeShift(obsTrans) {
 }
 
 // ── Submit all seeds ────────────────────────────────────────────────────────
-async function submitAll(roundId, detail, H, W, pres, shift, label) {
+async function submitAll(roundId, detail, H, W, pres, shift, label, cellCounts) {
   for (let si = 0; si < detail.seeds_count; si++) {
-    const pred = predict(detail.initial_states[si].grid, H, W, pres[si], shift);
+    const counts = cellCounts ? cellCounts[si] : null;
+    const pred = predict(detail.initial_states[si].grid, H, W, pres[si], shift, counts);
     for (let retry = 0; retry < 3; retry++) {
       try {
         await api('POST', '/submit', { round_id: roundId, seed_index: si, prediction: pred });
@@ -247,6 +261,12 @@ async function processRound(round) {
 
   const obsTrans = {};
   for (let ic = 0; ic < NC; ic++) obsTrans[ic] = new Float64Array(NC);
+
+  // Per-seed per-cell observation counts for KT estimator
+  const cellCounts = {};
+  for (let si = 0; si < detail.seeds_count; si++)
+    cellCounts[si] = Array.from({length: H}, () => Array.from({length: W}, () => new Float64Array(NC)));
+
   let qCount = 0, rlCount = 0;
 
   for (let qi = 0; qi < left; qi++) {
@@ -258,12 +278,16 @@ async function processRound(round) {
         viewport_x: vp.x, viewport_y: vp.y, viewport_w: 15, viewport_h: 15
       });
 
-      // Accumulate transitions
+      // Accumulate global transitions + per-cell counts
       const ig = detail.initial_states[vp.si].grid;
       for (let gy = 0; gy < result.grid.length; gy++)
         for (let gx = 0; gx < result.grid[gy].length; gx++) {
           const ay = result.viewport.y + gy, ax = result.viewport.x + gx;
-          if (ay < H && ax < W) obsTrans[cc(ig[ay][ax])][cc(result.grid[gy][gx])]++;
+          if (ay < H && ax < W) {
+            const cls = cc(result.grid[gy][gx]);
+            obsTrans[cc(ig[ay][ax])][cls]++;
+            cellCounts[vp.si][ay][ax][cls]++;
+          }
         }
       qCount++;
     } catch (e) {
@@ -280,14 +304,14 @@ async function processRound(round) {
     // Resubmit every 10 queries
     if (qCount > 0 && qCount % 10 === 0) {
       const shift = computeShift(obsTrans);
-      await submitAll(round.id, detail, H, W, pres, shift, `Phase 2 (${qCount}q)`);
+      await submitAll(round.id, detail, H, W, pres, shift, `Phase 2 (${qCount}q)`, cellCounts);
     }
   }
 
   // Final resubmit
   if (qCount > 0 && qCount % 10 !== 0) {
     const shift = computeShift(obsTrans);
-    await submitAll(round.id, detail, H, W, pres, shift, `Final (${qCount}q)`);
+    await submitAll(round.id, detail, H, W, pres, shift, `Final (${qCount}q)`, cellCounts);
   }
 
   log(`Done. ${qCount} queries, ${((Date.now()-t0)/1000).toFixed(0)}s`);
