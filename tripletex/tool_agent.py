@@ -97,7 +97,7 @@ _tripletex_delete = FunctionDeclaration(
 
 _get_api_guide = FunctionDeclaration(
     name="get_api_guide",
-    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity, receipt_voucher, employment_contract_pdf, bank_reconciliation_csv, ledger_analysis, supplier_invoice_pdf, currency_exchange, ledger_correction",
+    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity, receipt_voucher, employment_contract_pdf, bank_reconciliation_csv, ledger_analysis, supplier_invoice_pdf, currency_exchange, ledger_correction, overdue_invoice_reminder",
     parameters={
         "type": "object",
         "properties": {
@@ -191,6 +191,7 @@ ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - PUT /employee/employment/ID with "department" field (doesn't exist on employment — department is on employee)
 - Account 3400: vatType MUST be 0 (locked to "Ingen avgiftsbehandling"), NOT 1 or 3
 - PUT /invoice/ID/:send MUST include sendType param (e.g. sendType=EMAIL)
+- GET /currency: fields are id, code, description, displayName, factor (NOT name — causes 400)
 
 MANDATORY FIELD RULES (violating these = instant 422):
 - Product: field is "number" (NOT productNumber, NOT productNo)
@@ -857,7 +858,8 @@ Task: Sent invoice in EUR at rate X, customer paid at rate Y, book the exchange 
 
 Steps:
 1. POST /customer (create customer with org number)
-2. GET /currency?code=EUR&fields=id,code,factor — get currency ID
+2. GET /currency?code=EUR&fields=id,code,factor — get currency ID (fields: id, code, description, displayName, factor — NOT name!)
+   EUR id is typically 5, NOK id is 1.
 3. POST /order with currency.id, orderLines with amount in foreign currency
 4. PUT /order/ORDER_ID/:invoice with invoiceDate, invoiceDueDate
 5. GET /invoice/paymentType for payment type ID
@@ -876,6 +878,27 @@ POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"Agiotap valutadifferan
 API_GUIDES["agio"] = API_GUIDES["currency_exchange"]
 API_GUIDES["valutakurs"] = API_GUIDES["currency_exchange"]
 API_GUIDES["exchange_rate"] = API_GUIDES["currency_exchange"]
+
+API_GUIDES["overdue_invoice_reminder"] = """\
+## Overdue Invoice + Reminder Fee + Partial Payment
+Competition prompt: "Find the overdue invoice, post reminder fee of 35 NOK (debit 1500, credit 3400), create invoice for fee, send it, register partial payment"
+
+Flow:
+1. GET /invoice?invoiceDateFrom=2026-01-01&invoiceDateTo=2026-12-31&fields=id,invoiceNumber,amount,amountOutstanding,invoiceDueDate,customer
+   - Find invoice where amountOutstanding > 0 AND invoiceDueDate < today
+2. POST /ledger/voucher — reminder fee posting
+   - Debit 1500 (Kundefordringer): amountGross = 35
+   - Credit 3400 (use whatever account the prompt says): amountGross = -35
+   - GET /ledger/account?number=1500 and ?number=3400 first for IDs
+3. POST /order + PUT /:invoice — create invoice for the fee
+4. PUT /invoice/:send?sendType=EMAIL
+5. PUT /invoice/{overdue_id}/:payment — partial payment
+   - GET /invoice/paymentType first
+   - paidAmount = 5000 (or whatever prompt says)
+"""
+API_GUIDES["overdue"] = API_GUIDES["overdue_invoice_reminder"]
+API_GUIDES["forfalt"] = API_GUIDES["overdue_invoice_reminder"]
+API_GUIDES["impaye"] = API_GUIDES["overdue_invoice_reminder"]
 
 API_GUIDES["ledger_correction"] = """\
 ## Ledger Correction (feilretting i regnskap)
