@@ -144,6 +144,10 @@ Detekter og klassifiser dagligvarer på butikkhyllebilder. Upload `.zip` med `ru
 - `norgesgruppen/data/NM_NGD_coco_dataset.zip` — Komplett datasett (864 MB)
 - `norgesgruppen/data/NM_NGD_product_images.zip` — Produktbilder (60 MB)
 
+## KRITISK: Astar Island — KUN agent_v7.js
+**ALDRI start autopilot.py, auto_v5.js, auto_v6.js, agent_final.js eller noen annen Astar Island agent.**
+Kun `astar-island/agent_v7.js` skal kjøre. Alle andre agenter stjeler queries fra det felles 50-query budsjettet og ødelegger scoren. autopilot.py er DISABLED (renamed til .DISABLED). Ikke rename den tilbake.
+
 ## Viktige begrensninger
 - **NorgesGruppen sandbox:** Ingen `import os` — bruk `pathlib`. Ingen nettverkstilgang. Max 420 MB weights. Pre-installerte pakker: `ultralytics==8.1.0`, `torch==2.6.0`, `onnxruntime-gpu==1.20.0`, `timm==0.9.12`.
 - **Tripletex:** Alle API-kall via proxy (`base_url` fra request). Basic Auth med `0` som brukernavn og `session_token` som passord.

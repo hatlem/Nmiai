@@ -334,7 +334,7 @@ function computeSurvivalFromGrid(ig, grid, vpX, vpY, vpH, vpW, H, W) {
 }
 
 // ── Weighted round ensemble using transition rate similarity ─────────────────
-function weightedRoundLookup(obsTrans, survivalRates) {
+function weightedRoundLookup(obsTrans, survivalRates, regime) {
   if (Object.keys(ROUND_PROFILES).length === 0) return null;
 
   // Extract key transition rates from observations (ported from predictor.py)
@@ -351,12 +351,16 @@ function weightedRoundLookup(obsTrans, survivalRates) {
     const refS2S = profile['1'] ? profile['1'][1] : 0;
     const refF2F = profile['4'] ? profile['4'][4] : 0;
 
-    const d = Math.sqrt(
+    let d = Math.sqrt(
       ((obsE2S - refE2S) / 0.10) ** 2 +
       ((obsS2S - refS2S) / 0.20) ** 2 +
       ((obsF2F - refF2F) / 0.15) ** 2
     );
-    // Inverse distance weighting
+    // Boost with regime survival rate (more accurate than grid-based)
+    if (regime) {
+      const refSurv = profile['1'] ? (profile['1'][1] + (profile['1'][2]||0)) : 0.5;
+      d += Math.abs(regime.aliveRatio - refSurv) * 2;
+    }
     const w = 1.0 / (d + 0.01);
     weights[r] = w;
     totalWeight += w;
@@ -377,6 +381,23 @@ function weightedRoundLookup(obsTrans, survivalRates) {
 
   const matchedRounds = Object.keys(weights).map(r => `R${r}(${(weights[r]/totalWeight*100).toFixed(0)}%)`).join('+');
   return { lookup: blended, desc: matchedRounds };
+}
+
+// ── Regime detection from settlement metadata ────────────────────────────────
+function computeRegime(settlements, survivalRates) {
+  if (!settlements.length) return null;
+  const alive = settlements.filter(s => s.alive);
+  // Use grid-based survival (more accurate than metadata alive field)
+  const aliveRatio = survivalRates.length > 0
+    ? survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length
+    : alive.length / settlements.length;
+  const avgFood = alive.length ? alive.reduce((s,a) => s + (a.food||0), 0) / alive.length : 0;
+  const avgPop = alive.length ? alive.reduce((s,a) => s + (a.population||0), 0) / alive.length : 0;
+  const avgWealth = alive.length ? alive.reduce((s,a) => s + (a.wealth||0), 0) / alive.length : 0;
+  const avgDefense = alive.length ? alive.reduce((s,a) => s + (a.defense||0), 0) / alive.length : 0;
+  const factions = new Set(alive.map(s => s.owner_id).filter(Boolean));
+  const portRatio = alive.length ? alive.filter(s => s.has_port).length / alive.length : 0;
+  return { aliveRatio, avgFood, avgPop, avgWealth, avgDefense, factionCount: factions.size, portRatio };
 }
 
 // ── Submit ──────────────────────────────────────────────────────────────────
@@ -476,6 +497,7 @@ async function processRound(round) {
     cellCounts[si] = Array.from({length: H}, () => Array.from({length: W}, () => new Float64Array(NC)));
 
   const survivalRates = [];
+  const allSettlements = []; // collect settlement metadata for regime detection
   let qCount = 0;
 
   while (queriesUsed < queriesMax) {
@@ -504,6 +526,7 @@ async function processRound(round) {
         result.grid.length, result.grid[0].length, H, W
       );
       survivalRates.push(surv);
+      if (result.settlements) allSettlements.push(...result.settlements);
       qCount++;
 
       // Fix 1: Update budget from response
@@ -513,10 +536,14 @@ async function processRound(round) {
       // Progressive resubmit at milestones
       if (qCount === 5 || qCount === 10 || qCount === 20 || qCount === 30 || qCount === 40) {
         const shift = computeShift(obsTrans);
-        const wrl = weightedRoundLookup(obsTrans, survivalRates);
+        const regime = computeRegime(allSettlements, survivalRates);
+        const wrl = weightedRoundLookup(obsTrans, survivalRates, regime);
         const avgSurv = survivalRates.length > 0
           ? (survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length * 100).toFixed(0) : '?';
         log(`Phase ${qCount}q: survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}, budget=${queriesMax - queriesUsed} left`);
+        if (regime && qCount === 5) {
+          log(`  Regime: alive=${(regime.aliveRatio*100).toFixed(0)}% food=${regime.avgFood.toFixed(2)} pop=${regime.avgPop.toFixed(1)} factions=${regime.factionCount} ports=${(regime.portRatio*100).toFixed(0)}%`);
+        }
         await submitAll(round.id, detail, H, W, pres, shift,
           `Phase (${qCount}q)`, cellCounts, wrl ? wrl.lookup : null);
       }
@@ -538,10 +565,12 @@ async function processRound(round) {
   // Final submit
   if (qCount > 0) {
     const shift = computeShift(obsTrans);
-    const wrl = weightedRoundLookup(obsTrans, survivalRates);
+    const regime = computeRegime(allSettlements, survivalRates);
+    const wrl = weightedRoundLookup(obsTrans, survivalRates, regime);
     const avgSurv = survivalRates.length > 0
       ? (survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length * 100).toFixed(0) : '?';
     log(`Final: ${qCount}q, survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}`);
+    if (regime) log(`  Regime: alive=${(regime.aliveRatio*100).toFixed(0)}% food=${regime.avgFood.toFixed(2)} pop=${regime.avgPop.toFixed(1)} wealth=${regime.avgWealth.toFixed(2)} factions=${regime.factionCount}`);
     await submitAll(round.id, detail, H, W, pres, shift,
       `Final (${qCount}q)`, cellCounts, wrl ? wrl.lookup : null);
   }

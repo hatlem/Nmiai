@@ -22,14 +22,14 @@ except ImportError:
     ONNX_AVAILABLE = False
 
 try:
-    from src.wbf import weighted_boxes_fusion
+    from ensemble_boxes import weighted_boxes_fusion
     WBF_AVAILABLE = True
 except ImportError:
     WBF_AVAILABLE = False
 
 if not WBF_AVAILABLE:
     try:
-        from ensemble_boxes import weighted_boxes_fusion
+        from src.wbf import weighted_boxes_fusion
         WBF_AVAILABLE = True
     except ImportError:
         pass
