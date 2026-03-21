@@ -1,8 +1,131 @@
 import asyncio
 import httpx
+import json as _json
 import logging
+from pathlib import Path as _Path
 
 logger = logging.getLogger(__name__)
+
+# --- OpenAPI field validation ---
+_OPENAPI_FIELDS: dict[str, dict] = {}
+try:
+    _fields_path = _Path(__file__).parent / "schemas" / "openapi_fields.json"
+    if _fields_path.exists():
+        _OPENAPI_FIELDS = _json.loads(_fields_path.read_text())
+except Exception:
+    pass
+
+# Map API paths to entity names
+_PATH_TO_ENTITY = {
+    "/employee": "Employee",
+    "/customer": "Customer",
+    "/supplier": "Supplier",
+    "/product": "Product",
+    "/department": "Department",
+    "/project": "Project",
+    "/order": "Order",
+    "/invoice": "Invoice",
+    "/contact": "Contact",
+    "/ledger/voucher": "Voucher",
+    "/travelExpense": "TravelExpense",
+    "/travelExpense/cost": "TravelExpenseCost",
+    "/employee/employment": "Employment",
+    "/employee/employment/details": "EmploymentDetails",
+    "/salary/transaction": "SalaryTransaction",
+    "/timesheet/entry": "TimesheetEntry",
+    "/purchaseOrder": "PurchaseOrder",
+    "/asset": "Asset",
+    "/supplierInvoice": "SupplierInvoice",
+}
+
+# Known field renames (wrong -> correct)
+_FIELD_RENAMES = {
+    # Employee fields
+    "nationalIdNumber": "nationalIdentityNumber",
+    "mobilePhone": "phoneNumberMobile",
+    "mobile": "phoneNumberMobile",
+    "phoneNumberWork": "phoneNumberWork",
+    "phone": "phoneNumber",
+    "birthDate": "dateOfBirth",
+    "birthday": "dateOfBirth",
+    # Customer/Supplier fields
+    "orgNumber": "organizationNumber",
+    "orgNo": "organizationNumber",
+    "organisationNumber": "organizationNumber",
+    "address1": "addressLine1",
+    "address": "addressLine1",
+    "zipCode": "postalCode",
+    "zip": "postalCode",
+    "postalAddress": "postalAddress",
+    # Product fields
+    "quantity": "count",
+    "price": "priceExcludingVatCurrency",
+    "unitPrice": "unitPriceExcludingVatCurrency",
+    "salesPrice": "priceExcludingVatCurrency",
+    "productId": "product",
+    "productNumber": "number",
+    # Project fields
+    "fixedPrice": "fixedprice",
+    "budget": "fixedprice",
+    # Invoice/Order fields
+    "dueDate": "invoiceDueDate",
+    "totalAmount": "amount",
+    # Voucher/Posting fields
+    "isDebit": None,  # strip — not a valid field
+    "debit": None,
+    "credit": None,
+}
+
+
+def _validate_fields(path: str, body: dict) -> dict:
+    """Strip invalid fields and rename known wrong names based on OpenAPI spec."""
+    if not body or not isinstance(body, dict):
+        return body
+
+    # Skip voucher postings validation (nested, different rules)
+    if "/ledger/voucher" in path:
+        return body
+
+    # Find entity for this path
+    entity_name = None
+    # Match longest path first (e.g. /employee/employment/details before /employee/employment)
+    best_match = ""
+    for api_path, entity in _PATH_TO_ENTITY.items():
+        stripped = path.rstrip("/").split("?")[0]
+        if stripped == api_path or stripped.startswith(api_path + "/"):
+            if len(api_path) > len(best_match):
+                best_match = api_path
+                entity_name = entity
+
+    if not entity_name or entity_name not in _OPENAPI_FIELDS:
+        return body
+
+    valid_fields = set(_OPENAPI_FIELDS[entity_name].keys())
+    cleaned = {}
+    stripped_fields = []
+
+    for key, value in body.items():
+        # Try rename first
+        if key in _FIELD_RENAMES:
+            new_key = _FIELD_RENAMES[key]
+            if new_key is None:
+                stripped_fields.append(key)
+                continue  # Strip field entirely
+            if new_key in valid_fields:
+                logger.info(f"OpenAPI: renamed field '{key}' -> '{new_key}' for {entity_name}")
+                cleaned[new_key] = value
+                continue
+
+        # Keep if valid, strip if not
+        if key in valid_fields:
+            cleaned[key] = value
+        else:
+            stripped_fields.append(key)
+
+    if stripped_fields:
+        logger.warning(f"OpenAPI: stripped invalid fields from {entity_name}: {stripped_fields}")
+
+    return cleaned
 
 MAX_RETRIES = 2
 RETRY_BACKOFF = [0.5, 1.5]  # seconds between retries
@@ -164,6 +287,8 @@ class TripletexClient:
             # Resolve vatType number→id for all vatType references
             if self.vat_number_to_id:
                 body = self._resolve_all_vat_ids(body)
+            # Validate fields against OpenAPI spec (top-level only)
+            body = _validate_fields(path, body)
         # Bug fix 6: Auto-add dateTo if dateFrom is present but dateTo is missing on GET /ledger/voucher
         if "/ledger/voucher" in path and method == "GET" and params:
             if "dateFrom" in params and "dateTo" not in params:
