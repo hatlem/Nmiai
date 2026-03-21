@@ -97,7 +97,7 @@ _tripletex_delete = FunctionDeclaration(
 
 _get_api_guide = FunctionDeclaration(
     name="get_api_guide",
-    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity",
+    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity, receipt_voucher, employment_contract_pdf, bank_reconciliation_csv, ledger_analysis, supplier_invoice_pdf",
     parameters={
         "type": "object",
         "properties": {
@@ -154,10 +154,12 @@ CRITICAL UNIVERSAL RULES:
 STRATEGY:
 1. Parse the task to understand what entity types are involved
 2. ALWAYS call get_api_guide for each entity type BEFORE your first API call — this gives you exact field names and patterns
-3. Create prerequisites first (customer before invoice, accounts before voucher)
-4. Make API calls one at a time, using returned IDs in subsequent calls
-5. If a call fails, read the error and adapt (don't repeat the same call)
-6. When done, stop — don't make unnecessary verification calls
+3. For tasks with PDF/image/CSV attachments: ALWAYS read the file first to extract data before making API calls
+4. For analysis tasks: query existing data via GET endpoints before creating new entities
+5. Create prerequisites first (customer before invoice, accounts before voucher)
+6. Make API calls one at a time, using returned IDs in subsequent calls
+7. If a call fails, read the error and adapt (don't repeat the same call)
+8. When done, stop — don't make unnecessary verification calls
 
 ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
@@ -539,6 +541,115 @@ PUT /entity/ID with body including "id" and "version" from the GET response.
 - version is required for optimistic locking — without it you get 409 Conflict
 - Include all fields you want to keep (PUT replaces the entity)
 """,
+
+    "receipt_voucher": """\
+## Receipt to Voucher (kvittering → bilag)
+The task gives you a receipt image/PDF. You must:
+1. Read the receipt — extract: vendor name, amount, date, what was purchased
+2. Determine the correct expense account based on purchase type:
+   - Hotel/overnatting → 7140 (Reise og diett)
+   - Restaurant/mat → 7100 (Bilkostnader) or 6340 (Serveringskostnader)
+   - Office supplies/kontor → 6540 (Inventar og utstyr)
+   - Phone/telefon → 6900 (Telefon)
+   - Transport/taxi → 7120 (Bilgodtgjørelse)
+   - Parking → 7130 (Parkering)
+   - Flight/fly → 7140 (Reise og diett)
+3. Determine VAT: 25% standard, 15% food, 12% transport/hotel, 0% exempt
+4. If department is specified: GET /department?name=X, include department ref
+5. POST /ledger/voucher with postings (expense account debit, 1920 bank credit)
+6. For TTC amounts: amountGross = net amount (Tripletex adds VAT)
+
+Steps:
+1. GET /ledger/account?number=EXPENSE_ACCT&fields=id (e.g. 7140)
+2. GET /ledger/account?number=1920&fields=id (bank account)
+3. If department specified: GET /department?name=X&fields=id
+4. POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Kvittering: vendor - description",
+     "postings":[
+       {{"row":1, "account":{{"id":EXPENSE_ID}}, "amountGross":NET_AMOUNT, "amountGrossCurrency":NET_AMOUNT, "vatType":{{"id":1}}, "department":{{"id":DEPT_ID}}}},
+       {{"row":2, "account":{{"id":BANK_ID}}, "amountGross":-GROSS_AMOUNT, "amountGrossCurrency":-GROSS_AMOUNT, "vatType":{{"id":0}}}}
+     ]}}
+
+VAT type IDs:
+- 1 = incoming 25% (standard goods/services)
+- 11 = incoming 15% (food)
+- 13 = incoming 12% (transport/hotel)
+- 0 = no VAT (exempt)
+""",
+
+    "employment_contract_pdf": """\
+## Employment Contract PDF → Create Employee
+1. Read the PDF attachment — extract ALL fields:
+   - Name (firstName, lastName)
+   - personnummer/national ID (nationalIdentityNumber)
+   - dateOfBirth
+   - Email, phone
+   - Department
+   - Position/stillingskode
+   - Salary/lønn
+   - Start date
+   - Employment percentage (percentageOfFullTimeEquivalent)
+2. GET /department?name=X&fields=id or POST /department {{"name":"X", "departmentNumber":N}} if needed
+3. POST /employee {{"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth":"YYYY-MM-DD",
+     "phoneNumberMobile":"12345678", "nationalIdentityNumber":"12345678901",
+     "userType":"STANDARD", "department":{{"id":DEPT_ID}}}}
+4. POST /employee/employment {{"employee":{{"id":EMP_ID}}, "startDate":"YYYY-MM-DD"}}
+5. If salary mentioned: POST /salary/transaction or note it
+
+CRITICAL: nationalIdentityNumber is a valid field on Employee. Include it if found in PDF.
+CRITICAL: Do NOT include employmentType or percentageOfFullTimeEquivalent on /employee/employment — only employee.id and startDate.
+CRITICAL: Phone field is phoneNumberMobile on Employee (NOT phoneNumber).
+""",
+
+    "bank_reconciliation_csv": """\
+## Bank Reconciliation from CSV (bankavstemminger)
+1. Parse the CSV attachment — each row is a transaction (date, description, amount, reference)
+2. GET /invoice?invoiceDateFrom=X&invoiceDateTo=Y&fields=id,invoiceNumber,amount,amountOutstanding,customer
+   - Match incoming payments (positive amounts) to customer invoices
+3. GET /supplierInvoice?fields=id,invoiceNumber,amount — match outgoing payments (if any exist)
+4. For each matched customer payment:
+   - GET /invoice/paymentType?fields=id,description — get payment type ID first
+   - PUT /invoice/ID/:payment?paymentDate=DATE&paymentTypeId=X&paidAmount=AMOUNT
+5. Handle partial payments: paidAmount can be less than invoice total
+6. Unmatched transactions: create vouchers via POST /ledger/voucher for unknown items
+   - Debit/credit appropriate accounts (1920 bank, expense/revenue accounts)
+
+IMPORTANT: GET /invoice/paymentType first for paymentTypeId.
+IMPORTANT: Both invoiceDateFrom AND invoiceDateTo are required on GET /invoice.
+""",
+
+    "ledger_analysis": """\
+## Ledger Analysis → Create Projects
+1. GET /ledger/account?fields=id,number,name — list all accounts
+2. For each expense account (5xxx-8xxx), GET posting totals:
+   GET /ledger/posting?accountId=X&dateFrom=2026-01-01&dateTo=2026-01-31 (January)
+   GET /ledger/posting?accountId=X&dateFrom=2026-02-01&dateTo=2026-02-28 (February)
+3. Calculate increase: feb_total - jan_total for each account
+4. Sort by increase, pick top 3
+5. For each top account:
+   - GET /department?fields=id,name&count=1
+   - POST /employee (if no project manager exists) with department
+   - PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
+   - POST /project {{"name":"account_name", "startDate":"2026-01-01", "isInternal":true, "projectManager":{{"id":EMP_ID}}}}
+   - POST /project/projectActivity for each project if needed
+
+IMPORTANT: Query existing ledger data BEFORE creating new entities.
+""",
+
+    "supplier_invoice_pdf": """\
+## Supplier Invoice from PDF
+1. Read the PDF — extract: supplier name, org number, invoice number, date, due date, amount, expense account
+2. POST /supplier {{"name":"X", "organizationNumber":"Y"}} (create if not exists)
+3. GET /ledger/account?number=EXPENSE_ACCT&fields=id (e.g. 6500, 6700, 7100)
+4. GET /ledger/account?number=2400&fields=id (leverandørgjeld/accounts payable)
+5. POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Leverandørfaktura INV-XXX fra SupplierName",
+     "postings":[
+       {{"row":1, "account":{{"id":EXPENSE_ACCT_ID}}, "amountGross":NET_AMOUNT, "amountGrossCurrency":NET_AMOUNT, "vatType":{{"id":1}}, "supplier":{{"id":SUPPLIER_ID}}}},
+       {{"row":2, "account":{{"id":AP_ACCT_ID}}, "amountGross":-GROSS_AMOUNT, "amountGrossCurrency":-GROSS_AMOUNT, "vatType":{{"id":0}}, "supplier":{{"id":SUPPLIER_ID}}}}
+     ]}}
+
+For TTC amounts (inkl mva): debit amountGross = amount/1.25 (net), credit amountGross = -amount (gross)
+NOTE: POST /supplierInvoice returns 500 — ALWAYS use voucher workaround instead!
+""",
 }
 
 # Aliases for common misspellings / alternative names
@@ -572,6 +683,17 @@ API_GUIDES["order"] = API_GUIDES["invoice"]  # order creation is part of invoice
 API_GUIDES["bank"] = "POST /bank {\"accountNumber\":\"86011117947\", \"name\":\"Driftskonto\"}\nUsed to register a bank account when invoicing fails with 'bankkontonummer' error."
 API_GUIDES["account"] = API_GUIDES["voucher"]  # account lookups covered in voucher guide
 API_GUIDES["konto"] = API_GUIDES["voucher"]
+
+# Tier 3 aliases
+API_GUIDES["receipt"] = API_GUIDES["receipt_voucher"]
+API_GUIDES["kvittering"] = API_GUIDES["receipt_voucher"]
+API_GUIDES["contract"] = API_GUIDES["employment_contract_pdf"]
+API_GUIDES["arbeidskontrakt"] = API_GUIDES["employment_contract_pdf"]
+API_GUIDES["reconciliation"] = API_GUIDES["bank_reconciliation_csv"]
+API_GUIDES["avstemming"] = API_GUIDES["bank_reconciliation_csv"]
+API_GUIDES["bankavstemminger"] = API_GUIDES["bank_reconciliation_csv"]
+API_GUIDES["regnskapsanalyse"] = API_GUIDES["ledger_analysis"]
+API_GUIDES["leverandørfaktura_pdf"] = API_GUIDES["supplier_invoice_pdf"]
 
 # Fields to preserve in _compact_response
 _ESSENTIAL_FIELDS = frozenset({
