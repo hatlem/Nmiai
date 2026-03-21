@@ -46,12 +46,28 @@ ALLOWED_HOSTS = (
 
 # ── Router signals: if ALL words in a tuple match, route to tool agent ──
 TOOL_AGENT_SIGNALS = [
+    # Timesheet + invoice
     ("timer", "faktura"), ("timar", "faktura"),
     ("hours", "invoice"), ("horas", "fatura"), ("horas", "factura"),
     ("heures", "facture"), ("stunden", "rechnung"),
+    # Salary
     ("lønn", "bonus"), ("salary", "bonus"), ("løn", "bonus"),
     ("salario", "bonus"), ("gehalt", "bonus"),
-    ("grunnlønn",), ("grunnløn",),
+    ("grunnlønn",), ("grunnløn",), ("grunnløn",),
+    # Bank reconciliation / CSV
+    ("bankutskrift",), ("kontoutskrift",), ("bank statement",),
+    ("extracto bancario",), ("extrait bancaire",), ("kontoauszug",),
+    ("csv",), ("vedlagt csv",), ("attached csv",),
+    # Complex multi-step
+    ("vencida", "lembrete"), ("vencida", "parcial"),  # overdue + reminder/partial
+    ("tipo de cambio",), ("valutakurs",), ("exchange rate",), ("agio",),
+    # Contract PDF
+    ("arbeidskontrakt",), ("employment contract",), ("contrato de trabajo",),
+    ("vedlagt pdf",), ("attached pdf",), ("voir pdf",), ("ver pdf",),
+    # Receipt to voucher
+    ("kvittering",), ("receipt",), ("recibo",), ("quittung",),
+    # Ledger analysis
+    ("analyser", "regnskap"), ("analyse", "konto"), ("analyze", "ledger"),
 ]
 
 async def _create_products_from_plan(plan: dict, client) -> None:

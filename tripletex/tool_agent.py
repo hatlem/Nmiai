@@ -261,7 +261,7 @@ vatType IDs:
 - 1 = incoming 25% (4xxx, 6xxx, 7xxx accounts — expenses)
 - 3 = outgoing 25% (3xxx accounts — revenue)
 
-TTC/inkl mva amounts: for postings with vatType 1 or 3, amountGross should be the NET amount (Tripletex adds VAT automatically).
+AMOUNT RULES: amountGross is always the GROSS amount (INCLUDING VAT). Tripletex automatically calculates the VAT split based on the vatType. You provide the FULL amount, Tripletex handles the rest.
 """,
 
     "travel_expense": """\
@@ -472,15 +472,17 @@ Steps:
 3. GET /ledger/account?number=2400&fields=id — get accounts payable (leverandørgjeld)
 4. POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"Leverandørfaktura INV-XXX fra SupplierName",
      "postings":[
-       {"row":1, "account":{"id":EXPENSE_ACCT_ID}, "amountGross":NET_AMOUNT, "amountGrossCurrency":NET_AMOUNT, "vatType":{"id":1}, "supplier":{"id":SUPPLIER_ID}},
-       {"row":2, "account":{"id":2400_ACCT_ID}, "amountGross":-GROSS_AMOUNT, "amountGrossCurrency":-GROSS_AMOUNT, "vatType":{"id":0}, "supplier":{"id":SUPPLIER_ID}}
+       {"row":1, "account":{"id":EXPENSE_ACCT_ID}, "amountGross":FULL_AMOUNT, "amountGrossCurrency":FULL_AMOUNT, "vatType":{"id":1}, "supplier":{"id":SUPPLIER_ID}},
+       {"row":2, "account":{"id":2400_ACCT_ID}, "amountGross":-FULL_AMOUNT, "amountGrossCurrency":-FULL_AMOUNT, "vatType":{"id":0}, "supplier":{"id":SUPPLIER_ID}}
      ]}
 
-TTC/inkl MVA amounts:
-- If amount is TTC (inkl mva/including VAT): expense posting amountGross = amount / 1.25 (net)
-- AP posting (2400) amountGross = -amount (full gross, negative)
-- Tripletex adds 25% VAT automatically on vatType:1 postings
-- Example: 61200 TTC → expense: 48960 (61200/1.25), AP: -61200
+AMOUNT RULES:
+- amountGross = the FULL amount (including VAT if applicable)
+- For expense posting (vatType 1/25%): amountGross = full amount. Tripletex calculates net and VAT automatically.
+- For AP posting (vatType 0): amountGross = negative full amount
+- Both postings use the SAME absolute amount (just positive/negative)
+- Postings MUST sum to zero
+- Example: 61200 TTC → expense: 61200, AP: -61200
 
 vatType mapping:
 - Expense accounts 4xxx,6xxx,7xxx → vatType:1 (incoming VAT 25%)
@@ -561,7 +563,7 @@ The task gives you a receipt image/PDF. You must:
 3. Determine VAT: 25% standard, 15% food, 12% transport/hotel, 0% exempt
 4. If department is specified: GET /department?name=X, include department ref
 5. POST /ledger/voucher with postings (expense account debit, 1920 bank credit)
-6. For TTC amounts: amountGross = net amount (Tripletex adds VAT)
+6. amountGross = the GROSS/FULL amount (including VAT). Tripletex calculates VAT split automatically based on vatType.
 
 Steps:
 1. GET /ledger/account?number=EXPENSE_ACCT&fields=id (e.g. 7140)
@@ -569,8 +571,8 @@ Steps:
 3. If department specified: GET /department?name=X&fields=id
 4. POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Kvittering: vendor - description",
      "postings":[
-       {{"row":1, "account":{{"id":EXPENSE_ID}}, "amountGross":NET_AMOUNT, "amountGrossCurrency":NET_AMOUNT, "vatType":{{"id":1}}, "department":{{"id":DEPT_ID}}}},
-       {{"row":2, "account":{{"id":BANK_ID}}, "amountGross":-GROSS_AMOUNT, "amountGrossCurrency":-GROSS_AMOUNT, "vatType":{{"id":0}}}}
+       {{"row":1, "account":{{"id":EXPENSE_ID}}, "amountGross":FULL_AMOUNT, "amountGrossCurrency":FULL_AMOUNT, "vatType":{{"id":1}}, "department":{{"id":DEPT_ID}}}},
+       {{"row":2, "account":{{"id":BANK_ID}}, "amountGross":-FULL_AMOUNT, "amountGrossCurrency":-FULL_AMOUNT, "vatType":{{"id":0}}}}
      ]}}
 
 VAT type IDs:
@@ -647,11 +649,11 @@ IMPORTANT: Query existing ledger data BEFORE creating new entities.
 4. GET /ledger/account?number=2400&fields=id (leverandørgjeld/accounts payable)
 5. POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Leverandørfaktura INV-XXX fra SupplierName",
      "postings":[
-       {{"row":1, "account":{{"id":EXPENSE_ACCT_ID}}, "amountGross":NET_AMOUNT, "amountGrossCurrency":NET_AMOUNT, "vatType":{{"id":1}}, "supplier":{{"id":SUPPLIER_ID}}}},
-       {{"row":2, "account":{{"id":AP_ACCT_ID}}, "amountGross":-GROSS_AMOUNT, "amountGrossCurrency":-GROSS_AMOUNT, "vatType":{{"id":0}}, "supplier":{{"id":SUPPLIER_ID}}}}
+       {{"row":1, "account":{{"id":EXPENSE_ACCT_ID}}, "amountGross":FULL_AMOUNT, "amountGrossCurrency":FULL_AMOUNT, "vatType":{{"id":1}}, "supplier":{{"id":SUPPLIER_ID}}}},
+       {{"row":2, "account":{{"id":AP_ACCT_ID}}, "amountGross":-FULL_AMOUNT, "amountGrossCurrency":-FULL_AMOUNT, "vatType":{{"id":0}}, "supplier":{{"id":SUPPLIER_ID}}}}
      ]}}
 
-For TTC amounts (inkl mva): debit amountGross = amount/1.25 (net), credit amountGross = -amount (gross)
+AMOUNT RULES: amountGross = the FULL/GROSS amount (including VAT). Both postings use the SAME absolute amount. Tripletex calculates VAT split automatically based on vatType.
 NOTE: POST /supplierInvoice returns 500 — ALWAYS use voucher workaround instead!
 """,
 }
