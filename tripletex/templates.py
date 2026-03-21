@@ -15,7 +15,7 @@ TEMPLATES: dict[str, dict] = {
     "create_employee": {
         "description": "Create an employee, optionally assign a role/entitlement. If departments exist, include department in body.",
         "relevant_schemas": ["Employee"],
-        "extract_fields": ["firstName", "lastName", "email", "dateOfBirth", "phoneNumberMobile", "role", "employeeNumber", "addressLine1", "postalCode", "city"],
+        "extract_fields": ["firstName", "lastName", "email", "dateOfBirth", "phoneNumberMobile", "role", "employeeNumber", "addressLine1", "postalCode", "city", "startDate"],
         "optimal_calls": 2,
         "steps": [
             {
@@ -48,6 +48,11 @@ TEMPLATES: dict[str, dict] = {
                 "method": "PUT",
                 "path": "/employee/entitlement/:grantEntitlementsByTemplate",
                 "params": {"employeeId": "$step_1.id", "template": "{{role}}"},
+            },
+            "if_startDate": {
+                "method": "POST",
+                "path": "/employee/employment",
+                "body": {"employee": {"id": "$step_1.id"}, "startDate": "{{startDate}}"},
             },
         },
     },
