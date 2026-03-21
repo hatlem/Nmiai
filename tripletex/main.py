@@ -54,6 +54,46 @@ TOOL_AGENT_SIGNALS = [
     ("grunnlønn",), ("grunnløn",),
 ]
 
+async def _create_products_from_plan(plan: dict, client) -> None:
+    """Pre-create products from orderLines that have productNumber before executing plan."""
+    import re as _re
+    extracted = plan.get("extracted_values", {})
+    order_lines = extracted.get("orderLines", [])
+    if not isinstance(order_lines, list):
+        return
+
+    for line in order_lines:
+        if not isinstance(line, dict):
+            continue
+        prod_num = line.get("productNumber") or line.get("product_number")
+        if not prod_num:
+            continue
+
+        name = line.get("description", line.get("name", f"Product {prod_num}"))
+        price = line.get("unitPriceExcludingVatCurrency", 0)
+
+        # Try to create product
+        resp = await client.request("POST", "/product", body={
+            "name": name,
+            "number": str(prod_num),
+            "priceExcludingVatCurrency": price,
+        })
+
+        if resp.get("ok"):
+            prod_id = resp.get("data", {}).get("value", {}).get("id")
+            if prod_id:
+                line["product"] = {"id": prod_id}
+                logger.info(f"Pre-created product {name} ({prod_num}) -> id={prod_id}")
+        elif resp.get("status_code") == 422 and "i bruk" in str(resp.get("data", "")):
+            # Product number already exists — find it
+            search = await client.request("GET", "/product", params={"number": str(prod_num), "fields": "id,name"})
+            if search.get("ok"):
+                vals = search.get("data", {}).get("values", [])
+                if vals:
+                    line["product"] = {"id": vals[0]["id"]}
+                    logger.info(f"Found existing product {prod_num} -> id={vals[0]['id']}")
+
+
 def _has_product_numbers(prompt: str) -> bool:
     """Detect if prompt has product numbers in parentheses like 'Opplæring (7579)'."""
     import re
@@ -281,7 +321,7 @@ async def solve(request: Request):
         await _ensure_bank_account(client)
 
         # ── Router: compiled template > tool agent > template engine ──
-        use_tool_agent = _should_use_tool_agent(prompt) or _has_product_numbers(prompt)
+        use_tool_agent = _should_use_tool_agent(prompt)
         handled = False
 
         # 1. Try compiled template first (fastest — no LLM calls for routing)
@@ -330,6 +370,9 @@ async def solve(request: Request):
                     if success:
                         compile_template(prompt, client.call_log or [])
                 else:
+                    # Pre-create products if orderLines have product numbers
+                    await _create_products_from_plan(plan, client)
+
                     result = await execute_plan(plan, client, start)
                     success = result.get("success", False)
 
