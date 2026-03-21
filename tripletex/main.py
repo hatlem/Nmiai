@@ -331,7 +331,7 @@ async def solve(request: Request):
         # 1. Try compiled template first (fastest — no LLM calls for routing)
         if not use_tool_agent:
             compiled = get_compiled_template(prompt)
-            if compiled:
+            if compiled and len(compiled.get("steps", [])) > 0:
                 task_type = "compiled"
                 logger.info("Router: COMPILED TEMPLATE path (%d steps)", len(compiled["steps"]))
                 result = await execute_compiled_template(compiled, prompt, client, files)
