@@ -407,6 +407,9 @@ _HIGH_CONF_KEYWORDS = sorted({
 
 
 def _get_model(model_id: str, system_instruction: str) -> GenerativeModel:
+    # Re-init to global for 3.1 models (tool_agent may have switched to europe-north1)
+    if "3.1" in model_id:
+        vertexai.init(project="ainm26osl-710", location="global")
     return GenerativeModel(model_id, system_instruction=system_instruction)
 
 
