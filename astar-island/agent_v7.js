@@ -219,20 +219,13 @@ function predict(ig, H, W, pre, shift, counts, lookup) {
         strength = (ic === 1 || ic === 2) ? 2.0 : 3.5;
       }
       if (pre.sd[y][x] > 6) strength = Math.max(strength, 4.0);
-      // KT estimate
+      // Arithmetic blend — geometric reverted (AM-GM bias → underprediction → KL catastrophe)
       const ktPred = new Array(NC);
       const denom = nObs + strength;
       for (let c = 0; c < NC; c++) ktPred[c] = (counts[y][x][c] + strength * prior[c]) / denom;
-      // Geometric mean blending (KL-optimal, from predictor.py: 75% lower KL than arithmetic)
       const ktWeight = nObs / (nObs + strength);
       p = new Array(NC);
-      for (let c = 0; c < NC; c++) {
-        const logBlend = ktWeight * Math.log(Math.max(ktPred[c], 1e-12))
-                       + (1 - ktWeight) * Math.log(Math.max(prior[c], 1e-12));
-        p[c] = Math.exp(logBlend);
-      }
-      let ns = 0; for (let c = 0; c < NC; c++) ns += p[c];
-      for (let c = 0; c < NC; c++) p[c] /= ns;
+      for (let c = 0; c < NC; c++) p[c] = ktWeight * ktPred[c] + (1 - ktWeight) * prior[c];
     } else {
       p = prior;
     }

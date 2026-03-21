@@ -525,10 +525,12 @@ def predict_all(
                         strength = max(strength, 4.0)
                     kt_pred = (cell_counts[y, x] + base_pred * strength) / (n + strength)
                     kt_weight = n / (n + strength)
-                    # Geometric mean blending (KL-optimal, proven 75% lower KL than arithmetic)
-                    log_blend = kt_weight * np.log(kt_pred + 1e-12) + (1 - kt_weight) * np.log(base_pred + 1e-12)
-                    pred[y, x] = np.exp(log_blend)
-                    pred[y, x] /= pred[y, x].sum()
+                    # Arithmetic blend — REVERTED from geometric after 300-agent research:
+                    # Geometric has systematic downward bias (AM-GM inequality).
+                    # KL(p||q) punishes underprediction catastrophically.
+                    # When KT is right and lookup is wrong, geometric suppresses the correct signal.
+                    # R12 regressed 55→44 with geometric. Arithmetic is safer.
+                    pred[y, x] = kt_weight * kt_pred + (1 - kt_weight) * base_pred
                     n_kt += 1
                     n_lookup -= 1 if lk is not None else 0
                     n_dist -= 1 if lk is None else 0

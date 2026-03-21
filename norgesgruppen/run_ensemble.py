@@ -47,8 +47,8 @@ WBF_SKIP_THR = 0.001
 def load_models(model_dir: Path):
     """Load all available ONNX multi-class detectors."""
     models = []
-    names = ["pseudo_best.onnx", "yolo11x_best.onnx", "img1600_best.onnx",
-             "fold2_best.onnx", "fold0_best.onnx", "best.onnx"]
+    names = ["pseudo_best.onnx", "yolov8x_best.onnx", "yolo11x_best.onnx",
+             "img1600_best.onnx", "fold2_best.onnx", "best.onnx"]
 
     for name in names:
         p = model_dir / name
