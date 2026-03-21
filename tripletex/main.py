@@ -333,7 +333,6 @@ async def solve(request: Request):
     except (KeyError, TypeError) as e:
         return JSONResponse({"error": f"missing field: {e}"}, status_code=400)
 
-    # Log base_url for debugging (don't reject — competition controls the URL)
     parsed = urlparse(base_url)
     if not any(
         parsed.hostname == h or (parsed.hostname and parsed.hostname.endswith(f".{h}"))
@@ -345,107 +344,72 @@ async def solve(request: Request):
     STATS["last_proxy"] = urlparse(base_url).hostname or ""
     logger.info(f"Task [{urlparse(base_url).hostname}]: {prompt}")
 
-    # Report test start to dashboard
     test_id = report_test("tripletex", prompt[:80], status="running")
-
     client = TripletexClient(base_url, session_token)
+    task_type = "unknown"
+    success = False
 
     try:
-        # Pre-flight: ensure bank account exists (prevents invoice 422 errors)
+        # ── Pre-flight: bank account (prevents invoice 422) ──
         await _ensure_bank_account(client)
-
-        # NOTE: warm_cache removed — it burns API calls that can exhaust short-lived tokens
         client.call_count = 0
         client.error_count = 0
 
-        # ── Router: compiled template > tool agent > template engine ──
-        use_tool_agent = _should_use_tool_agent(prompt)
-        handled = False
+        # ══════════════════════════════════════════════════════════
+        # TIER 1: Template path (fast, 1-10s, no tool agent needed)
+        #   - Classify + extract with LLM (1 call)
+        #   - Build plan from template (no LLM)
+        #   - Execute via DAG (parallel API calls)
+        #   - If fails: tool agent fallback with FRESH client
+        # ══════════════════════════════════════════════════════════
 
-        # 1. Try compiled template first (fastest — no LLM calls for routing)
-        if not use_tool_agent:
-            compiled = None  # Disabled — compiled templates have step reference bugs that cause 0 scores
-            if compiled and len(compiled.get("steps", [])) > 0:
-                task_type = "compiled"
-                logger.info("Router: COMPILED TEMPLATE path (%d steps)", len(compiled["steps"]))
-                result = await execute_compiled_template(compiled, prompt, client, files)
-                success = result.get("success", False)
-                record_result("compiled", "template", success)
-                if success:
-                    handled = True
-                elif (time.monotonic() - start) < 200:
-                    logger.warning("Compiled template failed, falling back to normal routing")
-                else:
-                    handled = True  # No time left, accept failure
+        plan = await create_plan(prompt, files)
+        task_type = plan.get("task_type", "unknown")
+        has_template = task_type != "unknown" and len(plan.get("steps", [])) > 0
+        logger.info(f"Classify: {task_type} (conf={plan.get('classification_confidence', 0):.2f}, steps={len(plan.get('steps', []))})")
 
-        # 2. Tool agent path (keyword-triggered)
-        if not handled and use_tool_agent:
-            logger.info("Router: TOOL AGENT path")
-            task_type = "tool_agent"
-            agent_deadline = start + 280
-            success = await tool_agent_solve(prompt, files, client, agent_deadline)
-            record_result("tool_agent", "tool_agent", success)
+        if has_template:
+            # Pre-create products if needed
+            await _create_products_from_plan(plan, client)
+
+            # Execute template
+            result = await execute_plan(plan, client, start)
+            success = result.get("success", False)
+
             if success:
-                compile_template(prompt, client.call_log or [])
-            handled = True
-
-        # 3. Template engine path (LLM plan + execute)
-        if not handled:
-            task_type = "template"
-            try:
-                plan = await create_plan(prompt, files)
-                plan_task_type = plan.get("task_type", "unknown")
-                task_type = plan_task_type
-                logger.info(f"Router: TEMPLATE path -> {task_type}")
-
-                # Check learning-based routing override
-                route_override = should_override_route(task_type)
-                if route_override == "tool_agent":
-                    logger.info(f"Learning override: {task_type} -> tool_agent")
-                    agent_deadline = start + 280
-                    success = await tool_agent_solve(prompt, files, client, agent_deadline)
-                    record_result(task_type, "tool_agent", success)
-                    if success:
-                        compile_template(prompt, client.call_log or [])
-                else:
-                    # Pre-create products if orderLines have product numbers
-                    await _create_products_from_plan(plan, client)
-
-                    result = await execute_plan(plan, client, start)
-                    success = result.get("success", False)
-
-                    # Retry once if failed and we have time
-                    if not success and (time.monotonic() - start) < 150:
-                        logger.warning(f"Template path failed for {task_type}, retrying with re-extraction")
-                        STATS["repairs"] += 1
-                        plan2 = await create_plan(prompt, files)
-                        result2 = await execute_plan(plan2, client, start, prior_results=result.get("results"))
-                        success = result2.get("success", False)
-
-                    record_result(task_type, "template", success)
-                    if success:
-                        compile_template(prompt, client.call_log or [])
-                    else:
-                        for call in (client.call_log or []):
-                            status = call.get("status", 0)
-                            if status >= 400:
-                                record_error(call.get("path", ""), call.get("response", ""), prompt)
-
-            except Exception as tmpl_err:
-                logger.error(f"Template path error: {tmpl_err}", exc_info=True)
-                record_result(task_type, "template", False)
-                record_error("template_crash", str(tmpl_err), prompt)
-                remaining = 280 - (time.monotonic() - start)
+                logger.info(f"Template OK: {task_type} in {time.monotonic()-start:.1f}s")
+            else:
+                # ── Template failed → tool agent with FRESH client ──
+                remaining = 290 - (time.monotonic() - start)
                 if remaining > 60:
-                    logger.info(f"Router: TEMPLATE crashed, falling back to TOOL AGENT ({remaining:.0f}s left)")
-                    task_type = "template_fallback_tool_agent"
-                    agent_deadline = start + 280
-                    success = await tool_agent_solve(prompt, files, client, agent_deadline)
-                    record_result(task_type, "tool_agent", success)
-                    if success:
-                        compile_template(prompt, client.call_log or [])
+                    logger.warning(f"Template FAILED for {task_type}, handing off to tool agent ({remaining:.0f}s left)")
+                    # Fresh client = clean state, no dirty API calls polluting context
+                    agent_client = TripletexClient(base_url, session_token)
+                    try:
+                        await _ensure_bank_account(agent_client)
+                        agent_client.call_count = 0
+                        agent_client.error_count = 0
+                        agent_deadline = start + 290
+                        success = await tool_agent_solve(prompt, files, agent_client, agent_deadline)
+                        task_type = f"{task_type}→agent"
+                        # Merge stats
+                        client.call_count += agent_client.call_count
+                        client.error_count += agent_client.error_count
+                    except Exception as agent_err:
+                        logger.error(f"Tool agent fallback error: {agent_err}")
+                    finally:
+                        await agent_client.close()
                 else:
-                    raise
+                    logger.warning(f"Template FAILED, no time for agent ({remaining:.0f}s left)")
+
+        else:
+            # ══════════════════════════════════════════════════════
+            # NO TEMPLATE: Go straight to tool agent
+            # ══════════════════════════════════════════════════════
+            logger.info(f"No template for {task_type} → tool agent")
+            task_type = "tool_agent"
+            agent_deadline = start + 290
+            success = await tool_agent_solve(prompt, files, client, agent_deadline)
 
         elapsed = time.monotonic() - start
         logger.info(
@@ -454,7 +418,7 @@ async def solve(request: Request):
             f"api_calls={client.call_count} | errors={client.error_count}"
         )
         _record(task_type, success, elapsed, client.call_count,
-                client.error_count, 0, prompt, call_log=client.call_log)
+                client.error_count, 0, prompt, call_log=getattr(client, 'call_log', None))
 
         update_test(
             test_id,
@@ -468,7 +432,7 @@ async def solve(request: Request):
         elapsed = time.monotonic() - start
         _record(task_type, False, elapsed, client.call_count,
                 client.error_count, 0, prompt, False,
-                error_detail=str(e)[:300], call_log=client.call_log)
+                error_detail=str(e)[:300], call_log=getattr(client, 'call_log', None))
         update_test(test_id, status="failed", details=f"Error: {e}")
     finally:
         await client.close()

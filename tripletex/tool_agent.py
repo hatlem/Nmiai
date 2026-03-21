@@ -37,7 +37,7 @@ from learning import record_error, compile_template
 
 logger = logging.getLogger(__name__)
 
-MAX_TURNS = 30
+MAX_TURNS = 35
 DEADLINE_BUFFER = 10  # stop 10s before timeout — maximize available time
 
 # ── Tool definitions ─────────────────────────────────────────────────
@@ -952,7 +952,7 @@ async def tool_agent_solve(
             break
         # Hard limit on WRITE calls only (GET is free per scoring rules)
         write_count = sum(1 for c in getattr(client, 'call_log', []) if c.get('method') in ('POST', 'PUT', 'DELETE'))
-        if write_count > 25:
+        if write_count > 40:
             logger.warning(f"Tool agent: hard limit — {write_count} write calls, stopping at turn {turn}")
             break
 
@@ -1005,8 +1005,9 @@ async def tool_agent_solve(
             logger.info(f"Tool agent: text response at turn {turn} (done): {text[:200]}")
             break
 
-        # Execute all function calls
+        # Execute all function calls (local ones sync, API calls batched for parallel)
         function_responses = []
+        api_calls_to_execute = []
         for part in content.parts:
             if not hasattr(part, 'function_call') or part.function_call is None or not part.function_call.name:
                 continue
@@ -1060,14 +1061,12 @@ async def tool_agent_solve(
                 )
                 continue
 
-            # HTTP API call
+            # Collect HTTP API calls for parallel execution
             path = args.get("path", "")
             body = args.get("body")
             params = args.get("params")
-
             if path and not path.startswith("/"):
                 path = "/" + path
-
             method_map = {
                 "tripletex_get": "GET",
                 "tripletex_post": "POST",
@@ -1075,31 +1074,37 @@ async def tool_agent_solve(
                 "tripletex_delete": "DELETE",
             }
             method = method_map.get(fn_name, "GET")
+            api_calls_to_execute.append((fn_name, method, path, body, params))
 
-            logger.info(f"Tool agent turn {turn}: {method} {path}")
+        # Execute ALL API calls in parallel (huge speed win when model emits 2-5 calls per turn)
+        if api_calls_to_execute:
+            async def _exec_one(fn_name, method, path, body, params):
+                logger.info(f"Tool agent turn {turn}: {method} {path}")
+                try:
+                    return fn_name, await client.request(method, path, body=body, params=params)
+                except Exception as e:
+                    return fn_name, {"ok": False, "status_code": 0, "data": {"error": str(e)}}
 
-            try:
-                result = await client.request(method, path, body=body, params=params)
-            except Exception as e:
-                result = {"ok": False, "status_code": 0, "data": {"error": str(e)}}
-
-            ok = result.get("ok", False)
-            status = result.get("status_code", 0)
-            data = result.get("data", {})
-
-            if not ok:
-                had_errors = True
-                logger.warning(f"Tool agent: {method} {path} -> {status} FAIL")
-                record_error(path, data, prompt)
-
-            summary = _compact_response(data, ok)
-
-            function_responses.append(
-                Part.from_function_response(
-                    name=fn_name,
-                    response={"result": summary},
-                )
+            results = await asyncio.gather(
+                *[_exec_one(fn, m, p, b, pa) for fn, m, p, b, pa in api_calls_to_execute]
             )
+
+            for fn_name, result in results:
+                ok = result.get("ok", False)
+                status = result.get("status_code", 0)
+                data = result.get("data", {})
+                if not ok:
+                    had_errors = True
+                    path_info = result.get("path", "")
+                    logger.warning(f"Tool agent: {fn_name} -> {status} FAIL")
+                    record_error(fn_name, data, prompt)
+                summary = _compact_response(data, ok)
+                function_responses.append(
+                    Part.from_function_response(
+                        name=fn_name,
+                        response={"result": summary},
+                    )
+                )
 
         # Send function results back to LLM
         # Preserve non-function-call parts (text, thought signatures) from
