@@ -859,32 +859,16 @@ TEMPLATES: dict[str, dict] = {
             },
             {
                 "method": "POST",
-                "path": "/supplierInvoice",
+                "path": "/ledger/voucher",
                 "body": {
-                    "invoiceNumber": "{{invoiceNumber}}",
-                    "invoiceDate": "{{invoiceDate}}",
-                    "supplier": {"id": "$step_0.id"},
-                    "voucher": {
-                        "date": "{{invoiceDate}}",
-                        "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
-                        "postings": [
-                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}},
-                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}},
-                        ],
-                    },
+                    "date": "{{invoiceDate}}",
+                    "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
+                    "postings": [
+                        {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
+                        {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
+                    ],
                 },
-                "fallback_on_500": {
-                    "path": "/ledger/voucher",
-                    "body": {
-                        "date": "{{invoiceDate}}",
-                        "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
-                        "postings": [
-                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
-                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
-                        ],
-                    },
-                },
-                "note": "POST /supplierInvoice first; if 500, fallback to /ledger/voucher.",
+                "note": "POST /supplierInvoice always 500 — go directly to /ledger/voucher.",
             },
         ],
     },

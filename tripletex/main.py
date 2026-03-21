@@ -59,11 +59,11 @@ TOOL_AGENT_SIGNALS = [
     ("bankutskrift",), ("kontoutskrift",), ("bank statement",),
     ("extracto bancario",), ("extrait bancaire",), ("kontoauszug",),
     ("csv",), ("vedlagt csv",), ("attached csv",),
-    # Supplier invoice (leverandørfaktura)
-    ("leverandørfaktura",), ("leverandorfaktura",), ("supplier invoice",),
-    ("facture fournisseur",), ("factura del proveedor",), ("fatura do fornecedor",),
-    ("lieferantenrechnung",), ("eingangsrechnung",),
-    ("inngående faktura",), ("inngaende faktura",),
+    # Supplier invoice — handled by template with fallback_on_500, NOT tool agent
+    # ("leverandørfaktura",), ("leverandorfaktura",), ("supplier invoice",),
+    # ("facture fournisseur",), ("factura del proveedor",), ("fatura do fornecedor",),
+    # ("lieferantenrechnung",), ("eingangsrechnung",),
+    # ("inngående faktura",), ("inngaende faktura",),
     # Complex multi-step (overdue + reminder/partial payment in all languages)
     ("vencida", "lembrete"), ("vencida", "parcial"),
     ("overdue",), ("forfalt",), ("überfällig",), ("vencida",), ("impayé",), ("en mora",),

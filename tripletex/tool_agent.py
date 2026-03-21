@@ -181,7 +181,7 @@ EFFICIENCY (you have 290 seconds total):
 ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
 - /orderline (orderLines go IN POST /order body, NOT as separate endpoint)
-- POST /supplierInvoice may return 500 in some sandboxes — try it first, fall back to voucher
+- POST /supplierInvoice ALWAYS returns 500 — NEVER use it! Use POST /ledger/voucher instead
 - PUT /company/modules (returns 405)
 - PUT /salary/payslip/ID (returns 405 — payslips are READ-ONLY after creation)
 - PUT /salary/transaction/ID (returns 405 — transactions are READ-ONLY)
@@ -202,7 +202,7 @@ MANDATORY FIELD RULES (violating these = instant 422):
 - Product vatType: must be {{"id": N}} where N = 3 (25%), 33 (15% food), 31 (12%), 5 (0%)
 - Voucher: "description" is REQUIRED (not optional)
 - Employee: phone is "phoneNumberMobile" (NOT phone, NOT phoneNumber, NOT mobileNumber)
-- POST /supplierInvoice: TRY it first. If 500, fall back to POST /ledger/voucher workaround
+- POST /supplierInvoice: BROKEN (always 500). SKIP it entirely — use POST /ledger/voucher directly
 - POST /employee: MUST include userType:"STANDARD" AND department:{{"id":X}} (GET /department first!)
 - POST /travelExpense: isDayTrip and isForeignTravel go INSIDE travelDetails (NOT top-level body)
 - POST /travelExpense/cost: amountCurrencyIncVat is REQUIRED. costCategory must be {{"id":X}} object (NOT string)
@@ -508,12 +508,11 @@ Each posting needs:
 1. POST /supplier {"name":"X", "organizationNumber":"X"} — create supplier
 2. GET /ledger/account?number=EXPENSE_ACCT&fields=id (expense account, e.g. 6500, 6700, 7100)
 3. GET /ledger/account?number=2400&fields=id (accounts payable)
-4. TRY: POST /supplierInvoice {"invoiceNumber":"X", "invoiceDate":"YYYY-MM-DD", "supplier":{"id":X},
-     "voucher":{"date":"YYYY-MM-DD", "description":"X", "postings":[
-       {"row":1, "account":{"id":EXPENSE_ID}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{"id":1}},
-       {"row":2, "account":{"id":AP_2400_ID}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{"id":0}}
-     ]}}
-5. If /supplierInvoice returns 500: FALL BACK to POST /ledger/voucher with same postings
+4. POST /ledger/voucher (NEVER use /supplierInvoice — it always returns 500!)
+   {"date":"YYYY-MM-DD", "description":"Leverandørfaktura X fra Y", "postings":[
+       {"row":1, "account":{"id":EXPENSE_ID}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{"id":1}, "supplier":{"id":SUPPLIER_ID}},
+       {"row":2, "account":{"id":AP_2400_ID}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{"id":0}, "supplier":{"id":SUPPLIER_ID}}
+     ]}
 
 CRITICAL: Each posting in the voucher MUST include supplier: {"id": SUPPLIER_ID}
 Without supplier reference, you get "Leverandør mangler" error.
@@ -697,7 +696,7 @@ IMPORTANT: Query existing ledger data BEFORE creating new entities.
      ]}}
 
 AMOUNT RULES: amountGross = the FULL/GROSS amount (including VAT). Both postings use the SAME absolute amount. Tripletex calculates VAT split automatically based on vatType.
-NOTE: POST /supplierInvoice returns 500 — ALWAYS use voucher workaround instead!
+CRITICAL: NEVER use POST /supplierInvoice (always 500). Go directly to POST /ledger/voucher.
 """,
     "project_lifecycle": """\
 ## Complete Project Lifecycle
@@ -1141,8 +1140,9 @@ async def tool_agent_solve(
                 status = result.get("status_code", 0)
                 data = result.get("data", {})
                 if not ok:
-                    had_errors = True
-                    path_info = result.get("path", "")
+                    # Only count write failures as errors — GET failures are just exploration
+                    if fn_name != "tripletex_get":
+                        had_errors = True
                     logger.warning(f"Tool agent: {fn_name} -> {status} FAIL")
                     record_error(fn_name, data, prompt)
                 summary = _compact_response(data, ok)
@@ -1163,10 +1163,18 @@ async def tool_agent_solve(
         ]
         parts = preserved_parts + function_responses
 
-    if not had_errors:
-        compile_template(prompt, getattr(client, 'call_log', []))
+    # Determine success: check if we made at least one successful write call
+    # and the LAST write call succeeded (recovery from earlier errors is OK)
+    call_log = getattr(client, 'call_log', [])
+    write_calls = [c for c in call_log if c.get('method') in ('POST', 'PUT', 'DELETE')]
+    has_successful_write = any(c.get('ok') for c in write_calls)
+    last_write_ok = write_calls[-1].get('ok', False) if write_calls else False
+    success = has_successful_write and last_write_ok
 
-    return not had_errors
+    if success and not had_errors:
+        compile_template(prompt, call_log)
+
+    return success
 
 
 def _compact_response(data: dict, ok: bool, max_len: int = 1500) -> dict:
