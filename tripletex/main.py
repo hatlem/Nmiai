@@ -68,6 +68,16 @@ TOOL_AGENT_SIGNALS = [
     ("kvittering",), ("receipt",), ("recibo",), ("quittung",),
     # Ledger analysis
     ("analyser", "regnskap"), ("analyse", "konto"), ("analyze", "ledger"),
+    ("analyser", "konto"), ("analysez", "compte"), ("analise", "razão"),
+    # Year-end closing / depreciation / complex accounting
+    ("årsavslutning",), ("year-end",), ("encerramento",), ("jahresabschluss",), ("cierre anual",),
+    ("avskrivning",), ("depreciation",), ("depreciação",), ("abschreibung",), ("amortización",),
+    ("skatteavsetning",), ("provisão fiscal",), ("tax provision",),
+    # Project lifecycle (budget + hours + supplier + invoice)
+    ("lifecycle",), ("livssyklus",), ("ciclo de vida",),
+    ("budget", "hours", "invoice"), ("budsjett", "timer", "faktura"),
+    # Complex voucher tasks (multiple postings, calculations)
+    ("beregn",), ("calcule",), ("calculate",), ("berechne",),
 ]
 
 async def _create_products_from_plan(plan: dict, client) -> None:
