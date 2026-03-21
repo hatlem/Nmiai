@@ -97,6 +97,18 @@ TOOL_AGENT_SIGNALS = [
     ("returnert",), ("returned",), ("retourné",), ("devuelto",), ("devolvido",),
 ]
 
+
+def _is_multi_entity_task(prompt: str) -> bool:
+    """Detect tasks that create multiple top-level entities (not orderLines/postings)."""
+    import re
+    prompt_lower = prompt.lower()
+    # Must have a number word AND a plural entity noun
+    has_number = bool(re.search(r'\b(two|three|four|five|to|tre|fire|fem|deux|trois|quatre|cinq|zwei|drei|vier|fünf|dos|tres|cuatro|cinco|dois|três|quatro)\b', prompt_lower))
+    # Only match entities that are genuinely complex when multiple.
+    # Departments, products, customers, suppliers are simple — template handles them fine.
+    has_plural_entity = bool(re.search(r'\b(employees|ansatte|empleados|funcionários|Mitarbeiter|employés)\b', prompt_lower, re.IGNORECASE))
+    return has_number and has_plural_entity
+
 async def _create_products_from_plan(plan: dict, client) -> None:
     """Pre-create products from orderLines that have productNumber before executing plan."""
     import re as _re
@@ -320,9 +332,9 @@ async def solve(request: Request):
         #   - These are too complex for simple templates
         # ══════════════════════════════════════════════════════════
 
-        force_tool_agent = _should_use_tool_agent(prompt)
+        force_tool_agent = _should_use_tool_agent(prompt) or _is_multi_entity_task(prompt)
         if force_tool_agent:
-            logger.info(f"Keyword match → routing directly to tool agent")
+            logger.info(f"Keyword/multi-entity match → routing directly to tool agent")
 
         # ══════════════════════════════════════════════════════════
         # TIER 1: Template path (fast, 1-10s, no tool agent needed)
