@@ -558,6 +558,24 @@ async def _execute_step(
         logger.error(f"Step {idx} exception: {e}")
         response = {"status_code": 0, "ok": False, "data": {"error": str(e)}}
 
+    # Fallback: if step has fallback_on_500 and we got a 500, retry with alternate path/body
+    fallback = step.get("fallback_on_500")
+    if fallback and response.get("status_code") == 500:
+        fb_path = fallback.get("path", path)
+        fb_body = fallback.get("body")
+        if fb_body:
+            fb_body = resolve_refs(fb_body, results)
+            if extracted_values:
+                fb_body = _fill_placeholders(fb_body, extracted_values)
+            fb_body = _strip_unresolved_placeholders(fb_body)
+            fb_body = _pre_validate_body(method, fb_path, fb_body, params)
+        logger.warning(f"Step {idx}: {path} returned 500, retrying with fallback {fb_path}")
+        try:
+            response = await client.request(method, fb_path, body=fb_body, params=params)
+        except Exception as e2:
+            logger.error(f"Step {idx} fallback exception: {e2}")
+            response = {"status_code": 0, "ok": False, "data": {"error": str(e2)}}
+
     # Handle "already exists" 422 errors by searching for the existing entity
     if method == "POST" and response.get("status_code") == 422:
         error_data = response.get("data", {})

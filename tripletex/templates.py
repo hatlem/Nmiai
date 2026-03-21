@@ -113,7 +113,7 @@ TEMPLATES: dict[str, dict] = {
     "create_product": {
         "description": "Create a product with price and VAT settings",
         "relevant_schemas": ["Product"],
-        "extract_fields": ["name", "number", "priceExcludingVatCurrency", "priceIncludingVatCurrency", "description"],
+        "extract_fields": ["name", "number", "priceExcludingVatCurrency", "priceIncludingVatCurrency", "description", "vatTypeId"],
         "optimal_calls": 1,
         "steps": [
             {
@@ -125,6 +125,7 @@ TEMPLATES: dict[str, dict] = {
                     "priceExcludingVatCurrency": "{{priceExcludingVatCurrency}}",
                     "priceIncludingVatCurrency": "{{priceIncludingVatCurrency}}",
                     "description": "{{description}}",
+                    "vatType": {"id": "{{vatTypeId}}"},
                 },
             },
         ],
@@ -802,12 +803,10 @@ TEMPLATES: dict[str, dict] = {
     "create_supplier_invoice": {
         "description": (
             "Create a supplier invoice (incoming invoice from a supplier).\n"
-            "WORKAROUND: POST /supplierInvoice returns 500 in ALL cases in the sandbox.\n"
-            "Instead, create a regular voucher via POST /ledger/voucher with supplier reference in postings.\n"
-            "Steps: 1) Create supplier, 2) GET expense account, 3) GET AP account (2400), 4) POST /ledger/voucher.\n"
-            "The voucher description should reference the invoice number and supplier name."
+            "Steps: 1) Create supplier, 2) GET expense account, 3) GET AP account (2400), 4) POST /supplierInvoice.\n"
+            "If POST /supplierInvoice returns 500, executor auto-retries with POST /ledger/voucher as fallback."
         ),
-        "relevant_schemas": ["Supplier", "Voucher", "Posting"],
+        "relevant_schemas": ["Supplier", "SupplierInvoice", "Voucher", "Posting"],
         "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
         "optimal_calls": 4,
         "steps": [
@@ -841,16 +840,32 @@ TEMPLATES: dict[str, dict] = {
             },
             {
                 "method": "POST",
-                "path": "/ledger/voucher",
+                "path": "/supplierInvoice",
                 "body": {
-                    "date": "{{invoiceDate}}",
-                    "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
-                    "postings": [
-                        {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
-                        {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
-                    ],
+                    "invoiceNumber": "{{invoiceNumber}}",
+                    "invoiceDate": "{{invoiceDate}}",
+                    "supplier": {"id": "$step_0.id"},
+                    "voucher": {
+                        "date": "{{invoiceDate}}",
+                        "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
+                        "postings": [
+                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}},
+                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}},
+                        ],
+                    },
                 },
-                "note": "Workaround: POST /supplierInvoice returns 500 in sandbox. Using POST /ledger/voucher instead.",
+                "fallback_on_500": {
+                    "path": "/ledger/voucher",
+                    "body": {
+                        "date": "{{invoiceDate}}",
+                        "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
+                        "postings": [
+                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
+                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
+                        ],
+                    },
+                },
+                "note": "POST /supplierInvoice first; if 500, fallback to /ledger/voucher.",
             },
         ],
     },

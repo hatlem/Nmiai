@@ -103,7 +103,8 @@ COMMON EXTRACTION MISTAKES TO AVOID:
 - "Strandgata 12, 6800 Førde" → addressLine1: "Strandgata 12", postalCode: "6800", city: "Førde"
 - "avdelingsnummer 200" → departmentNumber: "200" (string, not int)
 - "kontoadministrator" → role: "ALL_PRIVILEGES"
-- "pris 4999 kr eks mva" → priceExcludingVatCurrency: 4999"""
+- "pris 4999 kr eks mva" → priceExcludingVatCurrency: 4999
+- vatTypeId: If VAT rate specified (25%=3, 15% food=33, 12%=31, 0%=5), include the ID. E.g. "15% food and beverage VAT" → vatTypeId: 33"""
 
 
 def build_repair_extraction_prompt(task_type: str, original_prompt: str, errors: list[dict]) -> str:

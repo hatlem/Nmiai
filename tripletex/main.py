@@ -78,7 +78,7 @@ TOOL_AGENT_SIGNALS = [
     ("analyser", "regnskap"), ("analyse", "konto"), ("analyze", "ledger"),
     ("analyser", "konto"), ("analysez", "compte"), ("analise", "razão"),
     # Year-end closing / depreciation / complex accounting
-    ("årsavslutning",), ("year-end",), ("encerramento",), ("jahresabschluss",), ("cierre anual",),
+    ("årsoppgjør",), ("årsoppgjor",), ("årsavslutning",), ("year-end",), ("encerramento",), ("jahresabschluss",), ("cierre anual",),
     ("avskrivning",), ("depreciation",), ("depreciação",), ("abschreibung",), ("amortización",),
     ("skatteavsetning",), ("provisão fiscal",), ("tax provision",),
     # Project lifecycle (budget + hours + supplier + invoice)
