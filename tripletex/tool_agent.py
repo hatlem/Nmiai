@@ -37,8 +37,8 @@ from learning import record_error, compile_template
 
 logger = logging.getLogger(__name__)
 
-MAX_TURNS = 25  # bumped from 20 — get_api_guide calls don't cost API round-trips
-DEADLINE_BUFFER = 40  # stop 40s before timeout
+MAX_TURNS = 30
+DEADLINE_BUFFER = 10  # stop 10s before timeout — maximize available time
 
 # ── Tool definitions ─────────────────────────────────────────────────
 
@@ -153,13 +153,20 @@ CRITICAL UNIVERSAL RULES:
 
 STRATEGY:
 1. Parse the task to understand what entity types are involved
-2. ALWAYS call get_api_guide for each entity type BEFORE your first API call — this gives you exact field names and patterns
-3. For tasks with PDF/image/CSV attachments: ALWAYS read the file first to extract data before making API calls
+2. Call get_api_guide ONCE for the main entity type — don't call it for every sub-entity
+3. For tasks with PDF/image/CSV attachments: read the file first to extract ALL data
 4. For analysis tasks: query existing data via GET endpoints before creating new entities
 5. Create prerequisites first (customer before invoice, accounts before voucher)
-6. Make API calls one at a time, using returned IDs in subsequent calls
-7. If a call fails, read the error and adapt (don't repeat the same call)
-8. When done, stop — don't make unnecessary verification calls
+6. Call MULTIPLE tools in a single turn when they are independent (e.g. GET department + GET employee can be parallel)
+7. If a call fails, read the error and adapt — NEVER repeat the same failing call
+8. When done, stop IMMEDIATELY — no verification calls, no summaries
+
+EFFICIENCY (you have 280 seconds total — every turn costs 10-15s):
+- Call get_api_guide ONLY for unfamiliar entity types, not for simple ones like customer/product
+- Combine independent API calls in the same turn (parallel function calling)
+- Do NOT make GET calls to verify your work — trust the 201 Created response
+- Do NOT retry more than once — if it fails twice, move on
+- Maximum ~15 API calls per task — plan your calls carefully before starting
 
 ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
