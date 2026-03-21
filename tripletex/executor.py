@@ -248,6 +248,17 @@ _ENDPOINT_INVALID_FIELDS: dict[str, set[str]] = {
     "/supplier": {"isSupplier"},  # Never set on supplier endpoint
 }
 
+# Required fields per endpoint — add defaults for missing ones on POST
+_REQUIRED_DEFAULTS: dict[str, dict[str, Any]] = {
+    "/employee": {"userType": "STANDARD"},
+    "/customer": {"isCustomer": True},
+    "/supplier": {},  # isSupplier is auto-set by API, do not send
+    "/order": {},  # orderDate and deliveryDate handled by date defaults below
+    "/project": {},
+    "/contact": {},
+    "/product": {},
+}
+
 
 def _pre_validate_body(method: str, path: str, body: dict | None, params: dict | None) -> dict | None:
     """Pre-validate and clean request body/params to prevent 4xx errors.
@@ -318,6 +329,15 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
     if method == "POST":
         path_lower = path.lower() if isinstance(path, str) else ""
 
+        # Apply required defaults from the lookup table
+        for endpoint, defaults in _REQUIRED_DEFAULTS.items():
+            if endpoint in path:
+                for field, default_val in defaults.items():
+                    if field not in cleaned:
+                        logger.info(f"Pre-validate: defaulting '{field}' to {default_val!r} for {path}")
+                        cleaned[field] = default_val
+
+        # Extra guard: employee (not employment) must have userType
         if "/employee" in path_lower and "/employment" not in path_lower and "userType" not in cleaned:
             cleaned["userType"] = "STANDARD"
 
@@ -328,6 +348,15 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
                 cleaned["orderDate"] = today
             if "deliveryDate" not in cleaned:
                 cleaned["deliveryDate"] = cleaned.get("orderDate", today)
+
+            # Validate order lines: ensure minimum required fields
+            if "orderLines" in cleaned and isinstance(cleaned["orderLines"], list):
+                for line in cleaned["orderLines"]:
+                    if isinstance(line, dict):
+                        line.setdefault("count", 1)
+                        # productNumber is not a valid Tripletex orderLine field
+                        line.pop("productNumber", None)
+                        line.pop("product_number", None)
 
         if path.rstrip("/") == "/customer" and "isCustomer" not in cleaned:
             cleaned["isCustomer"] = True

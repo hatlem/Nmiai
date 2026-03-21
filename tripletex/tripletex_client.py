@@ -195,5 +195,15 @@ class TripletexClient:
     async def delete(self, path: str, params: dict | None = None) -> dict:
         return await self.request("DELETE", path, params=params)
 
+    async def warm_cache(self):
+        """Pre-fetch commonly needed entities to populate cache."""
+        await asyncio.gather(
+            self.request("GET", "/department", params={"fields": "id,name", "count": "1"}),
+            self.request("GET", "/employee", params={"fields": "id,firstName,lastName", "count": "1"}),
+            self.request("GET", "/invoice/paymentType", params={"fields": "id,description"}),
+            self.request("GET", "/activity", params={"fields": "id,name"}),
+            self.request("GET", "/ledger/vatType", params={"fields": "id,name,number", "count": "5"}),
+        )
+
     async def close(self):
         await self._client.aclose()

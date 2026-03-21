@@ -320,6 +320,11 @@ async def solve(request: Request):
         # Pre-flight: ensure bank account exists (prevents invoice 422 errors)
         await _ensure_bank_account(client)
 
+        # Pre-fetch commonly needed entities in parallel (populates cache)
+        await client.warm_cache()
+        client.call_count = 0  # Reset — pre-fetch doesn't count as task calls
+        client.error_count = 0
+
         # ── Router: compiled template > tool agent > template engine ──
         use_tool_agent = _should_use_tool_agent(prompt)
         handled = False

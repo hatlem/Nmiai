@@ -626,12 +626,11 @@ def _inject_product_steps(steps: list[dict], values: dict) -> list[dict]:
         step_str = re.sub(r'\$step_(\d+)', _shift_ref, step_str)
         new_steps[i] = json.loads(step_str)
 
-    # Update orderLines to reference product IDs
-    # The order step is now at order_step_idx + num_product_steps
-    new_order_idx = order_step_idx + num_product_steps
-    order_body = new_steps[new_order_idx].get("body", {})
-    ol_value = order_body.get("orderLines")
-
+    # Update orderLines in values dict to reference product IDs.
+    # At this point the order step body still has "{{orderLines}}" as a placeholder,
+    # so we must update values["orderLines"] directly — _fill_placeholders will
+    # substitute it into the step body later.
+    ol_value = values.get("orderLines")
     if isinstance(ol_value, list):
         for prod_idx, (line_idx, ol) in enumerate(lines_with_product):
             product_step_global = order_step_idx + prod_idx
@@ -640,8 +639,7 @@ def _inject_product_steps(steps: list[dict], values: dict) -> list[dict]:
                 # Remove productNumber from orderLine (not an API field)
                 ol_value[line_idx].pop("productNumber", None)
 
-    # Store the updated orderLines back into values so placeholder filling works
-    if isinstance(ol_value, list):
+        # Also strip productNumber from any remaining lines (safety)
         for ol in ol_value:
             if isinstance(ol, dict):
                 ol.pop("productNumber", None)
