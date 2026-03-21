@@ -1,6 +1,7 @@
 # tripletex/main.py
 # Hybrid router: template engine for known tasks, tool agent for complex ones.
 """FastAPI agent — hybrid router with template engine + Gemini tool agent."""
+import asyncio
 import json
 import os
 import time
@@ -304,8 +305,11 @@ async def solve(request: Request):
     success = False
 
     try:
-        # ── Pre-flight: bank account (prevents invoice 422) ──
-        await _ensure_bank_account(client)
+        # ── Pre-flight: bank account + vatType resolution ──
+        await asyncio.gather(
+            _ensure_bank_account(client),
+            client.resolve_vat_types(),
+        )
 
         # ══════════════════════════════════════════════════════════
         # TIER 0: Keyword-based routing to tool agent for complex tasks
@@ -350,6 +354,7 @@ async def solve(request: Request):
                     logger.warning(f"Template FAILED for {task_type}, handing off to tool agent ({remaining:.0f}s left)")
                     # Fresh client = clean state, no dirty API calls polluting context
                     agent_client = TripletexClient(base_url, session_token)
+                    agent_client.vat_number_to_id = client.vat_number_to_id  # Share vatType map
                     try:
                         agent_deadline = start + 290
                         success = await tool_agent_solve(prompt, files, agent_client, agent_deadline)

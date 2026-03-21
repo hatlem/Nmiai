@@ -25,6 +25,7 @@ class TripletexClient:
         self.error_count = 0
         self._cache: dict[str, dict] = {}
         self.call_log: list[dict] = []  # Per-call details for failure tracking
+        self.vat_number_to_id: dict[int, int] = {}  # vatType number → actual DB id
 
     def _log_call(self, method: str, path: str, status: int, ok: bool,
                   error_snippet: str = "", body: dict | None = None,
@@ -45,8 +46,7 @@ class TripletexClient:
             entry["params"] = params
         self.call_log.append(entry)
 
-    @staticmethod
-    def _fix_body(body: dict | None, path: str) -> dict | None:
+    def _fix_body(self, body: dict | None, path: str) -> dict | None:
         """Auto-fix common LLM body mistakes before sending."""
         if body is None:
             return None
@@ -107,9 +107,9 @@ class TripletexClient:
                     vt = line.get("vatType")
                     # Handle plain dict without "id" key (e.g. {"number": 3})
                     if isinstance(vt, dict) and "id" not in vt:
-                        line["vatType"] = {"id": 3}  # default 25% outgoing VAT
+                        line["vatType"] = {"id": self.resolve_vat_id(3)}  # default 25% outgoing VAT
                     elif vt is None:
-                        line["vatType"] = {"id": 3}  # default 25% outgoing VAT
+                        line["vatType"] = {"id": self.resolve_vat_id(3)}  # default 25% outgoing VAT
         # Fix: employmentType must be integer, not string or object
         if "employmentType" in body:
             val = body["employmentType"]
@@ -151,6 +151,9 @@ class TripletexClient:
     ) -> dict:
         if body and method in ("POST", "PUT"):
             body = self._fix_body(body, path)
+            # Resolve vatType number→id for all vatType references
+            if self.vat_number_to_id:
+                body = self._resolve_all_vat_ids(body)
         # Bug fix 6: Auto-add dateTo if dateFrom is present but dateTo is missing on GET /ledger/voucher
         if "/ledger/voucher" in path and method == "GET" and params:
             if "dateFrom" in params and "dateTo" not in params:
@@ -317,6 +320,43 @@ class TripletexClient:
 
     async def delete(self, path: str, params: dict | None = None) -> dict:
         return await self.request("DELETE", path, params=params)
+
+    def _resolve_all_vat_ids(self, body: dict) -> dict:
+        """Walk body and resolve all vatType {"id": number} to actual DB ids."""
+        def _resolve_vat(obj):
+            if isinstance(obj, dict):
+                vt = obj.get("vatType")
+                if isinstance(vt, dict) and "id" in vt:
+                    vid = vt["id"]
+                    if isinstance(vid, int) and vid in self.vat_number_to_id:
+                        vt["id"] = self.vat_number_to_id[vid]
+                for v in obj.values():
+                    _resolve_vat(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    _resolve_vat(item)
+        _resolve_vat(body)
+        return body
+
+    async def resolve_vat_types(self):
+        """Fetch vatType list and build number→id mapping.
+        Must be called once per session before executing plans."""
+        resp = await self.request("GET", "/ledger/vatType", params={
+            "fields": "id,name,number", "count": "100",
+        })
+        if resp.get("ok"):
+            for vt in resp.get("data", {}).get("values", []):
+                num = vt.get("number")
+                vid = vt.get("id")
+                if num is not None and vid is not None:
+                    self.vat_number_to_id[int(num)] = int(vid)
+            logger.info(f"Resolved {len(self.vat_number_to_id)} vatType mappings: {self.vat_number_to_id}")
+        else:
+            logger.warning(f"Failed to fetch vatTypes: {resp}")
+
+    def resolve_vat_id(self, number: int) -> int:
+        """Convert vatType number to actual DB id. Falls back to number if not resolved."""
+        return self.vat_number_to_id.get(number, number)
 
     async def warm_cache(self):
         """Pre-fetch commonly needed entities to populate cache."""
