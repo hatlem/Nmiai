@@ -206,26 +206,17 @@ function predict(ig, H, W, pre, shift, counts, lookup) {
     // Fix 4: Port suppression BEFORE KT blend
     if (!co) prior[2] = FL;
 
-    // KT with adaptive strength from predictor.py (+14 pts in offline testing)
-    // Settlement/port cells (ic 1,2) are most variable → lower strength
-    // Remote cells → higher strength (trust prior more)
+    // Gentle Blend: strength=30 — prior dominates, observations only nudge
+    // Data shows queries HURT us 9/16 rounds with strength=2-6.
+    // R13=91.3 with 0 queries. Lookup is our strength. Protect it.
     let p;
     const nObs = counts ? counts[y][x].reduce((a,b) => a+b, 0) : 0;
     if (nObs >= 1) {
-      let strength;
-      if (nObs === 1) {
-        strength = (ic === 1 || ic === 2) ? 4.0 : 6.0;
-      } else {
-        strength = (ic === 1 || ic === 2) ? 2.0 : 3.5;
-      }
-      if (pre.sd[y][x] > 6) strength = Math.max(strength, 4.0);
-      // Arithmetic blend — geometric reverted (AM-GM bias → underprediction → KL catastrophe)
+      const strength = 30;
       const ktPred = new Array(NC);
       const denom = nObs + strength;
       for (let c = 0; c < NC; c++) ktPred[c] = (counts[y][x][c] + strength * prior[c]) / denom;
-      const ktWeight = nObs / (nObs + strength);
-      p = new Array(NC);
-      for (let c = 0; c < NC; c++) p[c] = ktWeight * ktPred[c] + (1 - ktWeight) * prior[c];
+      p = ktPred; // with strength=30, n=5 → 86% prior, n=10 → 75% prior
     } else {
       p = prior;
     }
@@ -245,52 +236,7 @@ function predict(ig, H, W, pre, shift, counts, lookup) {
     pred[y][x] = p;
   }
 
-  // Spatial propagation: unobserved cells near observed cells blend toward observed distributions
-  // This is the #1 missing technique vs top competitors (Meine1964: 8-15% blend)
-  if (counts) {
-    const PROP_RADIUS = 3;
-    const PROP_WEIGHT = 0.12; // 12% blend toward nearby observed
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const raw = ig[y][x];
-      if (raw === 5 || raw === 10) continue; // skip static cells
-      const nObs = counts[y][x].reduce((a,b) => a+b, 0);
-      if (nObs > 0) continue; // already observed, skip
-
-      // Find nearby observed cells and average their distributions
-      let nbDist = new Array(NC).fill(0);
-      let nbWeight = 0;
-      for (let dy = -PROP_RADIUS; dy <= PROP_RADIUS; dy++) {
-        for (let dx = -PROP_RADIUS; dx <= PROP_RADIUS; dx++) {
-          if (!dy && !dx) continue;
-          const ny = y+dy, nx = x+dx;
-          if (ny < 0 || ny >= H || nx < 0 || nx >= W) continue;
-          const nNb = counts[ny][nx].reduce((a,b) => a+b, 0);
-          if (nNb === 0) continue;
-          const dist = Math.abs(dy) + Math.abs(dx);
-          const w = nNb / dist; // more observations + closer = higher weight
-          for (let c = 0; c < NC; c++) nbDist[c] += (counts[ny][nx][c] / nNb) * w;
-          nbWeight += w;
-        }
-      }
-      if (nbWeight > 0) {
-        for (let c = 0; c < NC; c++) nbDist[c] /= nbWeight;
-        // Blend: (1-PROP_WEIGHT)*current + PROP_WEIGHT*neighbor_observed
-        const cur = pred[y][x];
-        for (let c = 0; c < NC; c++) {
-          cur[c] = (1 - PROP_WEIGHT) * cur[c] + PROP_WEIGHT * nbDist[c];
-        }
-        // Re-floor and normalize
-        const co = pre.coastal[y][x];
-        if (!co) cur[2] = FL;
-        const d = pre.sd[y][x];
-        const db2 = d <= 3 ? 'near' : d <= 7 ? 'mid' : d <= 12 ? 'far' : 'remote';
-        const cf = db2 === 'near' ? FL_NEAR : db2 === 'mid' ? FL_MID : db2 === 'far' ? FL_FAR : FL;
-        let s2 = 0;
-        for (let c = 0; c < NC; c++) { cur[c] = Math.max(cur[c], cf); s2 += cur[c]; }
-        for (let c = 0; c < NC; c++) cur[c] /= s2;
-      }
-    }
-  }
+  // Spatial propagation DISABLED — data shows it spreads noisy obs and hurts score
 
   return pred;
 }
@@ -497,91 +443,152 @@ async function processRound(round) {
     cellCounts[si] = Array.from({length: H}, () => Array.from({length: W}, () => new Float64Array(NC)));
 
   const survivalRates = [];
-  const allSettlements = []; // collect settlement metadata for regime detection
+  const allSettlements = [];
   let qCount = 0;
 
-  while (queriesUsed < queriesMax) {
-    const vp = viewports[qCount % viewports.length];
-    try {
-      await sleep(SIM_DELAY);
-      const result = await api('POST', '/simulate', {
-        round_id: round.id, seed_index: vp.si,
-        viewport_x: vp.x, viewport_y: vp.y, viewport_w: 15, viewport_h: 15
-      });
-
-      const ig = detail.initial_states[vp.si].grid;
-      for (let gy = 0; gy < result.grid.length; gy++)
-        for (let gx = 0; gx < result.grid[gy].length; gx++) {
-          const ay = result.viewport.y + gy, ax = result.viewport.x + gx;
-          if (ay < H && ax < W) {
-            const cls = cc(result.grid[gy][gx]);
-            obsTrans[cc(ig[ay][ax])][cls]++;
-            cellCounts[vp.si][ay][ax][cls]++;
+  // Helper: run N queries on given viewports
+  async function runQueries(n, vps) {
+    let done = 0;
+    while (done < n && queriesUsed < queriesMax) {
+      const vp = vps[done % vps.length];
+      try {
+        await sleep(SIM_DELAY);
+        const result = await api('POST', '/simulate', {
+          round_id: round.id, seed_index: vp.si,
+          viewport_x: vp.x, viewport_y: vp.y, viewport_w: 15, viewport_h: 15
+        });
+        const ig = detail.initial_states[vp.si].grid;
+        for (let gy = 0; gy < result.grid.length; gy++)
+          for (let gx = 0; gx < result.grid[gy].length; gx++) {
+            const ay = result.viewport.y + gy, ax = result.viewport.x + gx;
+            if (ay < H && ax < W) {
+              const cls = cc(result.grid[gy][gx]);
+              obsTrans[cc(ig[ay][ax])][cls]++;
+              cellCounts[vp.si][ay][ax][cls]++;
+            }
           }
+        const surv = computeSurvivalFromGrid(
+          ig, result.grid, result.viewport.x, result.viewport.y,
+          result.grid.length, result.grid[0].length, H, W
+        );
+        survivalRates.push(surv);
+        if (result.settlements) allSettlements.push(...result.settlements);
+        qCount++; done++;
+        if (result.queries_used !== undefined) queriesUsed = result.queries_used;
+        else queriesUsed++;
+      } catch (e) {
+        if (e.message === '429') {
+          await sleep(2000);
+          try {
+            budget = await api('GET', '/budget');
+            queriesUsed = budget.queries_used || queriesUsed;
+            if (queriesUsed >= (budget.queries_max || queriesMax)) return done;
+          } catch {}
+          continue;
         }
-
-      // Fix 2: Survival from grid
-      const surv = computeSurvivalFromGrid(
-        ig, result.grid, result.viewport.x, result.viewport.y,
-        result.grid.length, result.grid[0].length, H, W
-      );
-      survivalRates.push(surv);
-      if (result.settlements) allSettlements.push(...result.settlements);
-      qCount++;
-
-      // Fix 1: Update budget from response
-      if (result.queries_used !== undefined) queriesUsed = result.queries_used;
-      else queriesUsed++;
-
-      // Progressive resubmit at milestones
-      if (qCount === 5 || qCount === 10 || qCount === 20 || qCount === 30 || qCount === 40) {
-        const shift = computeShift(obsTrans);
-        const regime = computeRegime(allSettlements, survivalRates);
-        const wrl = weightedRoundLookup(obsTrans, survivalRates, regime);
-        const avgSurv = survivalRates.length > 0
-          ? (survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length * 100).toFixed(0) : '?';
-        log(`Phase ${qCount}q: survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}, budget=${queriesMax - queriesUsed} left`);
-        if (regime && qCount === 5) {
-          log(`  Regime: alive=${(regime.aliveRatio*100).toFixed(0)}% food=${regime.avgFood.toFixed(2)} pop=${regime.avgPop.toFixed(1)} factions=${regime.factionCount} ports=${(regime.portRatio*100).toFixed(0)}%`);
-        }
-        await submitAll(round.id, detail, H, W, pres, shift,
-          `Phase (${qCount}q)`, cellCounts, wrl ? wrl.lookup : null);
+        if (e.message.includes('budget') || e.message.includes('exceeded')) return done;
+        log(`Query error: ${e.message.slice(0,80)}`);
+        done++;
       }
-    } catch (e) {
-      if (e.message === '429') {
-        await sleep(2000);
-        try {
-          budget = await api('GET', '/budget');
-          queriesUsed = budget.queries_used || queriesUsed;
-          if (queriesUsed >= (budget.queries_max || queriesMax)) break;
-        } catch {}
-        continue;
-      }
-      if (e.message.includes('budget') || e.message.includes('exceeded')) break;
-      log(`Query error: ${e.message.slice(0,80)}`);
     }
+    return done;
   }
 
-  // Final submit
-  if (qCount > 0) {
+  function doSubmit(label) {
     const shift = computeShift(obsTrans);
     const regime = computeRegime(allSettlements, survivalRates);
     const wrl = weightedRoundLookup(obsTrans, survivalRates, regime);
     const avgSurv = survivalRates.length > 0
       ? (survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length * 100).toFixed(0) : '?';
-    log(`Final: ${qCount}q, survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}`);
-    if (regime) log(`  Regime: alive=${(regime.aliveRatio*100).toFixed(0)}% food=${regime.avgFood.toFixed(2)} pop=${regime.avgPop.toFixed(1)} wealth=${regime.avgWealth.toFixed(2)} factions=${regime.factionCount}`);
-    await submitAll(round.id, detail, H, W, pres, shift,
-      `Final (${qCount}q)`, cellCounts, wrl ? wrl.lookup : null);
+    log(`${label}: ${qCount}q, survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}`);
+    if (regime) log(`  Regime: alive=${(regime.aliveRatio*100).toFixed(0)}% food=${regime.avgFood.toFixed(2)} pop=${regime.avgPop.toFixed(1)} factions=${regime.factionCount} ports=${(regime.portRatio*100).toFixed(0)}%`);
+    return submitAll(round.id, detail, H, W, pres, shift, label, cellCounts, wrl ? wrl.lookup : null);
   }
 
+  // ── PHASE 2: Explore (5q) — 1 per seed, detect regime ────────────────
+  const exploreVPs = viewports.filter((_, i) => i % 2 === 0); // settlement viewports only
+  await runQueries(5, exploreVPs);
+  await doSubmit('Phase 2 (explore 5q)');
+
+  // ── Analyze regime → decide strategy ──────────────────────────────────
+  const regime = computeRegime(allSettlements, survivalRates);
+  const avgSurv = survivalRates.length > 0
+    ? survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length : 1;
+
+  // Harsh world (low survival) → focus on settlements (they change most)
+  // Mild world (high survival) → spread wider (settlements stable, edges matter)
+  let phase3VPs;
+  if (avgSurv < 0.3) {
+    // Harsh: concentrate on settlement areas for accurate dead/alive predictions
+    phase3VPs = exploreVPs;
+    log(`Strategy: HARSH world (survival=${(avgSurv*100).toFixed(0)}%) → concentrate on settlements`);
+  } else if (avgSurv > 0.6) {
+    // Mild: settlements stable, spread to cover empty/forest transitions
+    phase3VPs = viewports; // all viewports including grid coverage
+    log(`Strategy: MILD world (survival=${(avgSurv*100).toFixed(0)}%) → spread for coverage`);
+  } else {
+    // Moderate: balanced approach
+    phase3VPs = viewports;
+    log(`Strategy: MODERATE world (survival=${(avgSurv*100).toFixed(0)}%) → balanced coverage`);
+  }
+
+  // ── PHASE 3: Exploit (10q) — informed by regime ──────────────────────
+  await runQueries(10, phase3VPs);
+  await doSubmit('Phase 3 (exploit 15q)');
+
+  // ── PHASE 4: Deep observation (15q) — build strong KT estimates ──────
+  await runQueries(15, phase3VPs);
+  await doSubmit('Phase 4 (deep 30q)');
+
+  // ── PHASE 5: Final push (remaining ~20q) ─────────────────────────────
+  const remaining = queriesMax - queriesUsed;
+  if (remaining > 0) {
+    await runQueries(remaining, phase3VPs);
+  }
+  await doSubmit('Final');
+
   log(`Done. ${qCount} queries, ${((Date.now()-t0)/1000).toFixed(0)}s`);
+}
+
+// ── Late resubmit: if lookup changed while round still active, resubmit ─────
+let lastLookupSize = Object.keys(LOOKUP).length;
+const RESUBMITTED = new Set(); // track rounds we've resubmitted
+
+async function checkLateResubmit() {
+  try {
+    const fresh = JSON.parse(fs.readFileSync(path.join(__dirname, 'gt_lookup.json'), 'utf8'));
+    const freshSize = Object.keys(fresh).length;
+    if (freshSize === lastLookupSize) return;
+
+    // Lookup changed! Check if there's an active round we already processed
+    const rounds = await api('GET', '/rounds');
+    const active = rounds.filter(r => r.status === 'active' && DONE.has(r.id) && !RESUBMITTED.has(r.id));
+    if (!active.length) { lastLookupSize = freshSize; return; }
+
+    LOOKUP = fresh;
+    lastLookupSize = freshSize;
+    console.log(`\n[LATE RESUBMIT] Lookup changed: ${freshSize} bins. Resubmitting active rounds...`);
+
+    for (const round of active) {
+      const detail = await api('GET', `/rounds/${round.id}`);
+      const H = detail.map_height, W = detail.map_width;
+      const pres = [];
+      for (let si = 0; si < detail.seeds_count; si++)
+        pres.push(precompute(detail.initial_states[si].grid, H, W));
+      await submitAll(round.id, detail, H, W, pres, null, `Late resubmit (${freshSize} bins)`, null, null);
+      RESUBMITTED.add(round.id);
+    }
+  } catch {}
 }
 
 // ── Poll ─────────────────────────────────────────────────────────────────
 let processing = false;
 async function poll() {
   if (processing) return;
+
+  // Check for late resubmit opportunity
+  await checkLateResubmit();
+
   try {
     const rounds = await api('GET', '/rounds');
     const active = rounds.filter(r => r.status === 'active' && !DONE.has(r.id));

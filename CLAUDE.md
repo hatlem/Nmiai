@@ -248,16 +248,44 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | Ren multi-class YOLO | 0.476 | For svak alene |
 
 ### Blindgater (IKKE prøv igjen)
-- **RT-DETR-x:** mAP50=0 etter 45 epochs. Lærer ingenting på dette datasettet. Trolig trenger annen LR/config.
-- **YOLO11-s/m/x på T4/L4:** Krasjet uten results. Ultralytics-versjonskonflikt med YOLO11?
-- **DINOv2 classifier:** Topper på 91% val_acc. Ikke verdt mer investering.
-- **conf=0.05:** Verre enn 0.01. Ikke øk confidence threshold.
-- **Fold-swapping (same arch):** Null effekt. Diversitet krever annen arkitektur/oppløsning/data.
-- **Model Soup (vekt-averaging):** mAP50=0.536 — katastrofalt dårlig. Modeller trent med forskjellige data/aug er ikke kompatible for vekt-averaging.
-- **Sterkere individuelle modeller i ensemble:** pseudo_long(0.781) ga 0.9141 vs fold2(0.749) ga 0.9158. Sterkere ≠ bedre ensemble.
-- **Lengre trening (500ep):** train9 ga 0.761, VERRE enn train8(0.771) med 167ep. Overtrent.
-- **Multi-scale TTA (640+960+1280):** 0.9149 vs 0.9158 med bare 1280+flip. Lavere oppløsninger legger til støy.
-- **Soft-NMS etter WBF:** Ingen forbedring (testet sammen med multi-scale TTA).
+- **RT-DETR-x:** mAP50=0 etter 45+ epochs. Feilet TWICE med forskjellig LR.
+- **DINOv2 classifier:** Topper på 91% val_acc. Two-stage er alltid dårligere enn end-to-end.
+- **conf=0.05:** Verre enn 0.001. ALDRI øk confidence threshold.
+- **Fold-swapping (same arch):** Null effekt. fold0→fold4 ga -0.0003.
+- **Model Soup (vekt-averaging):** 0.536 mAP — katastrofalt.
+- **Sterkere individuelle modeller ≠ bedre ensemble:** pseudo_long(0.781) ga 0.9141 vs fold2(0.749) ga 0.9158.
+- **Lengre trening (500ep):** Overtrent. 167ep var bedre enn 501ep.
+- **Multi-scale TTA (640+960+1280):** 0.9149 vs 0.9158 med bare 1280+flip.
+- **Soft-NMS etter WBF:** Ingen forbedring.
+- **WBF tuning (iou=0.43/0.45, conf_type=max, model weighting, temperature scaling):** 0.8930 — MYYYE verre.
+- **YOLO11-x i ensemble:** 0.9153 vs 0.9158 med fold2. Annen arkitektur hjalp ikke.
+- **YOLOv8x(0.799)+YOLO11-x+pseudo ensemble:** 0.9153. FP16 konvertering kan ha skadet.
+- **Syntetisk data trening:** Maks 0.788. Ikke bedre enn original data.
+- **Oversampling:** Maks 0.774.
+- **Label smoothing:** Maks 0.782.
+- **Strong augmentation:** Maks 0.746.
+- **Cosine LR:** Maks 0.717.
+
+### Alle trente modeller (sortert etter mAP50)
+| # | mAP50 | Arkitektur | Strategi | VM |
+|---|---|---|---|---|
+| 1 | **0.799** | YOLOv8x | Original trening | nmiai-train-yolo |
+| 2 | 0.789 | YOLO26-x | Pseudo-labels | yolo26-train |
+| 3 | 0.788 | YOLOv8x | Syntetisk data (A100) | yolo26-a100 |
+| 4 | 0.784 | YOLO11-x | Standard | yolo26-a100 |
+| 5 | 0.782 | YOLOv8x | Label smoothing | nmiai-train-gpu |
+| 6 | 0.782 | YOLOv8x | Syntetisk data (T4) | yolo26-t4-2 |
+| 7 | 0.781 | YOLO11-l | Standard | yolo26-train |
+| 8 | 0.774 | YOLO26-x | Oversampled | yolo26-t4-2 |
+| 9 | 0.773 | YOLOv8x | Label smooth+oversample | yolo26-l4-3 |
+| 10 | 0.771 | YOLO26-x | 1600px resolution | yolo26-a100 |
+| 11 | 0.758 | YOLO26-x | K-fold 4 | yolo26-a100 |
+| 12 | 0.749 | YOLO26-x | K-fold 2 | yolo26-a100 |
+
+### Ikke prøvd ennå (potensielt lovende)
+- **Objects365 pretrain → fine-tune:** +3.1 AP for sjeldne objekter (forskning). Trenger ~4-6 timer.
+- **HuggingFace shelf-detection modell som backbone:** foduucom/product-detection-in-shelf-yolov8
+- **NVIDIA retail pretrained modell**
 
 ### Beste submission: 0.9158
 - **Modeller:** pseudo(0.789) + 1600px(0.771) + fold2(0.749)
