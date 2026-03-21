@@ -185,13 +185,12 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | 9 | 2026-03-20 | 20:55 | submission_20260320_203746.zip | pseudo + fold4 + fold2, conf=0.05, TTA | 0.9119 | 38.5s. conf=0.05 VERRE enn 0.01 |
 | 10 | 2026-03-20 | 22:49 | submission_20260320_224900.zip | pseudo + **1600px**(0.771) + fold2, conf=**0.001**, TTA | **0.9158** | 42.6s. NY BEST! 1600px + lavere conf hjelper |
 
-### Nåværende status (oppdatert 21. mars 08:15)
+### Nåværende status (oppdatert 21. mars 10:25)
 
 #### Samlet konkurranse — Astar Island leaderboard
-- **Rank: #19** med weighted_score=151.2, hot_streak=65.8
-- **Topp 5:** Six Seven (158.1), People Made Machines (157.8), Laurbærene (157.7), Meme Dream Team (157.3), Kult Byrå (156.7)
-- **Gap til topp:** 6.9 poeng (151.2 vs 158.1)
-- **R13 aktiv**, lukkes kl 09:02 CET — agent_v7 kjører
+- **R13 = 91.3 pts (#22) — NY REKORD!** (forrige: R9=90.4)
+- **R14 aktiv** — queries brukt av autopilot.py (nå drept), v7 submittet lookup-only
+- **agent_v7.js er ENESTE agent** — autopilot.py drept for å unngå query-konflikter
 
 #### Astar Island — Per-runde scores (API: /my-rounds)
 | Runde | Raw Score | Rank | Queries | Agent | Notater |
@@ -208,7 +207,8 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | R10 | 59.1 | #133 | 50 | agent_final | Katastrofe — noe gikk galt |
 | **R11** | **88.4** | **#18** | 50 | agent_final | Nest beste |
 | R12 | 50.0 | #71 | 50 | agent_final | Veldig dårlig |
-| R13 | ? | ? | 50 | agent_v7 | v7 submittet lookup, queries allerede brukt av agent_final |
+| **R13** | **91.3** | **#22** | 50 | agent_v7 (lookup only) | **NY REKORD!** Oppdatert lookup (228 bins, 11 runder) |
+| R14 | ? | ? | 50 | v7 lookup + autopilot queries | Queries brukt av autopilot.py |
 
 **Mønster:** Veksler mellom gode (88-90) og dårlige (50-65) runder. Bugfixene i v7 skal stabilisere dette.
 

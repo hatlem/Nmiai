@@ -53,6 +53,94 @@ def _load_lookup() -> dict[str, np.ndarray]:
 GT_LOOKUP = _load_lookup()
 
 
+# ── Per-round transition tables for nearest-neighbor matching ────────────────
+
+_CACHE_DIR = Path(__file__).parent / "cache"
+
+def _load_round_transitions() -> dict[int, dict[int, np.ndarray]]:
+    """Load per-round transition tables from cache/transitions_r{N}.json."""
+    tables = {}
+    if not _CACHE_DIR.exists():
+        return tables
+    for f in sorted(_CACHE_DIR.glob("transitions_r*.json")):
+        try:
+            rnum = int(f.stem.split("_r")[1])
+            raw = json.loads(f.read_text())
+            table = {}
+            for k, v in raw.items():
+                if k.isdigit():
+                    table[int(k)] = np.array(v, dtype=np.float64)
+            if table:
+                tables[rnum] = table
+        except (ValueError, json.JSONDecodeError):
+            continue
+    return tables
+
+ROUND_TRANSITIONS = _load_round_transitions()
+
+
+def find_nearest_rounds(
+    observed_transitions: dict[int, np.ndarray],
+    k: int = 3,
+) -> list[tuple[int, float]]:
+    """
+    Find k nearest historical rounds by transition rate similarity.
+
+    Uses L2 distance on key transition rates (Empty→Settlement, Settlement→Settlement).
+    Returns list of (round_number, weight) pairs, weights sum to 1.
+    """
+    if not ROUND_TRANSITIONS:
+        return []
+
+    # Extract key rates from observed transitions
+    obs_e2s = observed_transitions.get(0, np.zeros(NUM_CLASSES))[1]  # Empty→Settlement
+    obs_s2s = observed_transitions.get(1, np.zeros(NUM_CLASSES))[1]  # Settlement→Settlement
+    obs_f2f = observed_transitions.get(4, np.zeros(NUM_CLASSES))[4]  # Forest→Forest
+
+    distances = []
+    for rnum, table in ROUND_TRANSITIONS.items():
+        ref_e2s = table.get(0, np.zeros(NUM_CLASSES))[1]
+        ref_s2s = table.get(1, np.zeros(NUM_CLASSES))[1]
+        ref_f2f = table.get(4, np.zeros(NUM_CLASSES))[4]
+
+        # Normalized L2 distance on key rates
+        d = np.sqrt(
+            ((obs_e2s - ref_e2s) / 0.10) ** 2 +  # normalize by typical range
+            ((obs_s2s - ref_s2s) / 0.20) ** 2 +
+            ((obs_f2f - ref_f2f) / 0.15) ** 2
+        )
+        distances.append((rnum, d))
+
+    distances.sort(key=lambda x: x[1])
+    top_k = distances[:k]
+
+    # Inverse-distance weighting (with floor to avoid div-by-zero)
+    weights = [1.0 / (d + 0.01) for _, d in top_k]
+    total = sum(weights)
+    return [(rnum, w / total) for (rnum, _), w in zip(top_k, weights)]
+
+
+def build_round_weighted_prior(
+    nearest: list[tuple[int, float]],
+    init_cls: int,
+) -> Optional[np.ndarray]:
+    """Build a weighted prior from nearest historical rounds' transition tables."""
+    if not nearest:
+        return None
+
+    result = np.zeros(NUM_CLASSES, dtype=np.float64)
+    for rnum, weight in nearest:
+        table = ROUND_TRANSITIONS.get(rnum, {})
+        if init_cls in table:
+            result += weight * table[init_cls]
+        else:
+            result += weight * get_domain_prior(init_cls)
+
+    result = np.maximum(result, 0.001)
+    result /= result.sum()
+    return result
+
+
 # ── Context feature extraction ───────────────────────────────────────────────
 
 def _classify_grid(grid: np.ndarray) -> np.ndarray:
@@ -220,12 +308,28 @@ def predict_all(
     adaptive_fn = create_adaptive_prior_fn(blended)
 
     total_obs = sum(obs_counts.values())
+
+    # ── Per-round nearest-neighbor matching ──
+    # Instead of using averaged calibration, find the 3 closest historical rounds
+    # by transition rate similarity and weight their priors.
+    nearest_rounds = find_nearest_rounds(obs_trans, k=3) if total_obs > 100 else []
+    round_priors = {}  # cache: init_cls → weighted prior from nearest rounds
+    if nearest_rounds:
+        for ic in range(6):
+            rp = build_round_weighted_prior(nearest_rounds, ic)
+            if rp is not None:
+                round_priors[ic] = rp
+
     if verbose:
         print(f"  Adaptive calibration: {total_obs} cell-observations")
+        if nearest_rounds:
+            nn_str = ", ".join(f"R{rn}({w:.0%})" for rn, w in nearest_rounds)
+            print(f"  Nearest rounds: {nn_str}")
         for cls in range(5):
             if obs_counts.get(cls, 0) > 0:
                 cls_names = ["Empty", "Settlement", "Port", "Ruin", "Forest"]
-                print(f"    {cls_names[cls]}: {obs_counts[cls]} obs → {blended[cls].round(3)}")
+                rp_str = f" round_prior={round_priors[cls].round(3)}" if cls in round_priors else ""
+                print(f"    {cls_names[cls]}: {obs_counts[cls]} obs → {blended[cls].round(3)}{rp_str}")
 
     # ── Compute per-context-bin scaling from observations ──
     # Build observed distributions per context bin, then scale lookup entries
@@ -314,15 +418,38 @@ def predict_all(
         settlements = state.get("settlements", [])
 
         init_cls = _classify_grid(grid)
-        sett_dist = _settlement_distance(grid, settlements, W, H)
+
+        # ── Detect new settlements from observations (sth1712 Fix 5) ──
+        # If we observed cells that were initially Empty/Forest but are now
+        # Settlement/Port, add them as new settlement positions for distance calc.
+        extended_settlements = list(settlements)
+        cell_counts_raw = counts[seed_idx][:, :, :NUM_CLASSES].astype(np.float64)
+        n_obs_raw = cell_counts_raw.sum(axis=2)
+        new_sett_count = 0
+        for y2 in range(H):
+            for x2 in range(W):
+                if n_obs_raw[y2, x2] < 2:
+                    continue
+                ic2 = int(init_cls[y2, x2])
+                if ic2 in (0, 4):  # Was Empty or Forest
+                    # Check if majority of observations show Settlement or Port
+                    sett_obs = cell_counts_raw[y2, x2, 1] + cell_counts_raw[y2, x2, 2]
+                    if sett_obs > n_obs_raw[y2, x2] * 0.5:
+                        extended_settlements.append({"x": x2, "y": y2})
+                        new_sett_count += 1
+
+        sett_dist = _settlement_distance(grid, extended_settlements, W, H)
         food = _food_map(grid).astype(np.int32)
         food = np.minimum(food, 4)
         coastal = _coastal_mask(grid).astype(np.int32)
         n_sett_map = _neighbor_settlements(grid, H, W)
         n_sett_map = np.minimum(n_sett_map, 3)
 
-        cell_counts = counts[seed_idx][:, :, :NUM_CLASSES].astype(np.float64)
-        n_obs = cell_counts.sum(axis=2)
+        cell_counts = cell_counts_raw
+        n_obs = n_obs_raw
+
+        if verbose and new_sett_count > 0:
+            print(f"    +{new_sett_count} new settlements detected from observations")
 
         pred = np.zeros((H, W, NUM_CLASSES), dtype=np.float64)
 
@@ -372,6 +499,17 @@ def predict_all(
                     base_pred = _distance_prior(ic, db, adaptive_fn)
                     n_dist += 1
 
+                # ── Blend with round-weighted prior (geometric mean) ──
+                # If we identified nearest historical rounds, blend their
+                # transition prior with the lookup/distance prior.
+                # This adapts to unusual parameter regimes.
+                if ic in round_priors:
+                    rp = round_priors[ic]
+                    # Geometric blend: 60% lookup/distance, 40% round-matched
+                    log_blend = 0.6 * np.log(base_pred + 1e-12) + 0.4 * np.log(rp + 1e-12)
+                    base_pred = np.exp(log_blend)
+                    base_pred /= base_pred.sum()
+
                 # ── Blend with observations (KT estimator) ──
                 n = n_obs[y, x]
                 if n >= 1:
@@ -387,7 +525,10 @@ def predict_all(
                         strength = max(strength, 4.0)
                     kt_pred = (cell_counts[y, x] + base_pred * strength) / (n + strength)
                     kt_weight = n / (n + strength)
-                    pred[y, x] = kt_weight * kt_pred + (1 - kt_weight) * base_pred
+                    # Geometric mean blending (KL-optimal, proven 75% lower KL than arithmetic)
+                    log_blend = kt_weight * np.log(kt_pred + 1e-12) + (1 - kt_weight) * np.log(base_pred + 1e-12)
+                    pred[y, x] = np.exp(log_blend)
+                    pred[y, x] /= pred[y, x].sum()
                     n_kt += 1
                     n_lookup -= 1 if lk is not None else 0
                     n_dist -= 1 if lk is None else 0

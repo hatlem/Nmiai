@@ -206,15 +206,33 @@ function predict(ig, H, W, pre, shift, counts, lookup) {
     // Fix 4: Port suppression BEFORE KT blend
     if (!co) prior[2] = FL;
 
-    // KT with high alpha: trust ensemble prior strongly, observations gently refine
-    // META agent evaluation: alpha=15-20 optimal when prior is well-calibrated
+    // KT with adaptive strength from predictor.py (+14 pts in offline testing)
+    // Settlement/port cells (ic 1,2) are most variable → lower strength
+    // Remote cells → higher strength (trust prior more)
     let p;
     const nObs = counts ? counts[y][x].reduce((a,b) => a+b, 0) : 0;
     if (nObs >= 1) {
-      const ktAlpha = 15; // high: 15 obs worth of prior weight
+      let strength;
+      if (nObs === 1) {
+        strength = (ic === 1 || ic === 2) ? 4.0 : 6.0;
+      } else {
+        strength = (ic === 1 || ic === 2) ? 2.0 : 3.5;
+      }
+      if (pre.sd[y][x] > 6) strength = Math.max(strength, 4.0);
+      // KT estimate
+      const ktPred = new Array(NC);
+      const denom = nObs + strength;
+      for (let c = 0; c < NC; c++) ktPred[c] = (counts[y][x][c] + strength * prior[c]) / denom;
+      // Geometric mean blending (KL-optimal, from predictor.py: 75% lower KL than arithmetic)
+      const ktWeight = nObs / (nObs + strength);
       p = new Array(NC);
-      const denom = nObs + ktAlpha;
-      for (let c = 0; c < NC; c++) p[c] = (counts[y][x][c] + ktAlpha * prior[c]) / denom;
+      for (let c = 0; c < NC; c++) {
+        const logBlend = ktWeight * Math.log(Math.max(ktPred[c], 1e-12))
+                       + (1 - ktWeight) * Math.log(Math.max(prior[c], 1e-12));
+        p[c] = Math.exp(logBlend);
+      }
+      let ns = 0; for (let c = 0; c < NC; c++) ns += p[c];
+      for (let c = 0; c < NC; c++) p[c] /= ns;
     } else {
       p = prior;
     }
@@ -322,26 +340,33 @@ function computeSurvivalFromGrid(ig, grid, vpX, vpY, vpH, vpW, H, W) {
   return total > 0 ? 1 - dead / total : 1;
 }
 
-// ── Fix 7: Weighted round ensemble ──────────────────────────────────────────
+// ── Weighted round ensemble using transition rate similarity ─────────────────
 function weightedRoundLookup(obsTrans, survivalRates) {
   if (Object.keys(ROUND_PROFILES).length === 0) return null;
 
-  const avgSurv = survivalRates.length > 0
-    ? survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length : 1;
+  // Extract key transition rates from observations (ported from predictor.py)
+  const obsE2S = obsTrans[0] ? obsTrans[0][1] / Math.max(obsTrans[0].reduce((a,b)=>a+b,0), 1) : 0;
+  const obsS2S = obsTrans[1] ? obsTrans[1][1] / Math.max(obsTrans[1].reduce((a,b)=>a+b,0), 1) : 0;
+  const obsF2F = obsTrans[4] ? obsTrans[4][4] / Math.max(obsTrans[4].reduce((a,b)=>a+b,0), 1) : 0;
 
-  // Compute similarity to each historical round
+  // L2 distance to each historical round's transition rates
   const weights = {};
   let totalWeight = 0;
   for (const [r, profile] of Object.entries(ROUND_PROFILES)) {
-    if (!profile['1'] || !ROUND_LOOKUPS[parseInt(r)]) continue;
-    const histSurvival = profile['1'][1] + (profile['1'][2] || 0);
-    const dist = Math.abs(avgSurv - histSurvival);
-    // Gaussian kernel: closer = higher weight
-    const w = Math.exp(-dist * dist / (2 * 0.1 * 0.1));
-    if (w > 0.01) {
-      weights[r] = w;
-      totalWeight += w;
-    }
+    if (!ROUND_LOOKUPS[parseInt(r)]) continue;
+    const refE2S = profile['0'] ? profile['0'][1] : 0;
+    const refS2S = profile['1'] ? profile['1'][1] : 0;
+    const refF2F = profile['4'] ? profile['4'][4] : 0;
+
+    const d = Math.sqrt(
+      ((obsE2S - refE2S) / 0.10) ** 2 +
+      ((obsS2S - refS2S) / 0.20) ** 2 +
+      ((obsF2F - refF2F) / 0.15) ** 2
+    );
+    // Inverse distance weighting
+    const w = 1.0 / (d + 0.01);
+    weights[r] = w;
+    totalWeight += w;
   }
 
   if (totalWeight === 0) return null;

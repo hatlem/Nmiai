@@ -227,10 +227,20 @@ class ONNXDetector:
     def __init__(self, model_path: str, conf_threshold: float = 0.15):
         providers = []
         if "CUDAExecutionProvider" in ort.get_available_providers():
-            providers.append("CUDAExecutionProvider")
+            providers.append(("CUDAExecutionProvider", {
+                "arena_extend_strategy": "kSameAsRequested",
+                "cudnn_conv_algo_search": "EXHAUSTIVE",
+                "do_copy_in_default_stream": True,
+                "cudnn_conv_use_max_workspace": True,
+            }))
         providers.append("CPUExecutionProvider")
 
-        self.session = ort.InferenceSession(model_path, providers=providers)
+        sess_options = ort.SessionOptions()
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        sess_options.enable_mem_pattern = True
+        sess_options.enable_cpu_mem_arena = True
+
+        self.session = ort.InferenceSession(model_path, sess_options, providers=providers)
         self.conf_threshold = conf_threshold
         self.input_name = self.session.get_inputs()[0].name
 
