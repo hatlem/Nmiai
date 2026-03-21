@@ -97,7 +97,7 @@ _tripletex_delete = FunctionDeclaration(
 
 _get_api_guide = FunctionDeclaration(
     name="get_api_guide",
-    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity, receipt_voucher, employment_contract_pdf, bank_reconciliation_csv, ledger_analysis, supplier_invoice_pdf",
+    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity, receipt_voucher, employment_contract_pdf, bank_reconciliation_csv, ledger_analysis, supplier_invoice_pdf, currency_exchange, ledger_correction",
     parameters={
         "type": "object",
         "properties": {
@@ -154,7 +154,7 @@ CRITICAL UNIVERSAL RULES:
 STRATEGY:
 1. Parse the task to understand what entity types are involved
 2. Call get_api_guide ONCE for the main entity type — don't call it for every sub-entity
-3. For tasks with PDF/image/CSV attachments: read the file first to extract ALL data
+3. For tasks with PDF/image attachments: The file content is provided as base64 in the request. The LLM can read it directly. Extract EVERY piece of data: names, numbers, dates, amounts, account numbers, department names, salary details.
 4. For analysis tasks: query existing data via GET endpoints before creating new entities
 5. Create prerequisites first (customer before invoice, accounts before voucher)
 6. Call MULTIPLE tools in a single turn when they are independent (e.g. GET department + GET employee can be parallel)
@@ -820,6 +820,53 @@ API_GUIDES["jahresabschluss"] = API_GUIDES["year_end_closing"]
 API_GUIDES["cierre"] = API_GUIDES["year_end_closing"]
 API_GUIDES["depreciation"] = API_GUIDES["year_end_closing"]
 API_GUIDES["avskrivning"] = API_GUIDES["year_end_closing"]
+
+API_GUIDES["currency_exchange"] = """\
+## Currency Exchange / Agio (valutadifferanse)
+Task: Sent invoice in EUR at rate X, customer paid at rate Y, book the exchange difference (agio).
+
+Steps:
+1. POST /customer (create customer with org number)
+2. GET /currency?code=EUR&fields=id,code,factor — get currency ID
+3. POST /order with currency.id, orderLines with amount in foreign currency
+4. PUT /order/ORDER_ID/:invoice with invoiceDate, invoiceDueDate
+5. GET /invoice/paymentType for payment type ID
+6. PUT /invoice/INV_ID/:payment with paymentDate, paidAmount (in NOK = foreign amount × new rate)
+7. Book agio: POST /ledger/voucher
+   - If gain (new rate > old rate): debit 1500 (kundefordring), credit 8060 (annen finansinntekt)
+   - If loss (new rate < old rate): debit 8160 (annen finanskostnad), credit 1500
+
+Example agio voucher (loss of 500 NOK):
+POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"Agiotap valutadifferanse",
+  "postings":[
+    {"row":1, "account":{"id":8160_ACCT_ID}, "amountGross":500, "amountGrossCurrency":500, "vatType":{"id":0}},
+    {"row":2, "account":{"id":1500_ACCT_ID}, "amountGross":-500, "amountGrossCurrency":-500, "vatType":{"id":0}}
+  ]}
+"""
+API_GUIDES["agio"] = API_GUIDES["currency_exchange"]
+API_GUIDES["valutakurs"] = API_GUIDES["currency_exchange"]
+API_GUIDES["exchange_rate"] = API_GUIDES["currency_exchange"]
+
+API_GUIDES["ledger_correction"] = """\
+## Ledger Correction (feilretting i regnskap)
+Steps for correcting voucher errors:
+
+1. GET /ledger/voucher?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD to find vouchers
+   - MUST include dateFrom AND dateTo (both required!)
+2. For wrong account: POST new correcting voucher (reverse original + post correct)
+   - Create voucher with reversed postings of the original (swap debit/credit signs)
+   - Then create another voucher with the correct account numbers
+3. For duplicate: PUT /ledger/voucher/ID/:reverse?date=YYYY-MM-DD
+   - date is a QUERY param (not body!)
+4. For missing VAT: POST new voucher with VAT posting
+   - Debit the VAT receivable account (e.g. 2710), credit the expense account
+5. For wrong amount: POST correcting voucher for the difference
+   - Only book the delta between correct and incorrect amount
+
+CRITICAL: Always GET /ledger/account?number=XXXX&fields=id before creating vouchers.
+CRITICAL: Postings MUST sum to zero. Use vatType.id=0 for balance sheet corrections.
+"""
+API_GUIDES["feilretting"] = API_GUIDES["ledger_correction"]
 
 # Fields to preserve in _compact_response
 _ESSENTIAL_FIELDS = frozenset({
