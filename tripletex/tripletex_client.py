@@ -87,12 +87,13 @@ class TripletexClient:
         if "postings" in body and isinstance(body["postings"], list):
             for posting in body["postings"]:
                 if isinstance(posting, dict):
-                    for field in ("amountGross", "amountGrossCurrency", "amount"):
-                        if field in posting and isinstance(posting[field], str):
+                    for field in ("amountGross", "amountGrossCurrency", "amount", "amountCurrencyIncVat"):
+                        val = posting.get(field)
+                        if val is not None and not isinstance(val, (int, float)):
                             try:
-                                posting[field] = float(posting[field])
+                                posting[field] = float(str(val).replace(",", ".").strip())
                             except (ValueError, TypeError):
-                                pass
+                                posting.pop(field, None)  # Remove unparseable values
         # Bug fix 2: Voucher description must not be null
         if "/ledger/voucher" in path and isinstance(body, dict):
             body.setdefault("description", "Bilag")
