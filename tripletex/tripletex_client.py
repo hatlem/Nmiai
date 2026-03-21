@@ -89,21 +89,14 @@ class TripletexClient:
                 if isinstance(posting, dict):
                     for field in ("amountGross", "amountGrossCurrency", "amount", "amountCurrencyIncVat"):
                         val = posting.get(field)
-                        if isinstance(val, str):
-                            if val in ("-", "", "null", "None"):
-                                posting[field] = 0
-                                if field == "amountGross":
-                                    posting["amountGrossCurrency"] = 0
-                            elif not isinstance(val, (int, float)):
-                                try:
-                                    posting[field] = float(str(val).replace(",", ".").strip())
-                                except (ValueError, TypeError):
-                                    posting.pop(field, None)  # Remove unparseable values
-                        elif val is not None and not isinstance(val, (int, float)):
+                        if val is not None and not isinstance(val, (int, float)):
                             try:
                                 posting[field] = float(str(val).replace(",", ".").strip())
                             except (ValueError, TypeError):
                                 posting.pop(field, None)
+                    # amountGrossCurrency MUST equal amountGross
+                    if "amountGross" in posting:
+                        posting["amountGrossCurrency"] = posting["amountGross"]
         # Bug fix 2: Voucher description must not be null
         if "/ledger/voucher" in path and isinstance(body, dict):
             body.setdefault("description", "Bilag")
