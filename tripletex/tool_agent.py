@@ -714,6 +714,51 @@ Flow for full employee setup from offer letter:
 
 NOTE: employment (step 2) and employment/details (step 5) are DIFFERENT endpoints!
 """,
+
+    "year_end_closing": """\
+## Year-End Closing (årsavslutning / encerramento anual)
+Complex multi-step task. Each step creates a separate voucher.
+
+### Step 1: Depreciation (avskrivning / depreciação)
+For each asset, calculate: annual_depreciation = acquisition_cost / useful_life_years
+Then create a voucher:
+- Debit: depreciation EXPENSE account (e.g. 6010) with the calculated amount
+- Credit: accumulated depreciation account (e.g. 1209) with negative amount
+Example: Asset 375600 NOK, 8 years → 375600/8 = 46950 NOK per year
+POST /ledger/voucher {"date":"2025-12-31", "description":"Avskrivning Kontormaskiner", "postings":[
+  {"row":1, "account":{"id":EXPENSE_6010_ID}, "amountGross":46950, "amountGrossCurrency":46950, "vatType":{"id":0}},
+  {"row":2, "account":{"id":ACCUM_1209_ID}, "amountGross":-46950, "amountGrossCurrency":-46950, "vatType":{"id":0}}
+]}
+CRITICAL: Create a SEPARATE voucher for EACH asset, not one combined.
+
+### Step 2: Reverse prepaid expenses (reversere forhåndsbetalte utgifter)
+Move from prepaid (1700) to expense account:
+- Debit: relevant expense account (e.g. 6xxx-7xxx)
+- Credit: prepaid account (1700) with negative amount
+POST /ledger/voucher with description "Reversering forhåndsbetalte utgifter"
+
+### Step 3: Tax provision (skatteavsetning / provisão fiscal)
+Calculate: tax = taxable_income * 0.22 (Norwegian corporate tax rate 22%)
+Then create voucher:
+- Debit: tax expense account (8700) with tax amount
+- Credit: tax payable account (2920) with negative tax amount
+
+### Norwegian Chart of Accounts Reference
+- 1200-1299: Fixed assets (anleggsmidler)
+- 1209: Accumulated depreciation (akkumulerte avskrivninger)
+- 1700: Prepaid expenses (forhåndsbetalte kostnader)
+- 2920: Tax payable (betalbar skatt)
+- 6010: Depreciation expense (avskrivning)
+- 8700: Tax expense (skattekostnad)
+
+### Key Rules
+- ALL amounts must be numbers (not strings!)
+- amountGross = the full amount (vatType 0 for balance sheet accounts)
+- Each depreciation = separate voucher with 2 postings
+- Postings MUST sum to zero
+- Date should be year-end: YYYY-12-31
+- GET /ledger/account?number=XXXX&fields=id for each account first
+""",
 }
 
 # Aliases for common misspellings / alternative names
@@ -761,6 +806,12 @@ API_GUIDES["leverandørfaktura_pdf"] = API_GUIDES["supplier_invoice_pdf"]
 API_GUIDES["lifecycle"] = API_GUIDES["project_lifecycle"]
 API_GUIDES["salary_setup"] = API_GUIDES["employment_details"]
 API_GUIDES["arbeidskontrakt_detaljer"] = API_GUIDES["employment_details"]
+API_GUIDES["arsavslutning"] = API_GUIDES["year_end_closing"]
+API_GUIDES["encerramento"] = API_GUIDES["year_end_closing"]
+API_GUIDES["jahresabschluss"] = API_GUIDES["year_end_closing"]
+API_GUIDES["cierre"] = API_GUIDES["year_end_closing"]
+API_GUIDES["depreciation"] = API_GUIDES["year_end_closing"]
+API_GUIDES["avskrivning"] = API_GUIDES["year_end_closing"]
 
 # Fields to preserve in _compact_response
 _ESSENTIAL_FIELDS = frozenset({
