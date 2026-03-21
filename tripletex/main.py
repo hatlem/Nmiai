@@ -53,7 +53,7 @@ TOOL_AGENT_SIGNALS = [
     # Salary
     ("lønn", "bonus"), ("salary", "bonus"), ("løn", "bonus"),
     ("salario", "bonus"), ("gehalt", "bonus"),
-    ("grunnlønn",), ("grunnløn",), ("grunnløn",),
+    ("grunnlønn",), ("grunnløn",),
     # Bank reconciliation / CSV
     ("bankutskrift",), ("kontoutskrift",), ("bank statement",),
     ("extracto bancario",), ("extrait bancaire",), ("kontoauszug",),
@@ -240,75 +240,24 @@ async def root():
 
 
 async def _ensure_bank_account(client: TripletexClient):
-    """Set bankAccountNumber on account 1920 if not already set.
-    Competition sandboxes don't have this pre-configured, causing invoice 422."""
+    """Set bankAccountNumber on account 1920 if not set."""
     try:
-        # Try primary query format
         resp = await client.get("/ledger/account", params={"number": "1920", "fields": "id,bankAccountNumber,version"})
         if not resp.get("ok"):
-            # Fallback: some proxies use numberFrom/numberTo instead of number
-            logger.info("Pre-flight: GET /ledger/account?number=1920 failed, trying numberFrom/numberTo")
-            resp = await client.get("/ledger/account", params={
-                "numberFrom": "1920", "numberTo": "1920",
-                "fields": "id,bankAccountNumber,version",
-            })
-        if not resp.get("ok"):
-            logger.warning(f"Pre-flight: could not fetch account 1920: status={resp.get('status_code')}")
             return
-        data = resp.get("data", {})
-        values = data.get("values", [])
+        values = resp.get("data", {}).get("values", [])
         if not values:
-            inner = data.get("value", {})
-            if isinstance(inner, dict):
-                values = inner.get("values", [])
-        if not values:
-            logger.warning("Pre-flight: account 1920 not found, trying PUT /company fallback")
-            try:
-                co_resp = await client.get("/company/1", params={"fields": "id,version"})
-                if co_resp.get("ok"):
-                    co_data = co_resp.get("data", {})
-                    co_val = co_data.get("value", co_data)
-                    if isinstance(co_val, dict) and "id" in co_val:
-                        await client.put(f"/company/{co_val['id']}", body={
-                            "id": co_val["id"],
-                            "version": co_val.get("version", 0),
-                            "bankAccountNumber": "12345678903",
-                        })
-                        logger.info("Pre-flight: set bankAccountNumber via PUT /company")
-            except Exception as e2:
-                logger.warning(f"Pre-flight: PUT /company fallback failed: {e2}")
             return
         acct = values[0]
         if acct.get("bankAccountNumber"):
-            logger.info(f"Pre-flight: account 1920 already has bankAccountNumber={acct['bankAccountNumber']}")
-            return  # Already set
-        logger.info("Pre-flight: setting bankAccountNumber on account 1920")
-        put_resp = await client.put(
-            f"/ledger/account/{acct['id']}",
-            body={
-                "id": acct["id"],
-                "version": acct.get("version", 0),
-                "bankAccountNumber": "12345678903",
-            },
-        )
-        if not put_resp.get("ok"):
-            logger.warning(f"Pre-flight: PUT account 1920 failed: {put_resp.get('status_code')} {put_resp.get('data', {})}")
-            # Fallback: try via POST /bank
-            try:
-                bank_resp = await client.request("POST", "/bank", body={
-                    "accountNumber": "86011117947",
-                    "name": "Driftskonto",
-                })
-                if bank_resp.get("ok"):
-                    logger.info("Pre-flight: registered bank account via POST /bank fallback")
-                else:
-                    logger.warning(f"Pre-flight: POST /bank also failed: {bank_resp.get('status_code')}")
-            except Exception as e3:
-                logger.warning(f"Pre-flight: POST /bank exception: {e3}")
-        else:
-            logger.info("Pre-flight: bankAccountNumber set successfully on account 1920")
-    except Exception as e:
-        logger.warning(f"Pre-flight bank account failed (non-fatal): {e}")
+            return
+        await client.put(f"/ledger/account/{acct['id']}", body={
+            "id": acct["id"],
+            "version": acct.get("version", 0),
+            "bankAccountNumber": "12345678903",
+        })
+    except Exception:
+        pass  # Non-fatal
 
 
 def _should_use_tool_agent(prompt: str) -> bool:
@@ -347,7 +296,7 @@ async def solve(request: Request):
 
     files = body.get("files", [])
     STATS["last_proxy"] = urlparse(base_url).hostname or ""
-    logger.info(f"Task [{urlparse(base_url).hostname}]: {prompt}")
+    logger.info(f"Task [{urlparse(base_url).hostname}]: {prompt[:120]}...")
 
     test_id = report_test("tripletex", prompt[:80], status="running")
     client = TripletexClient(base_url, session_token)
@@ -357,8 +306,6 @@ async def solve(request: Request):
     try:
         # ── Pre-flight: bank account (prevents invoice 422) ──
         await _ensure_bank_account(client)
-        client.call_count = 0
-        client.error_count = 0
 
         # ══════════════════════════════════════════════════════════
         # TIER 0: Keyword-based routing to tool agent for complex tasks
@@ -404,9 +351,6 @@ async def solve(request: Request):
                     # Fresh client = clean state, no dirty API calls polluting context
                     agent_client = TripletexClient(base_url, session_token)
                     try:
-                        await _ensure_bank_account(agent_client)
-                        agent_client.call_count = 0
-                        agent_client.error_count = 0
                         agent_deadline = start + 290
                         success = await tool_agent_solve(prompt, files, agent_client, agent_deadline)
                         task_type = f"{task_type}→agent"
