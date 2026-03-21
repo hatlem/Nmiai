@@ -32,6 +32,7 @@ def weighted_boxes_fusion(
     weights: list[float] | None = None,
     iou_thr: float = 0.55,
     skip_box_thr: float = 0.0,
+    conf_type: str = "avg",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Fuse predictions from multiple models/scales using WBF.
 
@@ -121,8 +122,13 @@ def weighted_boxes_fusion(
             total_score = sum(x["score"] for x in cluster)
             n_matched = len(cluster)
 
-            # WBF score: average score weighted by number of models
-            fused_score = total_score / weight_sum
+            # WBF score: avg or max confidence
+            if conf_type == "max":
+                fused_score = max(x["score"] for x in cluster)
+            elif conf_type == "box_and_model_avg":
+                fused_score = total_score / (weight_sum * n_matched) * min(n_matched, len(weights))
+            else:  # "avg"
+                fused_score = total_score / weight_sum
 
             fused_boxes.append(cluster_boxes[ci])
             fused_scores.append(fused_score)

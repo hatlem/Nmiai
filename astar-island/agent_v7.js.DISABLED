@@ -4,26 +4,21 @@
  *
  * Fixes from agent_final.js:
  * 1. Rate limit: use budget from API response, not rlCount heuristic
- * 2. Survival: compute from observed grid, not metadata (always 100%)
+ * 2. Survival: compute from observed grid, not metadata (which was always 100%)
  * 3. KT threshold: n>=1 with adaptive alpha (was n>=3)
  * 4. Port suppression BEFORE KT blend (was after)
- * 5. Smarter query allocation: concentrate on fewer viewports
- * 6. SIM_DELAY 350ms (was 280ms)
- * 7. Weighted round ensemble (not winner-take-all)
+ * 5. Smarter query allocation: concentrate on fewer viewports for strong KT
+ * 6. SIM_DELAY 350ms (was 280ms) to avoid rate limits
  */
 const fs = require('fs'), path = require('path'), https = require('https');
 
 const NC = 6;
 const TTC = {10:0, 11:0, 0:0, 1:1, 2:2, 3:3, 4:4, 5:5};
-const FL = 0.0005;       // absolute minimum floor
-const FL_NEAR = 0.02;    // floor for cells near settlements (high entropy)
-const FL_MID = 0.01;     // floor for mid-range cells
-const FL_FAR = 0.005;    // floor for remote cells
-const TEMP = 1.15;       // temperature scaling >1 = softer predictions (safer for KL)
-const DAMP = 0.5;        // lowered from 0.8 — ensemble prior does most work now
-const COAST_DAMP = 0.2;  // lowered from 0.3
+const FL = 0.0005;
+const DAMP = 0.8;
+const COAST_DAMP = 0.3;
 const CLIP = [0.1, 10.0];
-const SIM_DELAY = 350;
+const SIM_DELAY = 350;   // Fix 6: was 280, ~3 req/s (limit is 5)
 const SUB_DELAY = 550;
 const POLL = 30000;
 
@@ -31,8 +26,9 @@ const TOKEN = process.env.TOKEN || process.env.AINM_TOKEN;
 if (!TOKEN) { console.error('Need TOKEN'); process.exit(1); }
 
 // ── Load data ───────────────────────────────────────────────────────────────
-let LOOKUP = JSON.parse(fs.readFileSync(path.join(__dirname, 'gt_lookup.json'), 'utf8'));
+const LOOKUP = JSON.parse(fs.readFileSync(path.join(__dirname, 'gt_lookup.json'), 'utf8'));
 
+// Per-round transition profiles (for round matching)
 const CACHE = path.join(__dirname, 'cache');
 const ROUND_PROFILES = {};
 try {
@@ -42,6 +38,7 @@ try {
   }
 } catch {}
 
+// Per-round lookups (for round-specific predictions)
 const ROUND_LOOKUPS = {};
 try {
   const rounds = [...new Set(fs.readdirSync(CACHE).filter(f=>f.match(/^r\d+_gt_s/)).map(f=>parseInt(f.match(/r(\d+)/)[1])))];
@@ -194,7 +191,7 @@ function predict(ig, H, W, pre, shift, counts, lookup) {
 
     let prior = resolveLookup(lk, ic, f, co, db, ns);
 
-    // Apply shift
+    // Apply shift to prior
     if (shift && shift[ic]) {
       const damp = co ? COAST_DAMP : DAMP;
       for (let c = 0; c < NC; c++) {
@@ -206,12 +203,13 @@ function predict(ig, H, W, pre, shift, counts, lookup) {
     // Fix 4: Port suppression BEFORE KT blend
     if (!co) prior[2] = FL;
 
-    // KT with high alpha: trust ensemble prior strongly, observations gently refine
-    // META agent evaluation: alpha=15-20 optimal when prior is well-calibrated
+    // Fix 3: Per-cell KT with adaptive alpha (n>=1)
     let p;
     const nObs = counts ? counts[y][x].reduce((a,b) => a+b, 0) : 0;
     if (nObs >= 1) {
-      const ktAlpha = 15; // high: 15 obs worth of prior weight
+      // Adaptive alpha: less trust with fewer observations
+      const alpha = nObs >= 3 ? 0.5 : nObs === 2 ? 0.35 : 0.25;
+      const ktAlpha = alpha * NC; // scale by number of categories
       p = new Array(NC);
       const denom = nObs + ktAlpha;
       for (let c = 0; c < NC; c++) p[c] = (counts[y][x][c] + ktAlpha * prior[c]) / denom;
@@ -219,68 +217,13 @@ function predict(ig, H, W, pre, shift, counts, lookup) {
       p = prior;
     }
 
-    if (!co) p[2] = FL;
-
-    // Temperature scaling: soften predictions to reduce KL penalty on overconfident errors
-    if (TEMP !== 1.0) {
-      for (let c = 0; c < NC; c++) p[c] = Math.pow(Math.max(p[c], 1e-10), 1.0 / TEMP);
-    }
-
-    // Adaptive floor based on settlement distance (high-entropy cells get higher floor)
-    const cellFloor = db === 'near' ? FL_NEAR : db === 'mid' ? FL_MID : db === 'far' ? FL_FAR : FL;
+    // Floor + normalize (port already suppressed above)
+    if (!co) p[2] = FL; // reinforce after KT blend too
     let s = 0;
-    for (let c = 0; c < NC; c++) { p[c] = Math.max(p[c], cellFloor); s += p[c]; }
+    for (let c = 0; c < NC; c++) { p[c] = Math.max(p[c], FL); s += p[c]; }
     for (let c = 0; c < NC; c++) p[c] /= s;
     pred[y][x] = p;
   }
-
-  // Spatial propagation: unobserved cells near observed cells blend toward observed distributions
-  // This is the #1 missing technique vs top competitors (Meine1964: 8-15% blend)
-  if (counts) {
-    const PROP_RADIUS = 3;
-    const PROP_WEIGHT = 0.12; // 12% blend toward nearby observed
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const raw = ig[y][x];
-      if (raw === 5 || raw === 10) continue; // skip static cells
-      const nObs = counts[y][x].reduce((a,b) => a+b, 0);
-      if (nObs > 0) continue; // already observed, skip
-
-      // Find nearby observed cells and average their distributions
-      let nbDist = new Array(NC).fill(0);
-      let nbWeight = 0;
-      for (let dy = -PROP_RADIUS; dy <= PROP_RADIUS; dy++) {
-        for (let dx = -PROP_RADIUS; dx <= PROP_RADIUS; dx++) {
-          if (!dy && !dx) continue;
-          const ny = y+dy, nx = x+dx;
-          if (ny < 0 || ny >= H || nx < 0 || nx >= W) continue;
-          const nNb = counts[ny][nx].reduce((a,b) => a+b, 0);
-          if (nNb === 0) continue;
-          const dist = Math.abs(dy) + Math.abs(dx);
-          const w = nNb / dist; // more observations + closer = higher weight
-          for (let c = 0; c < NC; c++) nbDist[c] += (counts[ny][nx][c] / nNb) * w;
-          nbWeight += w;
-        }
-      }
-      if (nbWeight > 0) {
-        for (let c = 0; c < NC; c++) nbDist[c] /= nbWeight;
-        // Blend: (1-PROP_WEIGHT)*current + PROP_WEIGHT*neighbor_observed
-        const cur = pred[y][x];
-        for (let c = 0; c < NC; c++) {
-          cur[c] = (1 - PROP_WEIGHT) * cur[c] + PROP_WEIGHT * nbDist[c];
-        }
-        // Re-floor and normalize
-        const co = pre.coastal[y][x];
-        if (!co) cur[2] = FL;
-        const d = pre.sd[y][x];
-        const db2 = d <= 3 ? 'near' : d <= 7 ? 'mid' : d <= 12 ? 'far' : 'remote';
-        const cf = db2 === 'near' ? FL_NEAR : db2 === 'mid' ? FL_MID : db2 === 'far' ? FL_FAR : FL;
-        let s2 = 0;
-        for (let c = 0; c < NC; c++) { cur[c] = Math.max(cur[c], cf); s2 += cur[c]; }
-        for (let c = 0; c < NC; c++) cur[c] /= s2;
-      }
-    }
-  }
-
   return pred;
 }
 
@@ -308,57 +251,40 @@ function computeShift(obsTrans) {
   return shift;
 }
 
-// ── Fix 2: Compute survival from grid ───────────────────────────────────────
-function computeSurvivalFromGrid(ig, grid, vpX, vpY, vpH, vpW, H, W) {
-  let total = 0, dead = 0;
+// ── Round matching — Fix 2: compute survival from grid, not metadata ────────
+function computeSurvivalFromGrid(ig, observedGrid, vpX, vpY, vpH, vpW, H, W) {
+  let totalSett = 0, deadSett = 0;
   for (let gy = 0; gy < vpH; gy++) for (let gx = 0; gx < vpW; gx++) {
     const ay = vpY + gy, ax = vpX + gx;
     if (ay >= H || ax >= W) continue;
-    if (ig[ay][ax] === 1 || ig[ay][ax] === 2) {
-      total++;
-      if (grid[gy][gx] !== 1 && grid[gy][gx] !== 2) dead++;
+    const initial = ig[ay][ax];
+    if (initial === 1 || initial === 2) {
+      totalSett++;
+      const observed = observedGrid[gy][gx];
+      // Settlement died if it's now wilderness(0/10/11), forest(3/4), or ruin(5)
+      if (observed !== 1 && observed !== 2) deadSett++;
     }
   }
-  return total > 0 ? 1 - dead / total : 1;
+  return totalSett > 0 ? 1 - deadSett / totalSett : 1;
 }
 
-// ── Fix 7: Weighted round ensemble ──────────────────────────────────────────
-function weightedRoundLookup(obsTrans, survivalRates) {
+function matchRound(survivalRates, portRates) {
   if (Object.keys(ROUND_PROFILES).length === 0) return null;
 
-  const avgSurv = survivalRates.length > 0
+  // Average survival across all observations
+  const avgSurvival = survivalRates.length > 0
     ? survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length : 1;
+  const avgPort = portRates.length > 0
+    ? portRates.reduce((a,b) => a+b, 0) / portRates.length : 0;
 
-  // Compute similarity to each historical round
-  const weights = {};
-  let totalWeight = 0;
+  let bestRound = null, bestDist = Infinity;
   for (const [r, profile] of Object.entries(ROUND_PROFILES)) {
-    if (!profile['1'] || !ROUND_LOOKUPS[parseInt(r)]) continue;
+    if (!profile['1']) continue;
     const histSurvival = profile['1'][1] + (profile['1'][2] || 0);
-    const dist = Math.abs(avgSurv - histSurvival);
-    // Gaussian kernel: closer = higher weight
-    const w = Math.exp(-dist * dist / (2 * 0.1 * 0.1));
-    if (w > 0.01) {
-      weights[r] = w;
-      totalWeight += w;
-    }
+    const dist = Math.abs(avgSurvival - histSurvival) * 3 + Math.abs(avgPort - (profile['1'][2] || 0));
+    if (dist < bestDist) { bestDist = dist; bestRound = parseInt(r); }
   }
-
-  if (totalWeight === 0) return null;
-
-  // Blend round-specific lookups by weight
-  const blended = {};
-  for (const [r, w] of Object.entries(weights)) {
-    const rl = ROUND_LOOKUPS[parseInt(r)];
-    const nw = w / totalWeight;
-    for (const [k, dist] of Object.entries(rl)) {
-      if (!blended[k]) blended[k] = new Array(NC).fill(0);
-      for (let c = 0; c < NC; c++) blended[k][c] += dist[c] * nw;
-    }
-  }
-
-  const matchedRounds = Object.keys(weights).map(r => `R${r}(${(weights[r]/totalWeight*100).toFixed(0)}%)`).join('+');
-  return { lookup: blended, desc: matchedRounds };
+  return bestRound;
 }
 
 // ── Submit ──────────────────────────────────────────────────────────────────
@@ -391,7 +317,7 @@ async function processRound(round) {
   try {
     const fresh = JSON.parse(fs.readFileSync(path.join(__dirname, 'gt_lookup.json'), 'utf8'));
     if (Object.keys(fresh).length !== Object.keys(LOOKUP).length) {
-      LOOKUP = fresh;
+      Object.assign(LOOKUP, fresh);
       log(`Lookup reloaded: ${Object.keys(LOOKUP).length} bins`);
     }
   } catch {}
@@ -416,41 +342,26 @@ async function processRound(round) {
   log(`Queries: ${queriesMax - queriesUsed} available (${queriesUsed}/${queriesMax} used)`);
   if (queriesUsed >= queriesMax) { log('No queries. Done.'); return; }
 
-  // Grid-coverage viewports: 2 per seed — 1 settlement-focused + 1 grid coverage
-  // META agent found: empty/forest cells are 60-65% of score, need full map coverage
+  // Fix 5: Plan viewports — 1 per seed (best coverage), then repeat
   const viewports = [];
   for (let si = 0; si < detail.seeds_count; si++) {
     const s = pres[si].setts;
-    // VP1: best settlement coverage
-    if (s.length > 0) {
-      let bestVP = null, bestCount = 0;
-      for (const st of s) {
-        const vx = Math.max(0, Math.min(W-15, st.x-7)), vy = Math.max(0, Math.min(H-15, st.y-7));
-        let count = 0;
-        for (const s2 of s) {
-          if (s2.x >= vx && s2.x < vx+15 && s2.y >= vy && s2.y < vy+15) count++;
-        }
-        if (count > bestCount) { bestCount = count; bestVP = { si, x: vx, y: vy }; }
+    if (s.length === 0) continue;
+    // Find single best viewport covering most settlements
+    let bestVP = null, bestCount = 0;
+    for (const st of s) {
+      const vx = Math.max(0, Math.min(W-15, st.x-7)), vy = Math.max(0, Math.min(H-15, st.y-7));
+      let count = 0;
+      for (const s2 of s) {
+        if (s2.x >= vx && s2.x < vx+15 && s2.y >= vy && s2.y < vy+15) count++;
       }
-      if (bestVP) viewports.push(bestVP);
+      if (count > bestCount) { bestCount = count; bestVP = { si, x: vx, y: vy, covered: count }; }
     }
-    // VP2: grid position that's different from VP1 (cover more of the map)
-    const gridPositions = [[0,0],[13,0],[25,0],[0,13],[13,13],[25,13],[0,25],[13,25],[25,25]];
-    const vp1 = viewports[viewports.length - 1];
-    let bestGrid = null, bestDist = -1;
-    for (const [gx, gy] of gridPositions) {
-      if (vp1) {
-        const dist = Math.abs(gx - vp1.x) + Math.abs(gy - vp1.y);
-        if (dist > bestDist) { bestDist = dist; bestGrid = { si, x: gx, y: gy }; }
-      } else {
-        bestGrid = { si, x: gx, y: gy }; break;
-      }
-    }
-    if (bestGrid) viewports.push(bestGrid);
+    if (bestVP) viewports.push(bestVP);
   }
-  log(`Viewports: ${viewports.length} (2 per seed: settlement + grid)`);
+  log(`Viewports: ${viewports.length} (1 per seed, covering settlements)`);
 
-  // ── PHASE 2+3: Query loop ─────────────────────────────────────────────
+  // ── PHASE 2+3: Explore & Exploit ──────────────────────────────────────
   const obsTrans = {};
   for (let ic = 0; ic < NC; ic++) obsTrans[ic] = new Float64Array(NC);
   const cellCounts = {};
@@ -458,8 +369,10 @@ async function processRound(round) {
     cellCounts[si] = Array.from({length: H}, () => Array.from({length: W}, () => new Float64Array(NC)));
 
   const survivalRates = [];
+  const portRates = [];
   let qCount = 0;
 
+  // Keep querying until budget exhausted
   while (queriesUsed < queriesMax) {
     const vp = viewports[qCount % viewports.length];
     try {
@@ -470,6 +383,8 @@ async function processRound(round) {
       });
 
       const ig = detail.initial_states[vp.si].grid;
+
+      // Accumulate observations
       for (let gy = 0; gy < result.grid.length; gy++)
         for (let gx = 0; gx < result.grid[gy].length; gx++) {
           const ay = result.viewport.y + gy, ax = result.viewport.x + gx;
@@ -480,55 +395,81 @@ async function processRound(round) {
           }
         }
 
-      // Fix 2: Survival from grid
+      // Fix 2: Compute survival from grid
       const surv = computeSurvivalFromGrid(
         ig, result.grid, result.viewport.x, result.viewport.y,
         result.grid.length, result.grid[0].length, H, W
       );
       survivalRates.push(surv);
+
+      // Track port rate from grid observations
+      let portCells = 0, totalSettObs = 0;
+      for (let gy = 0; gy < result.grid.length; gy++)
+        for (let gx = 0; gx < result.grid[gy].length; gx++) {
+          const ay = result.viewport.y + gy, ax = result.viewport.x + gx;
+          if (ay < H && ax < W && (ig[ay][ax] === 1 || ig[ay][ax] === 2)) {
+            totalSettObs++;
+            if (result.grid[gy][gx] === 2) portCells++;
+          }
+        }
+      if (totalSettObs > 0) portRates.push(portCells / totalSettObs);
+
       qCount++;
 
-      // Fix 1: Update budget from response
-      if (result.queries_used !== undefined) queriesUsed = result.queries_used;
-      else queriesUsed++;
+      // Fix 1: Update budget from response if available
+      if (result.queries_used !== undefined) {
+        queriesUsed = result.queries_used;
+      } else {
+        queriesUsed++;
+      }
 
       // Progressive resubmit at milestones
       if (qCount === 5 || qCount === 10 || qCount === 20 || qCount === 30 || qCount === 40) {
         const shift = computeShift(obsTrans);
-        const wrl = weightedRoundLookup(obsTrans, survivalRates);
+        const matched = matchRound(survivalRates, portRates);
+        const roundLookup = matched && ROUND_LOOKUPS[matched] ? ROUND_LOOKUPS[matched] : null;
         const avgSurv = survivalRates.length > 0
           ? (survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length * 100).toFixed(0) : '?';
-        log(`Phase ${qCount}q: survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}, budget=${queriesMax - queriesUsed} left`);
+        log(`Phase ${qCount}q: survival=${avgSurv}%, match=R${matched||'?'}, budget=${queriesMax - queriesUsed} left`);
         await submitAll(round.id, detail, H, W, pres, shift,
-          `Phase (${qCount}q)`, cellCounts, wrl ? wrl.lookup : null);
+          `Phase (${qCount}q, match=R${matched||'?'})`, cellCounts, roundLookup);
       }
+
     } catch (e) {
       if (e.message === '429') {
         await sleep(2000);
+        // Re-check budget on rate limit
         try {
           budget = await api('GET', '/budget');
           queriesUsed = budget.queries_used || queriesUsed;
-          if (queriesUsed >= (budget.queries_max || queriesMax)) break;
+          if (queriesUsed >= (budget.queries_max || queriesMax)) {
+            log(`Budget exhausted after rate limit check (${queriesUsed}/${queriesMax})`);
+            break;
+          }
         } catch {}
         continue;
       }
-      if (e.message.includes('budget') || e.message.includes('exceeded')) break;
+      if (e.message.includes('budget') || e.message.includes('exceeded')) {
+        log('Budget exhausted.');
+        break;
+      }
       log(`Query error: ${e.message.slice(0,80)}`);
     }
   }
 
-  // Final submit
+  // Final resubmit with all data
   if (qCount > 0) {
     const shift = computeShift(obsTrans);
-    const wrl = weightedRoundLookup(obsTrans, survivalRates);
+    const matched = matchRound(survivalRates, portRates);
+    const roundLookup = matched && ROUND_LOOKUPS[matched] ? ROUND_LOOKUPS[matched] : null;
     const avgSurv = survivalRates.length > 0
       ? (survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length * 100).toFixed(0) : '?';
-    log(`Final: ${qCount}q, survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}`);
+    log(`Final: ${qCount}q, survival=${avgSurv}%, match=R${matched||'?'}`);
     await submitAll(round.id, detail, H, W, pres, shift,
-      `Final (${qCount}q)`, cellCounts, wrl ? wrl.lookup : null);
+      `Final (${qCount}q, R${matched||'?'})`, cellCounts, roundLookup);
   }
 
-  log(`Done. ${qCount} queries, ${((Date.now()-t0)/1000).toFixed(0)}s`);
+  log(`Done. ${qCount} queries used, ${((Date.now()-t0)/1000).toFixed(0)}s`);
 }
 
 // ── Poll ─────────────────────────────────────────────────────────────────

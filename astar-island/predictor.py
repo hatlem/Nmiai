@@ -264,7 +264,7 @@ def predict_all(
     # Only use bins with enough observations to be reliable
     bin_scales = {}
     for key, obs_dist in bin_obs.items():
-        if bin_counts[key] < 30:  # Need 30+ obs for reliable bin-level scaling
+        if bin_counts[key] < 10:  # Need 10+ obs (was 30; n₀=5 means 10 is reliable)
             continue
         obs_norm = (obs_dist + 0.5) / (obs_dist.sum() + NUM_CLASSES * 0.5)
         if key in GT_LOOKUP:

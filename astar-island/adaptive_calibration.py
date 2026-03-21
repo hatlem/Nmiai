@@ -123,7 +123,10 @@ def blend_with_calibration(
             blended[cls] = cal_prior
             continue
 
-        obs_weight = n_obs / (n_obs + 50.0)
+        # Prior strength n₀ derived from empirical Bayes on between-round variance:
+        # n₀ ≈ p(1-p)/σ² - 1 ≈ 4-5 for transitions with σ≈0.20
+        # With n₀=5 and 300 obs: data gets 98.4% weight (was 85.7% with n₀=50)
+        obs_weight = n_obs / (n_obs + 5.0)
         result = obs_weight * obs_dist + (1.0 - obs_weight) * cal_prior
         result = np.maximum(result, 1e-6)
         result /= result.sum()

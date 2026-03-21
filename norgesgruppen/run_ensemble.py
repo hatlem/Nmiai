@@ -53,12 +53,15 @@ WBF_IOU_THR = 0.45   # Tuned: 0.45 > 0.55 on local eval (+0.0008)
 WBF_SKIP_THR = 0.01  # Tuned: 0.01 > 0.001 (removes noise)
 SOFT_NMS_SIGMA = 0.5
 SOFT_NMS_SCORE_THR = 0.001
+# Temperature scaling: sharpen confidence scores for better mAP ranking
+# T < 1.0 = sharper (more confident), T > 1.0 = softer
+TEMPERATURE = 0.7  # Research: sharpening helps classification mAP
 
 
 def load_models(model_dir: Path):
     """Load all available ONNX multi-class detectors."""
     models = []
-    names = ["pseudo_best.onnx", "img1600_best.onnx", "fold2_best.onnx",
+    names = ["pseudo_best.onnx", "yolov8x_best.onnx", "yolo11x_best.onnx",
              "fold0_best.onnx", "fold1_best.onnx", "best.onnx"]
 
     for name in names:
@@ -144,6 +147,7 @@ def ensemble_detect(models, img_bgr, tta_mode="full"):
     fused_boxes, fused_scores, fused_labels = weighted_boxes_fusion(
         all_boxes, all_scores, all_labels,
         weights=weights, iou_thr=WBF_IOU_THR, skip_box_thr=WBF_SKIP_THR,
+        conf_type="max",  # Research: max > avg for ensemble with diverse models
     )
 
     fused_labels = np.asarray(fused_labels, dtype=int)
@@ -155,14 +159,13 @@ def ensemble_detect(models, img_bgr, tta_mode="full"):
         fused_boxes[:, [0, 2]] *= w
         fused_boxes[:, [1, 3]] *= h
 
-    # Soft-NMS: decay overlapping detection scores instead of hard removal
-    if SOFT_NMS_AVAILABLE and len(fused_boxes) > 0:
-        fused_boxes, fused_scores, fused_labels = soft_nms(
-            fused_boxes, fused_scores, fused_labels,
-            sigma=SOFT_NMS_SIGMA,
-            score_threshold=SOFT_NMS_SCORE_THR,
-            method="gaussian",
-        )
+    # Temperature scaling: sharpen scores for better mAP ranking
+    if TEMPERATURE != 1.0 and len(fused_scores) > 0:
+        # Apply temperature to logit-space: score -> logit -> scale -> sigmoid
+        eps = 1e-7
+        logits = np.log(fused_scores / (1.0 - fused_scores + eps) + eps)
+        fused_scores = 1.0 / (1.0 + np.exp(-logits / TEMPERATURE))
+        fused_scores = np.clip(fused_scores, 0, 1)
 
     return fused_boxes, fused_scores, fused_labels
 
