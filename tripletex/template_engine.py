@@ -751,7 +751,11 @@ def _apply_conditional_steps(steps: list[dict], values: dict, template: dict) ->
     for trigger_key, step_or_steps in conditional.items():
         # trigger_key is like "if_role" or "if_cost_amount"
         field = trigger_key.removeprefix("if_")
-        if field in values and values[field]:
+        # Also trigger cost steps if we have a costs array
+        triggered = field in values and values[field]
+        if not triggered and field == "cost_amount" and isinstance(values.get("costs"), list) and values["costs"]:
+            triggered = True
+        if triggered:
             if isinstance(step_or_steps, list):
                 # Array of steps (e.g. travel expense costs)
                 steps.extend(copy.deepcopy(step_or_steps))
@@ -824,8 +828,22 @@ def build_concrete_plan(task_type: str, extracted_values: dict) -> dict:
     if "debit_amount" in values and "credit_amount" not in values:
         values["credit_amount"] = values["debit_amount"]
 
-    # Travel expense: inject per diem into costs array if perDiem fields are present
+    # Travel expense: defaults for REQUIRED travelDetails fields
     if task_type == "create_travel_expense":
+        if "departureDate" not in values:
+            values["departureDate"] = today
+        if "returnDate" not in values:
+            values["returnDate"] = values.get("departureDate", today)
+        if "isDayTrip" not in values:
+            values["isDayTrip"] = values.get("departureDate") == values.get("returnDate")
+        if "isForeignTravel" not in values:
+            values["isForeignTravel"] = False
+        if "departureFrom" not in values:
+            values["departureFrom"] = "Oslo"
+        if "title" not in values:
+            values["title"] = values.get("purpose", values.get("destination", "Reiseregning"))
+
+        # Inject per diem into costs array if perDiem fields are present
         daily_rate = _clean_amount(values.get("perDiem_dailyRate"))
         days = _clean_amount(values.get("perDiem_days"))
         if daily_rate and days:

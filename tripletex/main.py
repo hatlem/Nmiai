@@ -103,11 +103,12 @@ def _is_multi_entity_task(prompt: str) -> bool:
     import re
     prompt_lower = prompt.lower()
     # Must have a number word AND a plural entity noun
-    has_number = bool(re.search(r'\b(two|three|four|five|to|tre|fire|fem|deux|trois|quatre|cinq|zwei|drei|vier|fünf|dos|tres|cuatro|cinco|dois|três|quatro)\b', prompt_lower))
-    # Only match entities that are genuinely complex when multiple.
-    # Departments, products, customers, suppliers are simple — template handles them fine.
-    has_plural_entity = bool(re.search(r'\b(employees|ansatte|empleados|funcionários|Mitarbeiter|employés)\b', prompt_lower, re.IGNORECASE))
-    return has_number and has_plural_entity
+    has_number = bool(re.search(r'\b(two|three|four|five|six|seven|eight|nine|ten|to|tre|fire|fem|seks|sju|åtte|ni|ti|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|dois|três|quatro|cinco|seis|sete|oito|nove|dez)\b', prompt_lower))
+    # Also check for digit+entity pattern like "3 avdelinger"
+    has_digit_entity = bool(re.search(r'\b\d+\s+(?:employees|ansatte|empleados|funcionários|Mitarbeiter|employés|departments|avdelinger|avdelingar|departamentos|Abteilungen|départements|customers|kunder|kundar|clientes|Kunden|clients|suppliers|leverandører|leverandørar|proveedores|fornecedores|Lieferanten|fournisseurs|products|produkter|produkt|productos|Produkte|produits)\b', prompt_lower, re.IGNORECASE))
+    # Match any entity that the template can only create one of at a time
+    has_plural_entity = bool(re.search(r'\b(employees|ansatte|empleados|funcionários|Mitarbeiter|employés|departments|avdelinger|avdelingar|departamentos|Abteilungen|départements|customers|kunder|kundar|clientes|Kunden|clients|suppliers|leverandører|leverandørar|proveedores|fornecedores|Lieferanten|fournisseurs|products|produkter|produkt|productos|Produkte|produits)\b', prompt_lower, re.IGNORECASE))
+    return (has_number and has_plural_entity) or has_digit_entity
 
 async def _create_products_from_plan(plan: dict, client) -> None:
     """Pre-create products from orderLines that have productNumber before executing plan."""

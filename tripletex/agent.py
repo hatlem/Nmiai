@@ -725,6 +725,30 @@ def _rescue_missing_fields(prompt: str, values: dict) -> dict:
         except (ValueError, TypeError):
             pass
 
+    # Travel expense: rescue departureDate/returnDate from prompt
+    if not values.get("departureDate"):
+        # Look for date patterns like "15. mars", "15.03.2026", "2026-03-15", "March 15"
+        m = re.search(r'(\d{4})-(\d{2})-(\d{2})', prompt)
+        if m:
+            values["departureDate"] = m.group(0)
+        else:
+            m = re.search(r'(\d{1,2})[./]\s*(\d{1,2})[./]\s*(\d{4})', prompt)
+            if m:
+                day, month, year = m.group(1), m.group(2), m.group(3)
+                values["departureDate"] = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+
+    # Travel expense: rescue destination
+    if not values.get("destination"):
+        m = re.search(r'(?:til|to|nach|à|a|hacia)\s+([A-ZÆØÅÄÖÜ][a-zæøåäöüß]+(?:\s+[A-ZÆØÅÄÖÜ][a-zæøåäöüß]+)?)', prompt)
+        if m:
+            values["destination"] = m.group(1)
+
+    # Department number rescue
+    if not values.get("departmentNumber"):
+        m = re.search(r'(?:avdelingsnummer|dept\.?\s*(?:nr|no|num)?\.?|department\s*(?:number|no|nr))\s*:?\s*(\d+)', prompt_lower)
+        if m:
+            values["departmentNumber"] = m.group(1)
+
     return values
 
 

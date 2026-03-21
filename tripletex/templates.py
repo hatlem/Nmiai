@@ -141,7 +141,10 @@ TEMPLATES: dict[str, dict] = {
     "create_invoice": {
         "description": "Create an invoice: POST customer -> POST order (with orderLines in body) -> PUT order/:invoice",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
-        "extract_fields": ["customer_name", "customer_email", "customer_organizationNumber", "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate"],
+        "extract_fields": ["customer_name", "customer_email", "customer_organizationNumber",
+                          "customer_phoneNumber", "customer_phoneNumberMobile",
+                          "customer_addressLine1", "customer_postalCode", "customer_city",
+                          "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate"],
         "optimal_calls": 3,
         "steps": [
             {
@@ -152,6 +155,13 @@ TEMPLATES: dict[str, dict] = {
                     "isCustomer": True,
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
+                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
                 },
             },
             {
@@ -859,16 +869,32 @@ TEMPLATES: dict[str, dict] = {
             },
             {
                 "method": "POST",
-                "path": "/ledger/voucher",
+                "path": "/supplierInvoice",
                 "body": {
-                    "date": "{{invoiceDate}}",
-                    "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
-                    "postings": [
-                        {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
-                        {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
-                    ],
+                    "invoiceNumber": "{{invoiceNumber}}",
+                    "invoiceDate": "{{invoiceDate}}",
+                    "supplier": {"id": "$step_0.id"},
+                    "voucher": {
+                        "date": "{{invoiceDate}}",
+                        "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
+                        "postings": [
+                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}},
+                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}},
+                        ],
+                    },
                 },
-                "note": "POST /supplierInvoice always 500 — go directly to /ledger/voucher.",
+                "fallback_on_500": {
+                    "path": "/ledger/voucher",
+                    "body": {
+                        "date": "{{invoiceDate}}",
+                        "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
+                        "postings": [
+                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
+                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
+                        ],
+                    },
+                },
+                "note": "Try /supplierInvoice first, fall back to /ledger/voucher on 500.",
             },
         ],
     },
@@ -1323,6 +1349,8 @@ TEMPLATES: dict[str, dict] = {
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": [
             "customer_name", "customer_email", "customer_organizationNumber",
+            "customer_phoneNumber", "customer_phoneNumberMobile",
+            "customer_addressLine1", "customer_postalCode", "customer_city",
             "orderLines", "invoiceDate", "invoiceDueDate",
             "paymentDate", "paymentAmount", "orderDate", "deliveryDate",
         ],
@@ -1341,6 +1369,13 @@ TEMPLATES: dict[str, dict] = {
                     "isCustomer": True,
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
+                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
                 },
             },
             {
@@ -1398,7 +1433,10 @@ TEMPLATES: dict[str, dict] = {
     "create_invoice_and_send": {
         "description": "Create an invoice AND send it to the customer via email. Steps: POST customer -> POST order (with orderLines) -> PUT order/:invoice -> PUT invoice/:send",
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
-        "extract_fields": ["customer_name", "customer_email", "customer_organizationNumber", "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate", "amount"],
+        "extract_fields": ["customer_name", "customer_email", "customer_organizationNumber",
+                          "customer_phoneNumber", "customer_phoneNumberMobile",
+                          "customer_addressLine1", "customer_postalCode", "customer_city",
+                          "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate", "amount"],
         "optimal_calls": 4,
         "steps": [
             {
@@ -1409,6 +1447,13 @@ TEMPLATES: dict[str, dict] = {
                     "isCustomer": True,
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
+                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
                 },
             },
             {
@@ -1433,7 +1478,7 @@ TEMPLATES: dict[str, dict] = {
             },
             {
                 "method": "PUT",
-                "path": "/invoice/$step_2.value.id/:send",
+                "path": "/invoice/$step_2.id/:send",
                 "params": {
                     "sendType": "EMAIL",
                 },
@@ -1612,6 +1657,8 @@ TEMPLATES: dict[str, dict] = {
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": [
             "customer_name", "customer_email", "customer_organizationNumber",
+            "customer_phoneNumber", "customer_phoneNumberMobile",
+            "customer_addressLine1", "customer_postalCode", "customer_city",
             "orderLines", "invoiceDate", "invoiceDueDate", "orderDate", "deliveryDate",
             "creditNoteDate", "comment",
         ],
@@ -1625,6 +1672,13 @@ TEMPLATES: dict[str, dict] = {
                     "isCustomer": True,
                     "email": "{{customer_email}}",
                     "organizationNumber": "{{customer_organizationNumber}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
+                    "phoneNumberMobile": "{{customer_phoneNumberMobile}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
                 },
             },
             {

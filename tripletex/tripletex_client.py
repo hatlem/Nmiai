@@ -77,6 +77,16 @@ _FIELD_RENAMES = {
 }
 
 
+# Fields the API accepts but OpenAPI spec doesn't list for certain entities
+_EXTRA_VALID_FIELDS = {
+    "Customer": {"isCustomer", "isSupplier", "isInternal"},
+    "Supplier": {"isCustomer", "isSupplier"},
+    "Employee": {"userType", "startDate", "employmentDetails"},
+    "Order": {"orderLines"},
+    "Invoice": {"orders"},
+}
+
+
 def _validate_fields(path: str, body: dict) -> dict:
     """Strip invalid fields and rename known wrong names based on OpenAPI spec."""
     if not body or not isinstance(body, dict):
@@ -100,7 +110,7 @@ def _validate_fields(path: str, body: dict) -> dict:
     if not entity_name or entity_name not in _OPENAPI_FIELDS:
         return body
 
-    valid_fields = set(_OPENAPI_FIELDS[entity_name].keys())
+    valid_fields = set(_OPENAPI_FIELDS[entity_name].keys()) | _EXTRA_VALID_FIELDS.get(entity_name, set())
     cleaned = {}
     stripped_fields = []
 

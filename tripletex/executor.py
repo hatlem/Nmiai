@@ -591,19 +591,27 @@ async def _execute_step(
             response = {"status_code": 0, "ok": False, "data": {"error": str(e2)}}
 
     # Handle vatType lock errors: retry with vatType 0 on affected postings
-    if response.get("status_code") == 422 and body and "postings" in body:
+    if response.get("status_code") == 422 and body:
         error_data = response.get("data", {})
         msgs = error_data.get("validationMessages", [])
         has_vat_lock = any("låst til mva-kode" in (m.get("message", "") or "").lower() for m in msgs)
         if has_vat_lock:
-            logger.warning(f"Step {idx}: vatType lock detected, retrying ALL postings with vatType 0")
-            for posting in body.get("postings", []):
-                if isinstance(posting, dict):
-                    posting["vatType"] = {"id": 0}
-            try:
-                response = await client.request(method, path, body=body, params=params)
-            except Exception:
-                pass
+            # Find postings at top level or inside voucher (supplierInvoice)
+            postings_lists = []
+            if "postings" in body:
+                postings_lists.append(body["postings"])
+            if isinstance(body.get("voucher"), dict) and "postings" in body["voucher"]:
+                postings_lists.append(body["voucher"]["postings"])
+            if postings_lists:
+                logger.warning(f"Step {idx}: vatType lock detected, retrying ALL postings with vatType 0")
+                for postings in postings_lists:
+                    for posting in postings:
+                        if isinstance(posting, dict):
+                            posting["vatType"] = {"id": 0}
+                try:
+                    response = await client.request(method, path, body=body, params=params)
+                except Exception:
+                    pass
 
     # Handle "already exists" 422 errors by searching for the existing entity
     if method == "POST" and response.get("status_code") == 422:
