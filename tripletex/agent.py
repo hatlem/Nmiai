@@ -665,6 +665,66 @@ def _clean_extraction_result(parsed: dict) -> dict:
     return values
 
 
+def _rescue_missing_fields(prompt: str, values: dict) -> dict:
+    """Regex-based rescue for fields the LLM failed to extract.
+    Scans the prompt directly for common patterns and fills missing values."""
+    prompt_lower = prompt.lower()
+
+    # Organization number (9 digits)
+    if not values.get("organizationNumber") and not values.get("customer_organizationNumber"):
+        m = re.search(r'(?:org\.?\s*(?:nr|nº|no|nummer)?\.?\s*|organisasjonsnummer\s*|nº\s*org\.?\s*)(\d{9})', prompt_lower)
+        if m:
+            values["customer_organizationNumber"] = m.group(1)
+            values["organizationNumber"] = m.group(1)
+
+    # Email
+    if not values.get("email") and not values.get("customer_email"):
+        m = re.search(r'[\w.+-]+@[\w.-]+\.\w+', prompt)
+        if m:
+            email = m.group(0)
+            values["customer_email"] = email
+            values["email"] = email
+
+    # Phone number
+    if not values.get("phoneNumber") and not values.get("phoneNumberMobile"):
+        m = re.search(r'(?:telefon|tlf|mobil|phone|téléphone|teléfono)\s*:?\s*\+?(\d[\d\s]{6,})', prompt_lower)
+        if m:
+            phone = re.sub(r'\s', '', m.group(1))
+            values["phoneNumber"] = phone
+            values["phoneNumberMobile"] = phone
+
+    # Address
+    if not values.get("addressLine1"):
+        m = re.search(r'(?:adresse|address|dirección|adresse)\s*(?:er\s*|:\s*)?([A-ZÆØÅ][a-zæøåäö]+(?:gata|veien|gaten|vegen|gate|vei|veg|gade|straße|strasse|street|calle|rue)\s+\d+)', prompt)
+        if m:
+            values["addressLine1"] = m.group(1)
+
+    # Postal code + city
+    if not values.get("postalCode"):
+        m = re.search(r'(\d{4})\s+([A-ZÆØÅ][a-zæøåäö]+(?:\s+[A-ZÆØÅ][a-zæøåäö]+)?)', prompt)
+        if m:
+            values["postalCode"] = m.group(1)
+            values["city"] = m.group(2)
+
+    # Date of birth
+    if not values.get("dateOfBirth"):
+        m = re.search(r'(?:født|born|nacido|né|geboren)\s+(?:den\s+)?(\d{1,2})[./\-]\s*(\d{1,2})[./\-]\s*(\d{4})', prompt_lower)
+        if m:
+            day, month, year = m.group(1), m.group(2), m.group(3)
+            values["dateOfBirth"] = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+
+    # invoiceDueDate (default to invoiceDate + 14 days)
+    if not values.get("invoiceDueDate") and values.get("invoiceDate"):
+        try:
+            from datetime import datetime, timedelta
+            inv_date = datetime.strptime(values["invoiceDate"], "%Y-%m-%d")
+            values["invoiceDueDate"] = (inv_date + timedelta(days=14)).strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            pass
+
+    return values
+
+
 # ---------------------------------------------------------------------------
 # Stage 2: Value extraction
 # ---------------------------------------------------------------------------
@@ -698,14 +758,18 @@ async def extract_values(prompt: str, task_type: str, files: list[dict] | None =
 
         try:
             parsed = _parse_json(raw_text)
-            return _clean_extraction_result(parsed)
+            values = _clean_extraction_result(parsed)
+            # Rescue any fields the LLM missed
+            values = _rescue_missing_fields(prompt, values)
+            return values
         except (json.JSONDecodeError, Exception) as e:
             logger.error(f"Failed to parse extraction JSON: {e}. Raw: {raw_text[:300]}")
-            return {}
+            # Even on parse failure, try to extract from prompt directly
+            return _rescue_missing_fields(prompt, {})
 
     except asyncio.TimeoutError:
         logger.error(f"Extraction LLM timed out ({timeout}s) for {task_type}")
-        return {}
+        return _rescue_missing_fields(prompt, {})
 
 
 # ---------------------------------------------------------------------------
