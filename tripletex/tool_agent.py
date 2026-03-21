@@ -801,7 +801,14 @@ async def tool_agent_solve(
             )
 
         # Send function results back to LLM
-        parts = function_responses
+        # Preserve non-function-call parts (text, thought signatures) from
+        # the model response — Gemini 3.1 Pro uses encrypted thought signatures
+        # that must be echoed back to maintain chain-of-thought coherence.
+        preserved_parts = [
+            p for p in content.parts
+            if not (hasattr(p, 'function_call') and p.function_call is not None and p.function_call.name)
+        ]
+        parts = preserved_parts + function_responses
 
     if not had_errors:
         compile_template(prompt, getattr(client, 'call_log', []))
