@@ -185,6 +185,8 @@ ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - PUT /salary/transaction/ID (returns 405 — transactions are READ-ONLY)
 - POST /salary/transaction/line (returns 405)
 - GET /salary/payslip/ID/line (returns 404)
+- PUT /invoice/ID/:reverse (does NOT exist — use PUT /ledger/voucher/ID/:reverse instead)
+- GET /invoice with field "totalAmountExcludingVatCurrency" or "description" (invalid fields)
 
 MANDATORY FIELD RULES (violating these = instant 422):
 - Product: field is "number" (NOT productNumber, NOT productNo)
