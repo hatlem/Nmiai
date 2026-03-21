@@ -666,6 +666,54 @@ IMPORTANT: Query existing ledger data BEFORE creating new entities.
 AMOUNT RULES: amountGross = the FULL/GROSS amount (including VAT). Both postings use the SAME absolute amount. Tripletex calculates VAT split automatically based on vatType.
 NOTE: POST /supplierInvoice returns 500 — ALWAYS use voucher workaround instead!
 """,
+    "project_lifecycle": """\
+## Complete Project Lifecycle
+For tasks like "Execute the complete project lifecycle":
+
+1. POST /customer (create customer)
+2. GET /department (for employees)
+3. POST /employee × N (create project team members with department)
+4. PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=X&template=ALL_PRIVILEGES (for project manager)
+5. POST /project {{"name":"X", "startDate":"YYYY-MM-DD", "projectManager":{{"id":PM_ID}}, "customer":{{"id":CUST_ID}}}}
+6. POST /timesheet/entry × N (register hours for each employee: employee.id, project.id, activity.id, date, hours)
+   - GET /activity?isProjectActivity=true first
+   - hours field is the number of hours
+   - comment field for description (NOT description)
+7. Supplier cost: POST /supplier → GET /ledger/account → POST /ledger/voucher (with project ref if needed)
+8. Customer invoice: POST /order {{"customer":{{"id":X}}, "orderDate":"Y", "deliveryDate":"Y", "orderLines":[{{"description":"Project work", "count":1, "unitPriceExcludingVatCurrency": CALCULATED_AMOUNT}}]}}
+9. PUT /order/ID/:invoice?invoiceDate=Y&invoiceDueDate=Y&sendToCustomer=false
+
+CRITICAL: Invoice amount must be MANUALLY CALCULATED:
+- If hourly rate task: amount = total_hours × hourly_rate
+- If budget task: amount = budget_amount or percentage of budget
+- Tripletex does NOT auto-calculate from timesheet hours
+""",
+    "employment_details": """\
+## Employment Details (salary, working hours, position)
+For tasks like "Configure employment with salary and working hours":
+
+Employment details are on a SEPARATE endpoint from basic employment:
+POST /employee/employment/details {{"employment":{{"id":EMPLOYMENT_ID}}, "date":"YYYY-MM-DD", "annualSalary":AMOUNT, "percentageOfFullTimeEquivalent":1.0}}
+
+Available fields on employment/details:
+- annualSalary (float) — yearly salary
+- hourlyWage (float) — hourly rate
+- percentageOfFullTimeEquivalent (float) — FTE, e.g. 1.0 = 100%
+- employmentType (int) — GET /employee/employment/employmentType for valid IDs
+- workingHoursScheme (int) — GET /employee/employment/workingHoursScheme for valid IDs
+- remunerationType (int) — GET /employee/employment/remunerationType for valid IDs
+- occupationCode (int) — GET /employee/employment/occupationCode for valid IDs
+- date (string) — effective date
+
+Flow for full employee setup from offer letter:
+1. POST /employee (firstName, lastName, email, dateOfBirth, phoneNumberMobile, userType, department)
+2. POST /employee/employment {{"employee":{{"id":X}}, "startDate":"YYYY-MM-DD"}}
+3. GET /employee/employment/employmentType (find valid type)
+4. GET /employee/employment/workingHoursScheme (find valid scheme)
+5. POST /employee/employment/details {{"employment":{{"id":EMPL_ID}}, "date":"YYYY-MM-DD", "annualSalary":X, "percentageOfFullTimeEquivalent":1.0, "employmentType":TYPE_ID, "workingHoursScheme":SCHEME_ID}}
+
+NOTE: employment (step 2) and employment/details (step 5) are DIFFERENT endpoints!
+""",
 }
 
 # Aliases for common misspellings / alternative names
@@ -710,6 +758,9 @@ API_GUIDES["avstemming"] = API_GUIDES["bank_reconciliation_csv"]
 API_GUIDES["bankavstemminger"] = API_GUIDES["bank_reconciliation_csv"]
 API_GUIDES["regnskapsanalyse"] = API_GUIDES["ledger_analysis"]
 API_GUIDES["leverandørfaktura_pdf"] = API_GUIDES["supplier_invoice_pdf"]
+API_GUIDES["lifecycle"] = API_GUIDES["project_lifecycle"]
+API_GUIDES["salary_setup"] = API_GUIDES["employment_details"]
+API_GUIDES["arbeidskontrakt_detaljer"] = API_GUIDES["employment_details"]
 
 # Fields to preserve in _compact_response
 _ESSENTIAL_FIELDS = frozenset({
