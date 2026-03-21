@@ -588,7 +588,12 @@ async def _execute_step(
                     break
             search_params = {"fields": entity_fields}
             search_key = None
-            for key in ("name", "email", "organizationNumber", "number", "firstName"):
+            # For products, prioritize "number" (unique product number) over "name"
+            if path.rstrip("/") == "/product" or path.startswith("/product/"):
+                search_order = ("number", "name", "email", "organizationNumber", "firstName")
+            else:
+                search_order = ("name", "email", "organizationNumber", "number", "firstName")
+            for key in search_order:
                 if key in body and body[key]:
                     search_key = key
                     search_params[key] = str(body[key])

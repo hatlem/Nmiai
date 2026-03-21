@@ -38,7 +38,7 @@ from learning import record_error, compile_template
 logger = logging.getLogger(__name__)
 
 MAX_TURNS = 25  # bumped from 20 — get_api_guide calls don't cost API round-trips
-DEADLINE_BUFFER = 25  # stop 25s before timeout
+DEADLINE_BUFFER = 40  # stop 40s before timeout
 
 # ── Tool definitions ─────────────────────────────────────────────────
 
@@ -405,6 +405,22 @@ PUT /invoice/ID/:send?sendType=EMAIL
 5. POST /timesheet/entry {"employee":{{"id":X}}, "project":{{"id":X}}, "activity":{{"id":X}}, "date":"YYYY-MM-DD", "hours":N, "comment":"X"}
    - FORBIDDEN fields: description, title, name, type (cause 422)
    - Use "comment" for any text description
+
+## Timesheet Entry + Project Invoice (log hours then invoice customer)
+1. POST /customer (create customer)
+2. GET /department (for employee)
+3. POST /employee (create named employee with department)
+4. PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
+5. POST /project {{"name":"X", "startDate":"YYYY-MM-DD", "projectManager":{{"id":EMP_ID}}, "customer":{{"id":CUST_ID}}}}
+6. GET /activity?isProjectActivity=true&fields=id,name (find project activity)
+7. POST /timesheet/entry {{"employee":{{"id":X}}, "project":{{"id":X}}, "activity":{{"id":X}}, "date":"YYYY-MM-DD", "hours":N, "comment":"X"}}
+8. POST /order {{"customer":{{"id":CUST_ID}}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{{"description":"X hours @ Y NOK/h", "count":1, "unitPriceExcludingVatCurrency": HOURS * HOURLY_RATE}}]}}
+9. PUT /order/ORDER_ID/:invoice?invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD&sendToCustomer=false
+
+IMPORTANT: The invoice amount = hours x hourlyRate. Calculate this from the prompt values.
+FORBIDDEN on /timesheet/entry: description, title, name, type — use "comment" instead.
+Activity MUST have isProjectActivity=true.
+If timesheet date < project startDate, adjust project startDate first via PUT /project.
 """,
 
     "salary": """\
@@ -626,7 +642,7 @@ async def tool_agent_solve(
 
     for turn in range(MAX_TURNS):
         remaining = deadline - time.monotonic()
-        if remaining < 40:
+        if remaining < DEADLINE_BUFFER:
             logger.warning(f"Tool agent: deadline approaching ({remaining:.0f}s), stopping at turn {turn}")
             break
 
