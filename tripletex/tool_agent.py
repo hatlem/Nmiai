@@ -732,6 +732,16 @@ Flow for full employee setup from offer letter:
 5. POST /employee/employment/details {{"employment":{{"id":EMPL_ID}}, "date":"YYYY-MM-DD", "annualSalary":X, "percentageOfFullTimeEquivalent":1.0, "employmentType":TYPE_ID, "workingHoursScheme":SCHEME_ID}}
 
 NOTE: employment (step 2) and employment/details (step 5) are DIFFERENT endpoints!
+
+FORBIDDEN fields on /employee/employment/details:
+- position (does NOT exist)
+- title, jobTitle (do NOT exist)
+- role (does NOT exist — that's on Employee, not EmploymentDetails)
+- userType (does NOT exist on details)
+
+employmentType MUST be an integer ID (NOT a string, NOT an object).
+GET /employee/employment/employmentType first to find valid IDs.
+Example: {{"employment":{{"id":X}}, "date":"YYYY-MM-DD", "annualSalary":500000, "employmentType":1, "percentageOfFullTimeEquivalent":100.0}}
 """,
 
     "year_end_closing": """\

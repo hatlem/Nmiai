@@ -107,6 +107,34 @@ class TripletexClient:
                         line["vatType"] = {"id": 3}  # default 25% outgoing VAT
                     elif vt is None:
                         line["vatType"] = {"id": 3}  # default 25% outgoing VAT
+        # Fix: employmentType must be integer, not string or object
+        if "employmentType" in body:
+            val = body["employmentType"]
+            if isinstance(val, dict) and "id" in val:
+                body["employmentType"] = val["id"]
+            elif isinstance(val, str):
+                try:
+                    body["employmentType"] = int(val)
+                except (ValueError, TypeError):
+                    del body["employmentType"]
+
+        # Same for workingHoursScheme, remunerationType, occupationCode
+        for field in ("workingHoursScheme", "remunerationType", "occupationCode"):
+            if field in body:
+                val = body[field]
+                if isinstance(val, dict) and "id" in val:
+                    body[field] = val["id"]
+                elif isinstance(val, str):
+                    try:
+                        body[field] = int(val)
+                    except (ValueError, TypeError):
+                        del body[field]
+
+        # Fix: Strip invalid fields from employment/details requests
+        if "/employment/details" in path:
+            for bad in ("position", "title", "jobTitle", "role", "userType"):
+                body.pop(bad, None)
+
         return body
 
     async def request(
