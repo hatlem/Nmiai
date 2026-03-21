@@ -37,8 +37,8 @@ from learning import record_error, compile_template
 
 logger = logging.getLogger(__name__)
 
-MAX_TURNS = 35
-DEADLINE_BUFFER = 10  # stop 10s before timeout — maximize available time
+MAX_TURNS = 25
+DEADLINE_BUFFER = 15  # stop 15s before timeout — safer margin
 
 # ── Tool definitions ─────────────────────────────────────────────────
 
@@ -992,8 +992,6 @@ async def tool_agent_solve(
 
     chat = model.start_chat()
     had_errors = False
-    user_parts = list(parts)  # Save original user message for fallback
-
     for turn in range(MAX_TURNS):
         remaining = deadline - time.monotonic()
         if remaining < DEADLINE_BUFFER:
@@ -1001,7 +999,7 @@ async def tool_agent_solve(
             break
         # Hard limit on WRITE calls only (GET is free per scoring rules)
         write_count = sum(1 for c in getattr(client, 'call_log', []) if c.get('method') in ('POST', 'PUT', 'DELETE'))
-        if write_count > 40:
+        if write_count > 20:
             logger.warning(f"Tool agent: hard limit — {write_count} write calls, stopping at turn {turn}")
             break
 
@@ -1012,7 +1010,7 @@ async def tool_agent_solve(
                     parts,
                     generation_config={"temperature": 0.0, "max_output_tokens": 4096},
                 ),
-                timeout=min(60.0, remaining - DEADLINE_BUFFER),
+                timeout=max(5.0, min(60.0, remaining - DEADLINE_BUFFER)),
             )
         except asyncio.TimeoutError:
             logger.error(f"Tool agent: LLM timeout at turn {turn} ({model_name})")
@@ -1026,7 +1024,7 @@ async def tool_agent_solve(
                 try:
                     response = await asyncio.wait_for(
                         chat.send_message_async(parts, generation_config={"temperature": 0.0, "max_output_tokens": 4096}),
-                        timeout=min(60.0, remaining - DEADLINE_BUFFER),
+                        timeout=max(5.0, min(60.0, remaining - DEADLINE_BUFFER)),
                     )
                 except Exception as e2:
                     logger.error(f"Tool agent: retry also failed: {e2}")
