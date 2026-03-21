@@ -1742,7 +1742,8 @@ TEMPLATES: dict[str, dict] = {
                     "dateTo": "{{paymentDatePlusOne}}",
                     "fields": "id,date,description,number",
                 },
-                "note": "Step 5: Find the payment voucher created by the payment registration. dateFrom=paymentDate, dateTo=paymentDate+1.",
+                "depends_on": [4],
+                "note": "Step 5: Find the payment voucher AFTER payment is registered.",
             },
             {
                 "method": "PUT",
