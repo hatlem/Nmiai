@@ -221,10 +221,20 @@ Role/admin privileges:
 
     "employment": """\
 ## Employment (ansettelse)
-POST /employee/employment {"employee":{{"id":X}}, "startDate":"2026-01-01"}
-- ONLY these 2 fields — NO employmentType, NO percentageOfFullTimeEquivalent, NO userType
-- startDate is required
-- employee.id must reference an existing employee
+Step 1: POST /employee/employment {{"employee":{{"id":X}}, "startDate":"2026-01-01"}}
+- ONLY employee.id and startDate — NO other fields
+- Returns employment with ID
+
+Step 2 (optional — salary/percentage/hours): POST /employee/employment/details {{
+  "employment":{{"id":EMPLOYMENT_ID}},
+  "date":"YYYY-MM-DD",
+  "percentageOfFullTimeEquivalent":100,
+  "annualSalary":500000,
+  "occupationCode":{{"id":OCC_ID}}
+}}
+- Valid fields: employment, date, employmentType, employmentForm, remunerationType, workingHoursScheme, shiftDurationHours, occupationCode, percentageOfFullTimeEquivalent, annualSalary, hourlyWage, monthlySalary
+- INVALID fields (cause 422): workingHoursPerWeek, hoursPerWeek, workingHours, fullTimeEquivalentPercentage, standardWorkingHoursPerWeek, salary, type
+- GET /employee/employment/occupationCode?fields=id,code,nameNO for valid occupation codes
 """,
 
     "invoice": """\
