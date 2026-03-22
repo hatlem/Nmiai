@@ -9,3 +9,12 @@ dashboard/
 ainm-login.png
 .env.ainm
 tripletex/results.jsonl
+*.onnx
+*.npy
+*.zip
+submission_*.zip
+norgesgruppen/models_gcp/
+norgesgruppen/data/
+__pycache__/
+.env*
+
