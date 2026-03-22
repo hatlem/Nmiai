@@ -283,8 +283,12 @@ POST /employee {"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth"
 - Phone field is phoneNumberMobile (NOT phoneNumber, NOT mobileNumber — these cause 422)
 - email field is immutable after creation
 - If email "allerede i bruk": GET /employee?email=X&fields=id to find existing employee
-- dateOfBirth: include if mentioned, format YYYY-MM-DD
-- employeeNumber: auto-assigned, returned in response
+- dateOfBirth: include if mentioned, format YYYY-MM-DD. REQUIRED for salary/employment.
+- employeeNumber: writable — include if task specifies an employee number
+- address: {{"addressLine1":"Street 1", "postalCode":"1234", "city":"Oslo"}} — include if task mentions employee address
+- nationalIdentityNumber: 11-digit Norwegian personal ID — include if task mentions personnummer/fødselsnummer
+- bankAccountNumber: employee bank account — include if mentioned (needed for salary)
+- comments: free text — include if task has notes about the employee
 Role/admin privileges:
 - PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
 - Templates: ALL_PRIVILEGES, INVOICING_MANAGER, PERSONELL_MANAGER, ACCOUNTANT, AUDITOR, DEPARTMENT_LEADER
@@ -303,7 +307,8 @@ Step 2 (optional — salary/percentage/hours): POST /employee/employment/details
   "annualSalary":500000,
   "occupationCode":{{"id":OCC_ID}}
 }}
-- Valid fields: employment, date, employmentType, employmentForm, remunerationType, workingHoursScheme, shiftDurationHours, occupationCode, percentageOfFullTimeEquivalent, annualSalary, hourlyWage, monthlySalary
+- Valid fields: employment, date, employmentType, employmentForm, remunerationType, workingHoursScheme, shiftDurationHours, occupationCode, percentageOfFullTimeEquivalent, annualSalary, hourlyWage
+- monthlySalary is READ-ONLY (auto-calculated from annualSalary/12) — do NOT set it
 - INVALID fields (cause 422): workingHoursPerWeek, hoursPerWeek, workingHours, fullTimeEquivalentPercentage, standardWorkingHoursPerWeek, salary, type
 - GET /employee/employment/occupationCode?fields=id,code,nameNO for valid occupation codes
 """,
@@ -491,17 +496,27 @@ POST /ledger/voucher {"date":"2026-03-22", "description":"Disagio", "postings":[
 """,
 
     "credit_note": """\
-## Credit Note (kreditnota)
-Full flow (sandbox is empty — must create everything from scratch):
-1. POST /customer {"name":"X", "isCustomer":true, "organizationNumber":"123456789"}
-2. POST /order {"customer":{"id":CUST_ID}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{"description":"X", "count":1, "unitPriceExcludingVatCurrency":AMOUNT}]}
+## Credit Note (kreditnota / Gutschrift / nota de crédito)
+Full flow (sandbox is EMPTY — must create everything from scratch):
+
+1. POST /customer — include ALL details from prompt:
+   {{"name":"Company AS", "isCustomer":true, "email":"x@y.no", "organizationNumber":"123456789", "phoneNumber":"12345678", "postalAddress":{{"addressLine1":"Street 1","postalCode":"1234","city":"Oslo"}}}}
+   CRITICAL: Include organizationNumber, phoneNumber, email, postalAddress if mentioned! Missing fields = lost points!
+
+2. POST /order {{"customer":{{"id":CUST_ID}}, "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD", "orderLines":[{{"description":"Product/Service Name", "count":1, "unitPriceExcludingVatCurrency":AMOUNT}}]}}
+   - Use the EXACT product/service description from the prompt
+   - Amount should be the price EXCLUDING VAT (ekskl. mva)
+
 3. PUT /order/ORDER_ID/:invoice?invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD&sendToCustomer=false
-4. PUT /invoice/INV_ID/:createCreditNote?date=YYYY-MM-DD&comment=Kreditering
-   - date is REQUIRED as query param
-   - comment is optional query param
+   - invoiceDueDate = invoiceDate + 14 days if not specified
+
+4. PUT /invoice/INV_ID/:createCreditNote?date=YYYY-MM-DD&comment=REASON
+   - date is REQUIRED as query param (use today's date if not specified)
+   - comment: use the reason from the prompt (e.g. "Kreditering", "Reklamasjon", "Gutschrift")
    - Returns the credit note invoice object
 
 IMPORTANT: The sandbox starts EMPTY. There is NO pre-existing invoice. You MUST create customer → order → invoice → credit note.
+SCORING: The scorer checks EVERY field — customer name, org number, phone, email, address, product description, amount, credit note date, comment. Missing ANY = lost points.
 """,
 
     "reminder": """\
@@ -571,10 +586,11 @@ COMPLETE STEPS (all required, in order):
    - date = same as the employment startDate
    - percentageOfFullTimeEquivalent = 100.0 (NOT 1.0 — 100.0 means full time)
 
-6. POST /salary/transaction {{"employee":{{"id":EMP_ID}}, "year":YYYY, "month":MM}}
+6. POST /salary/transaction {{"year":YYYY, "month":MM}}
    - year/month = the payroll period from the prompt (e.g. "denne måneden" = current month)
+   - NOTE: employee is NOT a field on salary/transaction! Employee is linked via payslips automatically.
    - Employment + employment details MUST exist BEFORE this step
-   - FORBIDDEN fields: salaryLines, salaryTransaction, line, amount, baseSalary, date, payslips
+   - FORBIDDEN fields: salaryLines, salaryTransaction, line, amount, baseSalary, payslips, employee
 
 7. GET /salary/payslip?employeeId=EMP_ID&yearFrom=YYYY&monthFrom=MM&fields=id,employee,year,month
    - Retrieves the payslip created by the salary transaction
@@ -722,37 +738,49 @@ PUT /entity/ID with body including "id" and "version" from the GET response.
 
     "receipt_voucher": """\
 ## Receipt to Voucher (kvittering → bilag)
-The task gives you a receipt image/PDF. You must:
-1. Read the receipt — extract: vendor name, amount, date, what was purchased
-2. Determine the correct expense account based on purchase type:
+IMPORTANT: This creates a VOUCHER (POST /ledger/voucher), NOT a supplier invoice! Do NOT use /supplierInvoice!
+
+The task gives you a receipt (text in prompt, or image/PDF attachment). You must:
+1. Read the receipt text from the prompt — extract: item name, amount (inkl/eksl MVA), date, vendor
+2. Determine the correct expense account based on what was purchased:
+   - Computer peripherals/mus/tastatur/skjerm/IT → 6540 (Inventar og utstyr)
    - Hotel/overnatting → 7140 (Reise og diett)
-   - Restaurant/mat → 6340 (Serveringskostnader)
-   - Office supplies/kontor → 6540 (Inventar og utstyr)
+   - Restaurant/mat/food → 6340 (Serveringskostnader)
+   - Office supplies/kontor/papir → 6540 (Inventar og utstyr)
    - Phone/telefon → 6900 (Telefon)
-   - Transport/taxi → 7140 (Reise og diett)
+   - Transport/taxi/bus → 7140 (Reise og diett)
    - Parking → 7130 (Parkering)
    - Flight/fly → 7140 (Reise og diett)
-   - Storage/oppbevaring → 6540 (Inventar og utstyr)
-3. Determine VAT: 25% standard, 15% food, 12% transport/hotel, 0% exempt
-4. If department is specified: GET /department?name=X, include department ref
-5. POST /ledger/voucher with postings (expense account debit, 1920 bank credit)
-6. amountGross = the GROSS/FULL amount (including VAT). Tripletex calculates VAT split automatically based on vatType.
+   - Software/lisens/subscription → 6540 (Inventar og utstyr)
+   - Cleaning/renhold → 6300 (Renhold)
+3. Determine VAT type ID:
+   - 1 = incoming 25% (standard goods/services — electronics, office supplies, most purchases)
+   - 11 = incoming 15% (food/groceries)
+   - 13 = incoming 12% (transport/hotel)
+   - 0 = no VAT (exempt)
+4. If department is specified in the task: GET /department?name=X or POST /department if not found
+5. POST /ledger/voucher with postings
 
-Steps:
-1. GET /ledger/account?number=EXPENSE_ACCT&fields=id (e.g. 7140)
-2. GET /ledger/account?number=1920&fields=id (bank account)
-3. If department specified: GET /department?name=X&fields=id
-4. POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Kvittering: vendor - description",
+EXACT STEPS:
+1. GET /ledger/account?number=EXPENSE_ACCT&fields=id (e.g. 6540 for equipment)
+2. GET /ledger/account?number=1920&fields=id (bank account — credit side)
+3. If department specified: GET /department?name=X&fields=id,name
+   - If department NOT found: POST /department {{"name":"X", "departmentNumber":N}}
+4. POST /ledger/voucher {{
+     "date":"YYYY-MM-DD",
+     "description":"Kvittering: ITEM_NAME",
      "postings":[
-       {{"row":1, "account":{{"id":EXPENSE_ID}}, "amountGross":FULL_AMOUNT, "amountGrossCurrency":FULL_AMOUNT, "vatType":{{"id":1}}, "department":{{"id":DEPT_ID}}}},
-       {{"row":2, "account":{{"id":BANK_ID}}, "amountGross":-FULL_AMOUNT, "amountGrossCurrency":-FULL_AMOUNT, "vatType":{{"id":0}}}}
+       {{"row":1, "account":{{"id":EXPENSE_ACCT_ID}}, "amountGross":GROSS_AMOUNT, "amountGrossCurrency":GROSS_AMOUNT, "vatType":{{"id":VAT_TYPE_ID}}, "department":{{"id":DEPT_ID}}}},
+       {{"row":2, "account":{{"id":BANK_ACCT_ID}}, "amountGross":-GROSS_AMOUNT, "amountGrossCurrency":-GROSS_AMOUNT, "vatType":{{"id":0}}}}
      ]}}
 
-VAT type IDs:
-- 1 = incoming 25% (standard goods/services)
-- 11 = incoming 15% (food)
-- 13 = incoming 12% (transport/hotel)
-- 0 = no VAT (exempt)
+CRITICAL:
+- amountGross = the FULL amount INCLUDING VAT. Tripletex splits VAT automatically based on vatType.
+- Account 1920 (bank) is ALWAYS vatType 0.
+- The expense account posting gets the incoming VAT type (1, 11, or 13).
+- If department is mentioned, include department:{{"id":DEPT_ID}} on the EXPENSE posting (row 1), NOT on the bank posting.
+- Do NOT use /supplierInvoice! This is a simple voucher booking.
+- STOP after creating the voucher. Do not create anything else.
 """,
 
     "employment_contract_pdf": """\
@@ -1119,26 +1147,43 @@ API_GUIDES["foreign_currency"] = API_GUIDES["currency_exchange"]
 API_GUIDES["valuta"] = API_GUIDES["currency_exchange"]
 
 API_GUIDES["overdue_invoice_reminder"] = """\
-## Overdue Invoice + Reminder Fee
-SANDBOX IS EMPTY! Create customer, order, invoice FIRST, then post reminder fee.
+## Overdue Invoice + Reminder Fee (purregebyr / forfalt faktura)
+SANDBOX IS EMPTY! You must create EVERYTHING from scratch. There are NO existing customers, invoices, or payments.
 
-COMPLETE FLOW:
-1. POST /customer {{"name":"X", "isCustomer":true, "organizationNumber":"Y"}}
-2. POST /order {{"customer":{{"id":CUST_ID}}, "orderDate":"2026-01-15", "deliveryDate":"2026-01-15",
-     "orderLines":[{{"description":"ProductName", "count":1, "unitPriceExcludingVatCurrency":AMOUNT}}]}}
-   - Use PAST date so invoice appears overdue!
-3. PUT /order/ORDER_ID/:invoice?invoiceDate=2026-01-15&invoiceDueDate=2026-02-15&sendToCustomer=false
-4. GET /invoice/paymentType?fields=id,description
-5. If partial payment: PUT /invoice/INV_ID/:payment?paymentDate=DATE&paymentTypeId=X&paidAmount=PARTIAL
-6. GET /ledger/account?number=1500&fields=id (Kundefordringer)
-7. GET /ledger/account?number=3400&fields=id (or account from prompt)
-8. POST /ledger/voucher — reminder fee:
-   {{"date":"2026-03-22", "description":"Purregebyr", "postings":[
-     {{"row":1, "account":{{"id":ACCT_1500_ID}}, "amountGross":FEE, "amountGrossCurrency":FEE, "vatType":{{"id":0}}, "customer":{{"id":CUST_ID}}}},
-     {{"row":2, "account":{{"id":ACCT_3400_ID}}, "amountGross":-FEE, "amountGrossCurrency":-FEE, "vatType":{{"id":0}}}}
-   ]}}
+The task typically says: "Customer X has an overdue invoice for Product Y (amount Z). Book a reminder fee of W kr."
+You must: create the customer, create the overdue invoice, optionally register partial payment, then book the reminder fee as a voucher.
 
-CRITICAL: Account 1500 MUST include customer ref! Account 3400 locked to vatType 0!
+COMPLETE FLOW (follow EXACTLY — do NOT create extra orders or invoices):
+
+Step 1: POST /customer — include ALL details from prompt:
+  {{"name":"Company AS", "isCustomer":true, "organizationNumber":"123456789", "phoneNumber":"12345678", "email":"x@y.no", "postalAddress":{{"addressLine1":"Street 1","postalCode":"1234","city":"Oslo"}}}}
+
+Step 2: POST /order — use PAST dates so invoice appears overdue:
+  {{"customer":{{"id":CUST_ID}}, "orderDate":"2026-01-15", "deliveryDate":"2026-01-15",
+   "orderLines":[{{"description":"Product from prompt", "count":1, "unitPriceExcludingVatCurrency":AMOUNT_FROM_PROMPT}}]}}
+
+Step 3: PUT /order/ORDER_ID/:invoice?invoiceDate=2026-01-15&invoiceDueDate=2026-02-15&sendToCustomer=false
+  - Use dates 1-2 months in the PAST so the invoice is overdue
+
+Step 4 (only if partial payment mentioned):
+  GET /invoice/paymentType?fields=id,description
+  PUT /invoice/INV_ID/:payment?paymentDate=DATE&paymentTypeId=X&paidAmount=PARTIAL_AMOUNT
+
+Step 5: Book the reminder fee voucher:
+  GET /ledger/account?number=1500&fields=id (Kundefordringer — debit side)
+  GET /ledger/account?number=3400&fields=id (Offentlige avgifter/gebyrer — credit side, revenue)
+  POST /ledger/voucher {{"date":"2026-03-22", "description":"Purregebyr", "postings":[
+    {{"row":1, "account":{{"id":ACCT_1500_ID}}, "amountGross":FEE_AMOUNT, "amountGrossCurrency":FEE_AMOUNT, "vatType":{{"id":0}}, "customer":{{"id":CUST_ID}}}},
+    {{"row":2, "account":{{"id":ACCT_3400_ID}}, "amountGross":-FEE_AMOUNT, "amountGrossCurrency":-FEE_AMOUNT, "vatType":{{"id":0}}}}
+  ]}}
+
+CRITICAL RULES:
+- Account 1500 posting MUST include customer: {{"id": CUST_ID}}
+- Account 3400 is locked to vatType 0 — ALWAYS use vatType:{{"id":0}}
+- Create ONLY ONE order and ONE invoice. Do NOT create a second order/invoice for the reminder fee.
+- The reminder fee is booked as a VOUCHER (POST /ledger/voucher), NOT as a second invoice.
+- If the prompt specifies account numbers (e.g. "debet konto 1500, kredit konto 3400"), use those exact accounts.
+- STOP after posting the voucher. Do not create anything else.
 """
 API_GUIDES["overdue"] = API_GUIDES["overdue_invoice_reminder"]
 API_GUIDES["forfalt"] = API_GUIDES["overdue_invoice_reminder"]
@@ -1200,16 +1245,13 @@ API_GUIDES["cierre mensual"] = API_GUIDES["month_end_closing"]
 API_GUIDES["ledger_correction"] = """\
 ## Ledger Correction / Voucher Correction (feilretting i regnskap)
 
-### Step 1: Find all vouchers in the period
-GET /ledger/voucher?dateFrom=2026-01-01&dateTo=2026-02-28&fields=id,date,description
+### Step 1: Find ALL vouchers WITH postings in ONE query
+GET /ledger/voucher?dateFrom=2026-01-01&dateTo=2026-02-28&fields=id,date,description,postings(id,account(id,number),amountGross,vatType(id),row)&count=1000
+- This returns ALL vouchers with their postings in a single call!
 - MUST include dateFrom AND dateTo (both required!)
+- Do NOT query vouchers individually — use this bulk query
 
-### Step 2: Inspect each voucher's postings
-For EACH voucher ID:
-GET /ledger/voucher/ID?fields=id,date,description,postings(id,account(id,number),amountGross,vatType(id),row)
-- This shows the actual postings so you can identify errors
-
-### Step 3: Identify the 4 types of errors
+### Step 2: Identify the 4 types of errors
 The prompt tells you exactly what errors to find. Common patterns:
 a) **Wrong account number** — posting on account X should be on account Y
 b) **Duplicate voucher** — same voucher posted twice
@@ -1329,7 +1371,9 @@ async def tool_agent_solve(
         (("årsoppgjør", "årsoppgjer", "arsoppgjor", "year-end", "jahresabschluss", "cierre anual", "encerramento anual", "clôture annuelle"), "year_end_closing"),
         (("analyser", "analyse", "analyze", "analise", "analysez", "kostnadskonto", "kostnadsauke", "cost account"), "ledger_analysis"),
         (("arbeidskontrakt", "arbeitsvertrag", "angebotsschreiben", "employment contract", "offer letter", "contrato de trabajo", "contrat de travail", "tilbudsbrev"), "employment_contract_pdf"),
-        (("overdue", "forfalt", "purregebyr", "reminder fee", "impayé", "vencida", "überfällig"), "overdue_invoice_reminder"),
+        (("overdue", "forfalt", "purregebyr", "reminder fee", "impayé", "vencida", "überfällig", "en mora", "Mahngebühr"), "overdue_invoice_reminder"),
+        (("kvittering", "receipt", "recibo", "quittung", "reçu", "bokført på avdeling", "bokfort pa avdeling", "utgiftskonto"), "receipt_voucher"),
+        (("kreditnota", "credit note", "gutschrift", "nota de crédito", "nota de credito", "note de crédit", "reklamert", "reklamiert", "reklamasjon"), "credit_note"),
     ]
     for keywords, guide_name in guide_triggers:
         if any(kw in prompt_lower for kw in keywords):

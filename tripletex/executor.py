@@ -360,6 +360,18 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
                         # productNumber is not a valid Tripletex orderLine field
                         line.pop("productNumber", None)
                         line.pop("product_number", None)
+                        # vatType is REQUIRED on orderLines — default to 25% outgoing (id=3)
+                        if "vatType" not in line:
+                            line["vatType"] = {"id": 3}
+                        elif isinstance(line.get("vatType"), (int, float)):
+                            # Convert bare number to object
+                            vat_n = int(line["vatType"])
+                            _pct_map = {25: 3, 15: 33, 12: 31, 0: 5, 6: 6}
+                            line["vatType"] = {"id": _pct_map.get(vat_n, vat_n)}
+                        elif isinstance(line.get("vatType"), str) and line["vatType"].isdigit():
+                            vat_n = int(line["vatType"])
+                            _pct_map = {25: 3, 15: 33, 12: 31, 0: 5, 6: 6}
+                            line["vatType"] = {"id": _pct_map.get(vat_n, vat_n)}
 
         if path.rstrip("/") == "/customer" and "isCustomer" not in cleaned:
             cleaned["isCustomer"] = True

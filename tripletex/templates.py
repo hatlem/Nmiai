@@ -1664,8 +1664,10 @@ TEMPLATES: dict[str, dict] = {
         "description": (
             "Create a full credit note flow: create customer, create order with orderLines, "
             "invoice the order, then create a credit note on the invoice.\n"
-            "This is used when the prompt says 'Gutschrift', 'kreditnota', 'credit note' etc. "
-            "and there is NO existing invoice — everything must be created from scratch."
+            "This is used when the prompt says 'Gutschrift', 'kreditnota', 'credit note', 'reklamert' etc. "
+            "and there is NO existing invoice — everything must be created from scratch.\n"
+            "IMPORTANT: 'comment' is the REASON for the credit note (e.g. 'Reklamasjon', 'Kreditering', 'Gutschrift'). "
+            "Extract the reason/complaint from the prompt. If the prompt says 'reklamert' use 'Reklamasjon'."
         ),
         "relevant_schemas": ["Customer", "Order", "OrderLine", "Invoice"],
         "extract_fields": [

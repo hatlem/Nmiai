@@ -615,6 +615,11 @@ async def classify_task(prompt: str) -> tuple[str, float]:
         logger.warning(f"Very low confidence ({confidence:.2f}) -> unknown")
         task_type = "unknown"
 
+    # Normalize LLM output: convert UPPER_CASE to lower_case
+    if task_type != "unknown" and task_type == task_type.upper():
+        task_type = task_type.lower()
+        logger.info(f"Normalized uppercase task type to: {task_type}")
+
     if task_type in _FRESH_SANDBOX_REMAP:
         original = task_type
         task_type = _FRESH_SANDBOX_REMAP[original]
@@ -766,6 +771,21 @@ def _rescue_missing_fields(prompt: str, values: dict) -> dict:
         m = re.search(r'(?:avdelingsnummer|dept\.?\s*(?:nr|no|num)?\.?|department\s*(?:number|no|nr))\s*:?\s*(\d+)', prompt_lower)
         if m:
             values["departmentNumber"] = m.group(1)
+
+    # Credit note comment rescue — use the reason from the prompt
+    if not values.get("comment"):
+        if any(kw in prompt_lower for kw in ("reklamert", "reklamiert", "reklamasjon", "reklamation")):
+            values["comment"] = "Reklamasjon"
+        elif any(kw in prompt_lower for kw in ("kreditnota", "kreditert", "kreditering")):
+            values["comment"] = "Kreditering"
+        elif any(kw in prompt_lower for kw in ("gutschrift", "stornierung")):
+            values["comment"] = "Gutschrift"
+        elif any(kw in prompt_lower for kw in ("credit note", "credited")):
+            values["comment"] = "Credit note"
+        elif any(kw in prompt_lower for kw in ("nota de crédito", "nota de credito")):
+            values["comment"] = "Nota de crédito"
+        elif any(kw in prompt_lower for kw in ("note de crédit", "note de credit", "avoir")):
+            values["comment"] = "Note de crédit"
 
     return values
 
