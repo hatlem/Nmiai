@@ -11,17 +11,17 @@
  * 6. SIM_DELAY 350ms (was 280ms)
  * 7. Weighted round ensemble (not winner-take-all)
  */
-const fs = require('fs'), path = require('path'), https = require('https');
+const fs = require('fs'), path = require('path'), https = require('https'), { execSync } = require('child_process');
 
 const NC = 6;
 const TTC = {10:0, 11:0, 0:0, 1:1, 2:2, 3:3, 4:4, 5:5};
-const FL = 0.0005;       // absolute minimum floor
-const FL_NEAR = 0.02;    // floor for cells near settlements (high entropy)
-const FL_MID = 0.01;     // floor for mid-range cells
-const FL_FAR = 0.005;    // floor for remote cells
-const TEMP = 1.15;       // temperature scaling >1 = softer predictions (safer for KL)
-const DAMP = 0.5;        // lowered from 0.8 — ensemble prior does most work now
-const COAST_DAMP = 0.2;  // lowered from 0.3
+const FL = 0.0005;       // R13 used this and scored 91.3
+const FL_NEAR = 0.0005;  // REVERTED — adaptive floors hurt (added noise to harsh rounds)
+const FL_MID = 0.0005;   // REVERTED
+const FL_FAR = 0.0005;   // REVERTED
+const TEMP = 1.0;        // REVERTED — temp scaling softened deterministic cells, hurting harsh rounds
+const DAMP = 0.5;
+const COAST_DAMP = 0.2;
 const CLIP = [0.1, 10.0];
 const SIM_DELAY = 350;
 const SUB_DELAY = 550;
@@ -346,6 +346,26 @@ function computeRegime(settlements, survivalRates) {
   return { aliveRatio, avgFood, avgPop, avgWealth, avgDefense, factionCount: factions.size, portRatio };
 }
 
+// ── XGBoost prediction via Python ────────────────────────────────────────────
+function xgbPredict(detail, transPath) {
+  try {
+    const initPath = path.join(__dirname, '_tmp_init.json');
+    const outPath = path.join(__dirname, '_tmp_xgb_out.json');
+    fs.writeFileSync(initPath, JSON.stringify(detail));
+    const python = '/opt/homebrew/bin/python3';
+    const script = path.join(__dirname, 'xgb_predict.py');
+    execSync(`${python} ${script} ${initPath} ${transPath || 'null'} ${outPath}`, {
+      timeout: 30000, cwd: __dirname, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
+    });
+    const result = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+    try { fs.unlinkSync(initPath); fs.unlinkSync(outPath); } catch {}
+    return result;
+  } catch (e) {
+    console.log(`  XGBoost predict failed: ${e.message.slice(0, 100)}`);
+    return null;
+  }
+}
+
 // ── Submit ──────────────────────────────────────────────────────────────────
 async function submitAll(roundId, detail, H, W, pres, shift, label, cellCounts, lookup) {
   for (let si = 0; si < detail.seeds_count; si++) {
@@ -494,58 +514,89 @@ async function processRound(round) {
     return done;
   }
 
-  function doSubmit(label) {
-    const shift = computeShift(obsTrans);
-    const regime = computeRegime(allSettlements, survivalRates);
-    const wrl = weightedRoundLookup(obsTrans, survivalRates, regime);
-    const avgSurv = survivalRates.length > 0
-      ? (survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length * 100).toFixed(0) : '?';
-    log(`${label}: ${qCount}q, survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}`);
-    if (regime) log(`  Regime: alive=${(regime.aliveRatio*100).toFixed(0)}% food=${regime.avgFood.toFixed(2)} pop=${regime.avgPop.toFixed(1)} factions=${regime.factionCount} ports=${(regime.portRatio*100).toFixed(0)}%`);
-    return submitAll(round.id, detail, H, W, pres, shift, label, cellCounts, wrl ? wrl.lookup : null);
-  }
+  // ── LOOKUP-ONLY STRATEGY ────────────────────────────────────────────
+  // Data proves queries HURT us 9/16 rounds. R13=91.3 with 0 queries.
+  // R18=77.8, R19=78.6 WITH 50 queries. Lookup alone is stronger.
+  // Use queries ONLY for regime detection → better round matching → better lookup selection.
 
-  // ── PHASE 2: Explore (5q) — 1 per seed, detect regime ────────────────
-  const exploreVPs = viewports.filter((_, i) => i % 2 === 0); // settlement viewports only
+  const exploreVPs = viewports.filter((_, i) => i % 2 === 0);
   await runQueries(5, exploreVPs);
-  await doSubmit('Phase 2 (explore 5q)');
 
-  // ── Analyze regime → decide strategy ──────────────────────────────────
+  // Use regime + transition rates for weighted round ensemble
   const regime = computeRegime(allSettlements, survivalRates);
+  const shift = computeShift(obsTrans);
+  const wrl = weightedRoundLookup(obsTrans, survivalRates, regime);
   const avgSurv = survivalRates.length > 0
-    ? survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length : 1;
+    ? (survivalRates.reduce((a,b) => a+b, 0) / survivalRates.length * 100).toFixed(0) : '?';
+  log(`Regime: survival=${avgSurv}%, match=${wrl ? wrl.desc : '?'}`);
+  if (regime) log(`  alive=${(regime.aliveRatio*100).toFixed(0)}% food=${regime.avgFood.toFixed(2)} pop=${regime.avgPop.toFixed(1)} factions=${regime.factionCount}`);
 
-  // Harsh world (low survival) → focus on settlements (they change most)
-  // Mild world (high survival) → spread wider (settlements stable, edges matter)
-  let phase3VPs;
-  if (avgSurv < 0.3) {
-    // Harsh: concentrate on settlement areas for accurate dead/alive predictions
-    phase3VPs = exploreVPs;
-    log(`Strategy: HARSH world (survival=${(avgSurv*100).toFixed(0)}%) → concentrate on settlements`);
-  } else if (avgSurv > 0.6) {
-    // Mild: settlements stable, spread to cover empty/forest transitions
-    phase3VPs = viewports; // all viewports including grid coverage
-    log(`Strategy: MILD world (survival=${(avgSurv*100).toFixed(0)}%) → spread for coverage`);
-  } else {
-    // Moderate: balanced approach
-    phase3VPs = viewports;
-    log(`Strategy: MODERATE world (survival=${(avgSurv*100).toFixed(0)}%) → balanced coverage`);
+  // Submit with round-matched lookup as safety baseline
+  await submitAll(round.id, detail, H, W, pres, null, 'Regime-matched lookup (5q)', null, wrl ? wrl.lookup : null);
+
+  // Build transition profile from observations for XGBoost regime features
+  const obsTotals = {};
+  for (let ic = 0; ic < NC; ic++) {
+    const tot = obsTrans[ic] ? obsTrans[ic].reduce((a,b) => a+b, 0) : 0;
+    if (tot > 0) {
+      obsTotals[String(ic)] = Array.from(obsTrans[ic]).map(v => v / tot);
+    }
+  }
+  const transPath = path.join(__dirname, '_tmp_trans.json');
+  fs.writeFileSync(transPath, JSON.stringify(obsTotals));
+
+  // Try XGBoost predictions (regime-conditioned, CV=82.9 vs lookup=72.2)
+  log('Running XGBoost predictions...');
+  const xgbResult = xgbPredict(detail, transPath);
+  if (xgbResult) {
+    for (let si = 0; si < detail.seeds_count; si++) {
+      const pred = xgbResult[String(si)];
+      if (!pred) continue;
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          await api('POST', '/submit', { round_id: round.id, seed_index: si, prediction: pred });
+          await sleep(SUB_DELAY);
+          break;
+        } catch (e) {
+          if (e.message === '429') { await sleep(2000); continue; }
+          break;
+        }
+      }
+    }
+    log('XGBoost predictions submitted');
   }
 
-  // ── PHASE 3: Exploit (10q) — informed by regime ──────────────────────
-  await runQueries(10, phase3VPs);
-  await doSubmit('Phase 3 (exploit 15q)');
+  // Use remaining queries for more regime data, resubmit with refined XGBoost
+  await runQueries(15, exploreVPs);
 
-  // ── PHASE 4: Deep observation (15q) — build strong KT estimates ──────
-  await runQueries(15, phase3VPs);
-  await doSubmit('Phase 4 (deep 30q)');
-
-  // ── PHASE 5: Final push (remaining ~20q) ─────────────────────────────
-  const remaining = queriesMax - queriesUsed;
-  if (remaining > 0) {
-    await runQueries(remaining, phase3VPs);
+  // Rebuild transition profile with more data
+  const obsTotals2 = {};
+  for (let ic = 0; ic < NC; ic++) {
+    const tot = obsTrans[ic] ? obsTrans[ic].reduce((a,b) => a+b, 0) : 0;
+    if (tot > 0) obsTotals2[String(ic)] = Array.from(obsTrans[ic]).map(v => v / tot);
   }
-  await doSubmit('Final');
+  fs.writeFileSync(transPath, JSON.stringify(obsTotals2));
+
+  log(`Refined XGBoost with ${qCount}q...`);
+  const xgb2 = xgbPredict(detail, transPath);
+  if (xgb2) {
+    for (let si = 0; si < detail.seeds_count; si++) {
+      const pred = xgb2[String(si)];
+      if (!pred) continue;
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          await api('POST', '/submit', { round_id: round.id, seed_index: si, prediction: pred });
+          await sleep(SUB_DELAY);
+          break;
+        } catch (e) {
+          if (e.message === '429') { await sleep(2000); continue; }
+          break;
+        }
+      }
+    }
+    log(`Refined XGBoost (${qCount}q) submitted`);
+  }
+  try { fs.unlinkSync(transPath); } catch {}
 
   log(`Done. ${qCount} queries, ${((Date.now()-t0)/1000).toFixed(0)}s`);
 }

@@ -1,0 +1,37 @@
+{
+  "_description": "Norwegian standard chart of accounts: account number ranges → locked vatType ID. 0 = no VAT treatment, 1 = incoming 25%, 3 = outgoing 25%. Most accounts outside 3xxx/4xxx/6xxx are locked to 0.",
+  "locked_to_0": {
+    "ranges": [
+      [1000, 1999],
+      [2000, 2999],
+      [3400, 3400],
+      [5000, 5999],
+      [7000, 7999],
+      [8000, 8999]
+    ],
+    "description": "Balance sheet (1xxx), liabilities (2xxx), payroll (5xxx), other opex (7xxx), finance (8xxx)"
+  },
+  "incoming_vat_25": {
+    "ranges": [
+      [4000, 4999],
+      [6000, 6999]
+    ],
+    "vatTypeId": 1,
+    "description": "Cost of goods (4xxx), operating expenses (6xxx) - incoming 25% VAT"
+  },
+  "outgoing_vat_25": {
+    "ranges": [
+      [3000, 3399],
+      [3401, 3999]
+    ],
+    "vatTypeId": 3,
+    "description": "Revenue accounts (3xxx except 3400) - outgoing 25% VAT"
+  },
+  "account_requires_entity": {
+    "1500": "customer",
+    "2400": "supplier",
+    "5000": "employee",
+    "5020": "employee",
+    "2910": "employee"
+  }
+}

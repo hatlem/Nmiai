@@ -97,7 +97,7 @@ _tripletex_delete = FunctionDeclaration(
 
 _get_api_guide = FunctionDeclaration(
     name="get_api_guide",
-    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity, receipt_voucher, employment_contract_pdf, bank_reconciliation_csv, ledger_analysis, supplier_invoice_pdf, currency_exchange, ledger_correction, overdue_invoice_reminder",
+    description="Get detailed API documentation for a specific topic. Call this BEFORE making API calls you're unsure about. IMPORTANT: For complex tasks, use the SPECIFIC guide (e.g. 'currency_exchange' for EUR invoices, 'month_end_closing' for period closing, 'salary' for payroll). Topics: customer, employee, invoice, voucher, travel_expense, project, supplier, product, department, contact, payment, credit_note, reminder, send_invoice, timesheet, salary, employment, opening_balance, supplier_invoice, purchase_order, asset, bank_reconciliation, dimensions, fixed_price_project, update_entity, receipt_voucher, employment_contract_pdf, bank_reconciliation_csv, ledger_analysis, supplier_invoice_pdf, currency_exchange, currency_payment, ledger_correction, overdue_invoice_reminder, month_end_closing, project_lifecycle, year_end_closing",
     parameters={
         "type": "object",
         "properties": {
@@ -159,8 +159,21 @@ CRITICAL UNIVERSAL RULES:
 
 STRATEGY:
 1. Parse the task to understand what entity types are involved
-2. Call get_api_guide ONCE for the main entity type — don't call it for every sub-entity
-3. Do NOT call get_api_guide or get_api_schema more than ONCE per task. If you already called it, use the info you got.
+2. Call get_api_guide for the MOST SPECIFIC topic. Use these guide names:
+   - Currency/EUR/exchange rate tasks → get_api_guide("currency_exchange") AND get_api_guide("currency_payment")
+   - Month-end/accrual/periodisering/salary accrual → get_api_guide("month_end_closing")
+   - Overdue invoice + reminder fee → get_api_guide("overdue_invoice_reminder")
+   - Bank reconciliation CSV → get_api_guide("bank_reconciliation_csv")
+   - Salary/payroll/lønn → get_api_guide("salary")
+   - Year-end closing → get_api_guide("year_end_closing")
+   - Voucher correction → get_api_guide("voucher_correction")
+   - Salary/payroll → get_api_guide("salary")
+   - Employee from PDF → get_api_guide("employee")
+   - Supplier invoice from PDF → get_api_guide("supplier_invoice")
+   - Month-end closing → get_api_guide("month_end_closing")
+   - Project lifecycle → get_api_guide("project_lifecycle")
+   - Ledger analysis → get_api_guide("ledger_analysis")
+3. You may call get_api_guide and get_api_schema as needed. Prefer calling ONCE with the most specific topic.
 4. Plan ALL your API calls upfront before making the first one. Don't explore — execute.
 5. For tasks with PDF/image attachments: The file content is provided as base64 in the request. The LLM can read it directly. Extract EVERY piece of data: names, numbers, dates, amounts, account numbers, department names, salary details.
 6. For analysis tasks: query existing data via GET endpoints before creating new entities
@@ -181,7 +194,6 @@ EFFICIENCY (you have 290 seconds total):
 ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - /travelExpense/ID/expenses, /travelExpense/ID/:addExpense, /travelExpense/rateType, /expense
 - /orderline (orderLines go IN POST /order body, NOT as separate endpoint)
-- POST /supplierInvoice ALWAYS returns 500 — NEVER use it! Use POST /ledger/voucher instead
 - PUT /company/modules (returns 405)
 - PUT /salary/payslip/ID (returns 405 — payslips are READ-ONLY after creation)
 - PUT /salary/transaction/ID (returns 405 — transactions are READ-ONLY)
@@ -191,7 +203,7 @@ ENDPOINTS THAT DO NOT EXIST (cause 404/405 — NEVER use these):
 - GET /invoice with field "totalAmountExcludingVatCurrency" or "description" (invalid fields)
 - DELETE /employee/employment/ID (returns 405 — employments cannot be deleted)
 - PUT /employee/employment/ID with "department" field (doesn't exist on employment — department is on employee)
-- Some accounts are LOCKED to vatType 0: 1500, 1920, 2400, 3400, 7350, 8060, 8160 and other non-VAT accounts. If you get "Kontoen er låst til mva-kode 0", use vatType:{"id":0} for that posting
+- Some accounts are LOCKED to vatType 0: 1500, 1920, 2400, 3400, 7350, 8060, 8160 and other non-VAT accounts. If you get "Kontoen er låst til mva-kode 0", use vatType:{{"id":0}} for that posting
 - ALWAYS use GET /ledger/account?number=X&fields=id,vatType to check if account has locked vatType BEFORE posting
 - PUT /invoice/ID/:send MUST include sendType param (e.g. sendType=EMAIL)
 - GET /currency: fields are id, code, description, displayName, factor (NOT name — causes 400)
@@ -202,12 +214,28 @@ MANDATORY FIELD RULES (violating these = instant 422):
 - Product vatType: must be {{"id": N}} where N = 3 (25%), 33 (15% food), 31 (12%), 5 (0%)
 - Voucher: "description" is REQUIRED (not optional)
 - Employee: phone is "phoneNumberMobile" (NOT phone, NOT phoneNumber, NOT mobileNumber)
-- POST /supplierInvoice: BROKEN (always 500). SKIP it entirely — use POST /ledger/voucher directly
+- POST /supplierInvoice: valid fields are invoiceNumber, invoiceDate, invoiceDueDate, supplier.id, voucher (with postings), amountCurrency. Do NOT send orderDate, deliveryDate, dueDate, amount, orderLines
 - POST /employee: MUST include userType:"STANDARD" AND department:{{"id":X}} (GET /department first!)
 - POST /travelExpense: isDayTrip and isForeignTravel go INSIDE travelDetails (NOT top-level body)
 - POST /travelExpense/cost: amountCurrencyIncVat is REQUIRED. costCategory must be {{"id":X}} object (NOT string)
 - GET /invoice: MUST include invoiceDateFrom AND invoiceDateTo params (both required)
 - PUT /:invoice: MUST include invoiceDueDate param (invoiceDate + 14 days if not specified)
+
+ACCOUNT NUMBER → VATTYPE RULES (Norwegian chart of accounts):
+- 1000-1999 (balance sheet): vatType {{"id": 0}} ALWAYS
+- 2000-2999 (liabilities): vatType {{"id": 0}} ALWAYS
+- 3000-3999 (revenue): vatType {{"id": 3}} (outgoing 25%) — except 3400 which is locked to 0
+- 4000-4999 (cost of goods): vatType {{"id": 1}} (incoming 25%)
+- 5000-5999 (payroll): vatType {{"id": 0}} ALWAYS
+- 6000-6999 (operating expenses): vatType {{"id": 1}} (incoming 25%)
+- 7000-7999 (other opex): vatType {{"id": 0}} ALWAYS
+- 8000-8999 (finance): vatType {{"id": 0}} ALWAYS
+CRITICAL: Using wrong vatType on locked accounts causes "Kontoen er låst til mva-kode 0" error!
+
+POSTING ENTITY REQUIREMENTS:
+- Account 1500 (Kundefordringer) postings MUST include customer: {{"id": X}}
+- Account 2400 (Leverandørgjeld) postings MUST include supplier: {{"id": X}}
+- Account 5000/5020/2910 (payroll) postings MUST include employee: {{"id": X}}
 - PUT /:reverse: date goes as QUERY param (not body)
 - GET /ledger/voucher: MUST include dateFrom AND dateTo params (both required). dateTo must be AFTER dateFrom (not same day! use dateFrom=2026-03-20&dateTo=2026-03-21)
 - Voucher postings: row starts from 1, MUST include amountGrossCurrency AND vatType
@@ -217,6 +245,18 @@ MANDATORY FIELD RULES (violating these = instant 422):
 - POST /activity requires activityType field. But NEVER create activities — use GET /activity?isProjectActivity=true to find existing ones.
 - /activityType endpoint does NOT exist (404). Activity types are predefined.
 - If timesheet date < project startDate, PUT /project to change startDate (NOT PUT /activity)
+
+ADDITIONAL ENDPOINTS YOU MAY NEED:
+- POST /travelExpense/mileageAllowance — for km-godtgjørelse/mileage. Fields: travelExpense, rateTypeId, km, rate, date
+- POST /travelExpense/perDiemCompensation — for diett/per diem. Alternative to manual cost entry.
+- POST /supplierInvoice/ID/:addPayment — pay a supplier invoice. Params: paymentDate, paymentTypeId, paidAmount
+- GET /ledger/paymentTypeOut?fields=id,description — outgoing payment types (for supplier payments)
+- PUT /travelExpense/:createVouchers?id=X — book travel expense to ledger
+- POST /employee/nextOfKin — emergency contacts: employee, firstName, lastName, phoneNumber
+- POST /employee/hourlyCostAndRate — set hourly rates: employee, date, rate, costRate
+- GET /currency/ID/exchangeRate?date=YYYY-MM-DD — look up exchange rate for a date
+- GET /balanceSheet?dateFrom=X&dateTo=Y — balance sheet query
+- POST /employee/employment/leaveOfAbsence — sick leave/permisjon: employment, type, startDate, percentage
 """
 
 # ── API Guides (on-demand knowledge) ────────────────────────────────
@@ -409,12 +449,45 @@ To FIND an invoice:
 - GET /invoice?invoiceDateFrom=2026-01-01&invoiceDateTo=2026-12-31&fields=id,invoiceNumber,amount,amountOutstanding,customer
 - MUST include invoiceDateFrom AND invoiceDateTo (both required!)
 - Valid fields: id, version, invoiceNumber, invoiceDate, invoiceDueDate, amount, amountOutstanding, amountCurrency, customer, kid, comment
-- INVALID fields (cause 400): voucherNumber, amountExVat, totalAmount, status
+- INVALID fields (cause 400): voucherNumber, amountExVat, totalAmount, totalAmountCurrency, exchangeRate, status, description
 
 To reverse/undo a payment:
 1. Create the full invoice flow first (customer → order → invoice → payment)
 2. GET /ledger/voucher?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&fields=id,date,description — find the payment voucher
 3. PUT /ledger/voucher/VOUCHER_ID/:reverse?date=YYYY-MM-DD — reverse it (date is QUERY param!)
+""",
+
+    "currency_payment": """\
+## Currency Payment / Disagio (valutaoppgjør)
+IMPORTANT: The sandbox starts EMPTY. There is NO pre-existing invoice or customer. You MUST create everything from scratch!
+
+Steps:
+1. POST /customer (create customer with name, orgNo, isCustomer:true)
+2. POST /order (create order with orderLines — unitPriceExcludingVatCurrency = foreign_amount × invoice_exchange_rate)
+3. PUT /order/ID/:invoice (invoice the order)
+4. GET /invoice/paymentType (get payment type ID)
+5. PUT /invoice/INV_ID/:payment?paymentDate=YYYY-MM-DD&paymentTypeId=X&paidAmount=AMOUNT_NOK&paidAmountCurrency=AMOUNT_FOREIGN_CURRENCY
+   - paidAmount = amount in NOK (foreign amount × payment exchange rate)
+   - paidAmountCurrency = amount in foreign currency (e.g. EUR)
+   - BOTH paidAmount AND paidAmountCurrency are REQUIRED for foreign currency payments
+3. Post disagio voucher for the exchange rate difference:
+   - Disagio (loss): invoice rate > payment rate → company loses money
+     - Debit 8160 (Agio/disagio) with the NOK difference
+     - Credit 1500 (Customer receivables) with negative NOK difference
+   - Agio (gain): invoice rate < payment rate → company gains money
+     - Debit 1500 (Customer receivables) with the NOK difference
+     - Credit 8060 (Agio income) with negative NOK difference
+   - Calculation: difference = (invoice_rate - payment_rate) × foreign_amount
+   - Both accounts (8160/8060 and 1500) are locked to vatType 0
+   - Posting on 1500 MUST include customer: {"id": CUSTOMER_ID}
+   - POST /ledger/voucher with date = payment date
+
+Example: Invoice 10000 EUR at 11.50 NOK/EUR. Paid at 11.20 NOK/EUR.
+Disagio = (11.50 - 11.20) × 10000 = 3000 NOK loss
+POST /ledger/voucher {"date":"2026-03-22", "description":"Disagio", "postings":[
+  {"row":1, "account":{"id":ACCT_8160_ID}, "amountGross":3000, "amountGrossCurrency":3000, "vatType":{"id":0}},
+  {"row":2, "account":{"id":ACCT_1500_ID}, "amountGross":-3000, "amountGrossCurrency":-3000, "vatType":{"id":0}, "customer":{"id":CUST_ID}}
+]}
 """,
 
     "credit_note": """\
@@ -473,23 +546,74 @@ If timesheet date < project startDate, PUT /project to change startDate (NOT PUT
 """,
 
     "salary": """\
-## Salary (lønn)
-Steps to run payroll:
-1. POST /employee (create the employee if needed, with dateOfBirth!)
-2. POST /employee/employment {"employee":{{"id":X}}, "startDate":"YYYY-MM-DD"} (employment required for salary)
-3. GET /salary/type?fields=id,number,name — find salary type IDs
-   - Common types: number "2000" = Fastlønn (base salary), number "2001" = Timelønn
-4. POST /salary/transaction {"date":"YYYY-MM-DD", "year":2026, "month":3, "payslips":[{"employee":{"id":EMP_ID}}]}
-   - Returns transaction with payslip IDs
-5. To add salary lines/specifications to the payslip, use the returned payslip data
-   - The payslip has "specifications" array with salary details
+## Salary (lønn) — "Kjør lønn" / "Run payroll"
+The scoring checks: employee exists, salary transaction exists, correct amounts are booked.
 
-FORBIDDEN fields on /salary/transaction: salaryLines, salaryTransaction, line, amount, baseSalary
-FORBIDDEN endpoints: /salary/transaction/line (405), /salary/payslip/ID/line (404)
+COMPLETE STEPS (all required, in order):
 
-For bonus: create a second specification on the same payslip with a different salary type
+1. GET /department?fields=id,name&count=1 — need department ID for employee
 
-Note: Salary requires employee to have dateOfBirth set AND an active employment record.
+2. POST /employee {{"firstName":"X", "lastName":"Y", "email":"x@y.no", "dateOfBirth":"1990-01-01", "userType":"STANDARD", "department":{{"id":DEPT_ID}}}}
+   - dateOfBirth is REQUIRED — salary module will fail without it
+   - department is REQUIRED — employee must belong to a department
+
+3. PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=EMP_ID&template=ALL_PRIVILEGES
+   - Grants the employee access to salary module features
+   - Must be done BEFORE creating employment
+
+4. POST /employee/employment {{"employee":{{"id":EMP_ID}}, "startDate":"YYYY-MM-DD"}}
+   - ONLY employee.id and startDate — NO other fields
+   - startDate should be first day of the month or employment start date from task
+
+5. POST /employee/employment/details {{"employment":{{"id":EMPL_ID}}, "date":"YYYY-MM-DD", "annualSalary": MONTHLY_SALARY * 12, "percentageOfFullTimeEquivalent": 100.0}}
+   - annualSalary = the monthly base salary × 12 (e.g. 40850 × 12 = 490200)
+   - annualSalary goes HERE on employment/details, NOT on the employee object
+   - date = same as the employment startDate
+   - percentageOfFullTimeEquivalent = 100.0 (NOT 1.0 — 100.0 means full time)
+
+6. POST /salary/transaction {{"employee":{{"id":EMP_ID}}, "year":YYYY, "month":MM}}
+   - year/month = the payroll period from the prompt (e.g. "denne måneden" = current month)
+   - Employment + employment details MUST exist BEFORE this step
+   - FORBIDDEN fields: salaryLines, salaryTransaction, line, amount, baseSalary, date, payslips
+
+7. GET /salary/payslip?employeeId=EMP_ID&yearFrom=YYYY&monthFrom=MM&fields=id,employee,year,month
+   - Retrieves the payslip created by the salary transaction
+   - Need the PAYSLIP_ID for bonus, calculate, and close steps
+
+8. For BONUS or one-time additions via payslip specification:
+   a. GET /salary/type?fields=id,number,name — find the correct salary type for bonus
+      (look for types like "Bonus", "Engangsutbetaling", or similar)
+   b. POST /salary/payslip/PAYSLIP_ID/specification {{"rate":BONUS_AMOUNT, "count":1, "salaryType":{{"id":SALARY_TYPE_ID}}}}
+      - rate = the bonus amount
+      - count = 1
+      - salaryType.id = the ID from GET /salary/type
+
+9. PUT /salary/payslip/PAYSLIP_ID/:calculate
+   - Calculates the payslip (tax, deductions, net pay)
+   - Must be done BEFORE closing
+
+10. PUT /salary/payslip/PAYSLIP_ID/:close
+    - Finalizes the payslip — books the salary to the ledger
+    - This is what creates the actual accounting entries
+
+CRITICAL: dateOfBirth is REQUIRED on employee for salary module to work
+CRITICAL: Employee MUST have a department
+CRITICAL: Employment + employment details MUST exist BEFORE creating salary transaction
+CRITICAL: annualSalary goes on employment/details, NOT on the employee object
+CRITICAL: percentageOfFullTimeEquivalent = 100.0 (NOT 1.0)
+CRITICAL: Steps 9 (calculate) and 10 (close) are needed to finalize payroll
+
+FORBIDDEN endpoints: /salary/transaction/line (405), /salary/payslip/ID/line (404), PUT /salary/payslip (405)
+
+FALLBACK for bonus if payslip specification fails — book a voucher directly:
+   GET /ledger/account?number=5000&fields=id (salary expense)
+   GET /ledger/account?number=2910&fields=id (salary payable/påløpt lønn)
+   POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Engangsbonus for Employee Name",
+     "postings":[
+       {{"row":1, "account":{{"id":5000_ID}}, "amountGross":BONUS_AMOUNT, "amountGrossCurrency":BONUS_AMOUNT, "vatType":{{"id":0}}, "employee":{{"id":EMP_ID}}}},
+       {{"row":2, "account":{{"id":2910_ID}}, "amountGross":-BONUS_AMOUNT, "amountGrossCurrency":-BONUS_AMOUNT, "vatType":{{"id":0}}, "employee":{{"id":EMP_ID}}}}
+     ]}}
+   Account 5000 and 2910 postings MUST include employee: {{"id": EMP_ID}}
 """,
 
     "opening_balance": """\
@@ -505,32 +629,38 @@ Each posting needs:
 
     "supplier_invoice": """\
 ## Supplier Invoice (leverandørfaktura)
-1. POST /supplier {"name":"X", "organizationNumber":"X"} — create supplier
+CRITICAL: You MUST use POST /supplierInvoice (NOT /ledger/voucher). The scoring checks for a SupplierInvoice entity.
+
+Steps:
+1. POST /supplier {{"name":"X", "organizationNumber":"X"}} — create supplier
 2. GET /ledger/account?number=EXPENSE_ACCT&fields=id (expense account, e.g. 6500, 6700, 7100)
 3. GET /ledger/account?number=2400&fields=id (accounts payable)
-4. POST /ledger/voucher (NEVER use /supplierInvoice — it always returns 500!)
-   {"date":"YYYY-MM-DD", "description":"Leverandørfaktura X fra Y", "postings":[
-       {"row":1, "account":{"id":EXPENSE_ID}, "amountGross":AMOUNT, "amountGrossCurrency":AMOUNT, "vatType":{"id":1}, "supplier":{"id":SUPPLIER_ID}},
-       {"row":2, "account":{"id":AP_2400_ID}, "amountGross":-AMOUNT, "amountGrossCurrency":-AMOUNT, "vatType":{"id":0}, "supplier":{"id":SUPPLIER_ID}}
-     ]}
+4. POST /supplierInvoice with this EXACT body structure:
+{{
+  "invoiceNumber": "INV-XXX",
+  "invoiceDate": "YYYY-MM-DD",
+  "invoiceDueDate": "YYYY-MM-DD",
+  "amountCurrency": GROSS_AMOUNT,
+  "supplier": {{"id": SUPPLIER_ID}},
+  "voucher": {{
+    "date": "YYYY-MM-DD",
+    "description": "Leverandørfaktura INV-XXX fra SupplierName",
+    "postings": [
+      {{"row": 1, "account": {{"id": EXPENSE_ACCT_ID}}, "amountGross": AMOUNT, "amountGrossCurrency": AMOUNT, "vatType": {{"id": 1}}, "supplier": {{"id": SUPPLIER_ID}}}},
+      {{"row": 2, "account": {{"id": AP_2400_ID}}, "amountGross": -AMOUNT, "amountGrossCurrency": -AMOUNT, "vatType": {{"id": 0}}, "supplier": {{"id": SUPPLIER_ID}}}}
+    ]
+  }}
+}}
 
-CRITICAL: Each posting in the voucher MUST include supplier: {"id": SUPPLIER_ID}
-Without supplier reference, you get "Leverandør mangler" error.
-
-DO NOT include: orderDate, deliveryDate, dueDate (cause 422)
-amountGross = GROSS amount (including VAT). Tripletex calculates VAT automatically.
-
-AMOUNT RULES:
-- amountGross = the FULL amount (including VAT if applicable)
-- For expense posting (vatType 1/25%): amountGross = full amount. Tripletex calculates net and VAT automatically.
-- For AP posting (vatType 0): amountGross = negative full amount
-- Both postings use the SAME absolute amount (just positive/negative)
-- Postings MUST sum to zero
-- Example: 61200 TTC → expense: 61200, AP: -61200
-
-vatType mapping:
-- Expense accounts 4xxx,6xxx,7xxx → vatType:1 (incoming VAT 25%)
-- AP account 2400 → vatType:0 (no VAT)
+CRITICAL RULES:
+- invoiceDueDate is REQUIRED (use invoiceDate + 30 days if not specified)
+- amountCurrency = the GROSS amount as a POSITIVE number (including VAT)
+- Each posting MUST include supplier: {{"id": SUPPLIER_ID}}
+- FORBIDDEN fields on /supplierInvoice: orderDate, deliveryDate, dueDate, amount, orderLines (cause 500!)
+- amountGross = the FULL amount (including VAT). Tripletex calculates VAT split automatically.
+- Postings MUST sum to zero (expense positive, AP negative)
+- vatType mapping: expense 4xxx/6xxx → {{"id":1}} (25%), AP 2400 → {{"id":0}}
+- 7xxx accounts → vatType {{"id":0}} (not 1!)
 """,
 
     "purchase_order": """\
@@ -596,12 +726,13 @@ The task gives you a receipt image/PDF. You must:
 1. Read the receipt — extract: vendor name, amount, date, what was purchased
 2. Determine the correct expense account based on purchase type:
    - Hotel/overnatting → 7140 (Reise og diett)
-   - Restaurant/mat → 7100 (Bilkostnader) or 6340 (Serveringskostnader)
+   - Restaurant/mat → 6340 (Serveringskostnader)
    - Office supplies/kontor → 6540 (Inventar og utstyr)
    - Phone/telefon → 6900 (Telefon)
-   - Transport/taxi → 7120 (Bilgodtgjørelse)
+   - Transport/taxi → 7140 (Reise og diett)
    - Parking → 7130 (Parkering)
    - Flight/fly → 7140 (Reise og diett)
+   - Storage/oppbevaring → 6540 (Inventar og utstyr)
 3. Determine VAT: 25% standard, 15% food, 12% transport/hotel, 0% exempt
 4. If department is specified: GET /department?name=X, include department ref
 5. POST /ledger/voucher with postings (expense account debit, 1920 bank credit)
@@ -641,46 +772,107 @@ VAT type IDs:
      "phoneNumberMobile":"12345678", "nationalIdentityNumber":"12345678901",
      "userType":"STANDARD", "department":{{"id":DEPT_ID}}}}
 4. POST /employee/employment {{"employee":{{"id":EMP_ID}}, "startDate":"YYYY-MM-DD"}}
-5. If salary mentioned: POST /salary/transaction or note it
+5. POST /employee/employment/details {{"employment":{{"id":EMPLOYMENT_ID}}, "date":"START_DATE",
+     "annualSalary":MONTHLY*12, "percentageOfFullTimeEquivalent":100.0}}
+   - annualSalary = monthly salary × 12
+   - percentageOfFullTimeEquivalent = 100.0 for full-time (NOT 1.0!)
+6. If role/entitlement mentioned: PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=EMP_ID&template=ALL_PRIVILEGES
 
 CRITICAL: nationalIdentityNumber is a valid field on Employee. Include it if found in PDF.
-CRITICAL: Do NOT include employmentType or percentageOfFullTimeEquivalent on /employee/employment — only employee.id and startDate.
+CRITICAL: Do NOT include employmentType or percentageOfFullTimeEquivalent on /employee/employment — only employee.id and startDate. These go on /employment/details!
 CRITICAL: Phone field is phoneNumberMobile on Employee (NOT phoneNumber).
+CRITICAL: bankAccountNumber — include if found in PDF (employee bank account for salary).
 """,
 
     "bank_reconciliation_csv": """\
 ## Bank Reconciliation from CSV (bankavstemminger)
-1. Parse the CSV attachment — each row is a transaction (date, description, amount, reference)
-2. GET /invoice?invoiceDateFrom=X&invoiceDateTo=Y&fields=id,invoiceNumber,amount,amountOutstanding,customer
-   - Match incoming payments (positive amounts) to customer invoices
-3. GET /supplierInvoice?fields=id,invoiceNumber,amount — match outgoing payments (if any exist)
-4. For each matched customer payment:
-   - GET /invoice/paymentType?fields=id,description — get payment type ID first
-   - PUT /invoice/ID/:payment?paymentDate=DATE&paymentTypeId=X&paidAmount=AMOUNT
-5. Handle partial payments: paidAmount can be less than invoice total
-6. Unmatched transactions: create vouchers via POST /ledger/voucher for unknown items
-   - Debit/credit appropriate accounts (1920 bank, expense/revenue accounts)
+SANDBOX STARTS EMPTY! There are NO pre-existing invoices, customers, or suppliers!
 
-IMPORTANT: GET /invoice/paymentType first for paymentTypeId.
-IMPORTANT: Both invoiceDateFrom AND invoiceDateTo are required on GET /invoice.
+### Step 0: Parse the CSV
+The task includes a CSV bank statement (may be base64-encoded attachment).
+Decode it, then parse rows. Typical columns: date, description/text, amount, reference/KID.
+- POSITIVE amounts = incoming payments (customer paid us)
+- NEGATIVE amounts = outgoing payments (we paid a supplier/expense)
+
+### Step 1: Look up accounts and payment types ONCE (cache these!)
+- GET /invoice/paymentType?fields=id,description → cache the first paymentTypeId
+- GET /ledger/account?number=1920&fields=id → bank account ID
+- GET /ledger/account?number=2400&fields=id → accounts payable (leverandørgjeld) ID
+- GET /ledger/account?number=1500&fields=id → accounts receivable (kundefordringer) ID
+
+### Step 2: For each INCOMING payment (positive amount) — Customer invoice flow
+1. POST /customer {{"name":"CustomerName", "isCustomer":true}}
+   - Use the description/text field to derive customer name
+2. POST /order {{"customer":{{"id":CUST_ID}}, "orderDate":"DATE", "deliveryDate":"DATE",
+   "orderLines":[{{"description":"Payment", "count":1, "unitPriceExcludingVatCurrency":AMOUNT_EX_VAT, "vatType":{{"id":3}}}}]}}
+   - deliveryDate is REQUIRED — set same as orderDate
+   - unitPriceExcludingVatCurrency = amount / 1.25 (if VAT applies)
+   - vatType 3 = outgoing 25% MVA (standard for sales)
+3. PUT /order/ORDER_ID/:invoice?invoiceDate=DATE&invoiceDueDate=DATE&sendToCustomer=false
+   - invoiceDueDate is REQUIRED — use same date as invoiceDate (already paid)
+4. PUT /invoice/INV_ID/:payment?paymentDate=DATE&paymentTypeId=X&paidAmount=AMOUNT&paidAmountCurrency=AMOUNT
+   - paidAmount = FULL amount INCLUDING VAT (the CSV amount)
+   - paidAmountCurrency = same as paidAmount (both are REQUIRED)
+   - All params are QUERY params, NOT body
+
+### Step 3: For each OUTGOING payment (negative amount) — Supplier/expense voucher
+1. POST /ledger/voucher {{"date":"DATE", "description":"DESC from CSV",
+   "postings":[
+     {{"row":1, "account":{{"id":AP_2400_ID}}, "amountGross":ABS_AMOUNT, "amountGrossCurrency":ABS_AMOUNT, "vatType":{{"id":0}}}},
+     {{"row":2, "account":{{"id":BANK_1920_ID}}, "amountGross":-ABS_AMOUNT, "amountGrossCurrency":-ABS_AMOUNT, "vatType":{{"id":0}}}}
+   ]}}
+   - Debit 2400 (leverandørgjeld), Credit 1920 (bank)
+   - ALL balance sheet accounts (1xxx, 2xxx) use vatType 0
+   - ABS_AMOUNT = absolute value of the negative CSV amount
+
+### Step 4: Unmatched/other items → General ledger voucher
+For rows that don't fit customer payment or supplier payment patterns:
+- POST /ledger/voucher with appropriate account postings
+- Bank fees → Debit 7770 (bankgebyr), Credit 1920 (bank)
+- Interest income → Debit 1920 (bank), Credit 8040 (renteinntekt)
+
+### CRITICAL RULES:
+- Parse ALL rows in the CSV — every single row must be processed
+- POSITIVE amount = customer payment (create customer→order→invoice→payment)
+- NEGATIVE amount = outgoing payment (create voucher: debit 2400, credit 1920)
+- Postings on account 1500 MUST include customer: {{"id": CUSTOMER_ID}}
+- Postings on account 2400 MUST include supplier: {{"id": SUPPLIER_ID}} if a supplier exists
+- GET /invoice REQUIRES both invoiceDateFrom AND invoiceDateTo params
+- Row numbers in postings start from 1 (NEVER 0)
+- amountGrossCurrency MUST be included on every posting (same value as amountGross)
+- Postings MUST sum to zero
 """,
 
     "ledger_analysis": """\
-## Ledger Analysis → Create Projects
-1. GET /ledger/account?fields=id,number,name — list all accounts
-2. For each expense account (5xxx-8xxx), GET posting totals:
-   GET /ledger/posting?accountId=X&dateFrom=2026-01-01&dateTo=2026-01-31 (January)
-   GET /ledger/posting?accountId=X&dateFrom=2026-02-01&dateTo=2026-02-28 (February)
-3. Calculate increase: feb_total - jan_total for each account
-4. Sort by increase, pick top 3
-5. For each top account:
-   - GET /department?fields=id,name&count=1
-   - POST /employee (if no project manager exists) with department
-   - PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId=ID&template=ALL_PRIVILEGES
-   - POST /project {{"name":"account_name", "startDate":"2026-01-01", "isInternal":true, "projectManager":{{"id":EMP_ID}}}}
-   - POST /project/projectActivity for each project if needed
+## Ledger Analysis — Find Top 3 Cost Accounts with Largest Increase Jan→Feb
 
-IMPORTANT: Query existing ledger data BEFORE creating new entities.
+### Step 1: Get ALL January postings
+GET /ledger/posting with params: {{"dateFrom":"2026-01-01","dateTo":"2026-01-31","fields":"account(id,number),amount,date","count":"10000"}}
+CRITICAL: endpoint is /ledger/posting (NOT /ledger/voucher/posting). dateFrom AND dateTo are REQUIRED.
+
+### Step 2: Get ALL February postings
+GET /ledger/posting with params: {{"dateFrom":"2026-02-01","dateTo":"2026-02-28","fields":"account(id,number),amount,date","count":"10000"}}
+
+### Step 3: Analyze the data
+- Group ALL postings by account number
+- Sum the "amount" field per account per month
+- Keep ONLY cost accounts: account numbers 4000-7999 (4xxx, 5xxx, 6xxx, 7xxx)
+- Calculate increase = feb_total - jan_total for each cost account
+- Find the 3 accounts with the LARGEST POSITIVE increase
+
+### Step 4: Create a corrective voucher for EACH of the top 3 accounts
+For each account, GET /ledger/account?number=ACCT_NUM&fields=id to get account ID, then:
+POST /ledger/voucher with body:
+{{"date":"2026-02-28","description":"Kostnadsanalyse: Konto ACCT_NUM økning fra jan til feb",
+  "postings":[
+    {{"row":1,"account":{{"id":COST_ACCT_ID}},"amountGross":INCREASE_AMOUNT,"amountGrossCurrency":INCREASE_AMOUNT,"vatType":{{"id":0}}}},
+    {{"row":2,"account":{{"id":BALANCE_ACCT_ID}},"amountGross":-INCREASE_AMOUNT,"amountGrossCurrency":-INCREASE_AMOUNT,"vatType":{{"id":0}}}}
+  ]}}
+Use account 1920 (bank) or another balance account for the contra entry.
+
+CRITICAL: The "amount" field in postings is what you sum — it can be positive or negative.
+CRITICAL: You MUST fetch ALL postings (count=10000), not just a few.
+CRITICAL: Do NOT query per-account — get ALL postings in two bulk queries (one per month).
 """,
 
     "supplier_invoice_pdf": """\
@@ -689,14 +881,18 @@ IMPORTANT: Query existing ledger data BEFORE creating new entities.
 2. POST /supplier {{"name":"X", "organizationNumber":"Y"}} (create if not exists)
 3. GET /ledger/account?number=EXPENSE_ACCT&fields=id (e.g. 6500, 6700, 7100)
 4. GET /ledger/account?number=2400&fields=id (leverandørgjeld/accounts payable)
-5. POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Leverandørfaktura INV-XXX fra SupplierName",
-     "postings":[
-       {{"row":1, "account":{{"id":EXPENSE_ACCT_ID}}, "amountGross":FULL_AMOUNT, "amountGrossCurrency":FULL_AMOUNT, "vatType":{{"id":1}}, "supplier":{{"id":SUPPLIER_ID}}}},
-       {{"row":2, "account":{{"id":AP_ACCT_ID}}, "amountGross":-FULL_AMOUNT, "amountGrossCurrency":-FULL_AMOUNT, "vatType":{{"id":0}}, "supplier":{{"id":SUPPLIER_ID}}}}
-     ]}}
+5. POST /supplierInvoice (NOT /ledger/voucher — scoring checks SupplierInvoice entity!):
+   {{"invoiceNumber":"INV-XXX", "invoiceDate":"YYYY-MM-DD", "invoiceDueDate":"YYYY-MM-DD",
+     "amountCurrency":FULL_AMOUNT, "supplier":{{"id":SUPPLIER_ID}},
+     "voucher":{{"date":"YYYY-MM-DD", "description":"Leverandørfaktura INV-XXX fra SupplierName",
+       "postings":[
+         {{"row":1, "account":{{"id":EXPENSE_ACCT_ID}}, "amountGross":FULL_AMOUNT, "amountGrossCurrency":FULL_AMOUNT, "vatType":{{"id":1}}, "supplier":{{"id":SUPPLIER_ID}}}},
+         {{"row":2, "account":{{"id":AP_ACCT_ID}}, "amountGross":-FULL_AMOUNT, "amountGrossCurrency":-FULL_AMOUNT, "vatType":{{"id":0}}, "supplier":{{"id":SUPPLIER_ID}}}}
+       ]}}
+   }}
 
-AMOUNT RULES: amountGross = the FULL/GROSS amount (including VAT). Both postings use the SAME absolute amount. Tripletex calculates VAT split automatically based on vatType.
-CRITICAL: NEVER use POST /supplierInvoice (always 500). Go directly to POST /ledger/voucher.
+CRITICAL: amountCurrency = POSITIVE gross amount. invoiceDueDate is REQUIRED.
+FORBIDDEN fields: orderDate, deliveryDate, dueDate, amount, orderLines (cause 500).
 """,
     "project_lifecycle": """\
 ## Complete Project Lifecycle
@@ -858,74 +1054,191 @@ API_GUIDES["cierre"] = API_GUIDES["year_end_closing"]
 API_GUIDES["depreciation"] = API_GUIDES["year_end_closing"]
 API_GUIDES["avskrivning"] = API_GUIDES["year_end_closing"]
 
+# First month_end_closing definition removed — second definition below is authoritative
+
 API_GUIDES["currency_exchange"] = """\
 ## Currency Exchange / Agio (valutadifferanse)
-Task: Sent invoice in EUR at rate X, customer paid at rate Y, book the exchange difference (agio).
+Task: Sent invoice in foreign currency (e.g. EUR) at exchange rate X NOK/EUR.
+Customer paid in EUR. Record payment and post exchange rate gain/loss voucher.
+
+CALCULATION:
+- Invoice NOK amount = EUR_amount × invoice_rate (e.g. 11671 × 11.22 = 130,948.62)
+- Payment NOK amount = EUR_amount × payment_rate (or same rate if not specified differently)
+- Agio difference = Invoice NOK amount - Payment NOK amount
+- If difference > 0: exchange rate LOSS (debit 8160). If < 0: exchange rate GAIN (credit 8060).
+- If prompt says "exchange rate was X NOK/EUR" and doesn't mention a different payment rate,
+  the payment was at a DIFFERENT rate. Read carefully — "record the payment and post exchange rate gain/loss"
+  means BOTH the invoice AND payment used the SAME rate, and you just need to book the rounding difference.
+  OR the prompt gives two different rates.
 
 Steps:
-1. POST /customer (create customer with org number)
-2. GET /currency?code=EUR&fields=id,code,factor — get currency ID (fields: id, code, description, displayName, factor — NOT name!)
-   EUR id is typically 5, NOK id is 1.
-3. POST /order with currency.id, orderLines with amount in foreign currency
-4. PUT /order/ORDER_ID/:invoice with invoiceDate, invoiceDueDate
-5. GET /invoice/paymentType for payment type ID
-6. PUT /invoice/INV_ID/:payment with paymentDate, paidAmount (in NOK = foreign amount × new rate)
-7. Book agio: POST /ledger/voucher
-   - If gain (new rate > old rate): debit 1500 (kundefordring), credit 8060 (annen finansinntekt)
-   - If loss (new rate < old rate): debit 8160 (annen finanskostnad), credit 1500
+1. POST /customer {{"name":"X", "organizationNumber":"Y", "isCustomer":true}}
+2. GET /currency?code=EUR&fields=id,code,factor (NOT name — causes 400!)
+3. POST /order {{"customer":{{"id":CUST_ID}}, "currency":{{"id":EUR_CURRENCY_ID}},
+     "orderDate":"YYYY-MM-DD", "deliveryDate":"YYYY-MM-DD",
+     "orderLines":[{{"description":"X", "count":1, "unitPriceExcludingVatCurrency":EUR_AMOUNT, "vatType":{{"id":3}}}}]}}
+   CRITICAL: unitPriceExcludingVatCurrency is in EUR (the foreign currency), NOT in NOK!
+4. PUT /order/ORDER_ID/:invoice?invoiceDate=YYYY-MM-DD&invoiceDueDate=YYYY-MM-DD&sendToCustomer=false
+5. GET /invoice?orderIds=ORDER_ID&invoiceDateFrom=YYYY-MM-DD&invoiceDateTo=YYYY-MM-DD&fields=id,invoiceNumber,amount
+   (to get the invoice ID)
+6. GET /invoice/paymentType?fields=id,description
+7. PUT /invoice/INV_ID/:payment?paymentDate=YYYY-MM-DD&paymentTypeId=X&paidAmount=NOK_AMOUNT&paidAmountCurrency=EUR_AMOUNT
+   - paidAmount = EUR_amount × payment_rate (NOK amount)
+   - paidAmountCurrency = EUR_amount (in foreign currency)
+8. Book agio voucher:
+   GET /ledger/account?number=8060&fields=id (finansinntekt — for gain)
+   GET /ledger/account?number=8160&fields=id (finanskostnad — for loss)
+   GET /ledger/account?number=1500&fields=id (kundefordringer)
 
-Example agio voucher (loss of 500 NOK):
-POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"Agiotap valutadifferanse",
-  "postings":[
-    {"row":1, "account":{"id":8160_ACCT_ID}, "amountGross":500, "amountGrossCurrency":500, "vatType":{"id":0}},
-    {"row":2, "account":{"id":1500_ACCT_ID}, "amountGross":-500, "amountGrossCurrency":-500, "vatType":{"id":0}}
-  ]}
+   AGIO_AMOUNT = abs(invoice_nok - payment_nok)
+
+   If LOSS (invoice_nok > payment_nok — customer paid less in NOK than expected):
+   POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Agiotap valutadifferanse",
+     "postings":[
+       {{"row":1, "account":{{"id":8160_ID}}, "amountGross":AGIO_AMOUNT, "amountGrossCurrency":AGIO_AMOUNT, "vatType":{{"id":0}}}},
+       {{"row":2, "account":{{"id":1500_ID}}, "amountGross":-AGIO_AMOUNT, "amountGrossCurrency":-AGIO_AMOUNT, "vatType":{{"id":0}}, "customer":{{"id":CUST_ID}}}}
+     ]}}
+
+   If GAIN (payment_nok > invoice_nok):
+   POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Agiogevinst valutadifferanse",
+     "postings":[
+       {{"row":1, "account":{{"id":1500_ID}}, "amountGross":AGIO_AMOUNT, "amountGrossCurrency":AGIO_AMOUNT, "vatType":{{"id":0}}, "customer":{{"id":CUST_ID}}}},
+       {{"row":2, "account":{{"id":8060_ID}}, "amountGross":-AGIO_AMOUNT, "amountGrossCurrency":-AGIO_AMOUNT, "vatType":{{"id":0}}}}
+     ]}}
+
+CRITICAL: Account 1500 postings MUST include customer: {{"id": CUST_ID}}
+CRITICAL: vatType {{"id":0}} for ALL accounts (1500, 8060, 8160 are locked to vatType 0)
 """
 API_GUIDES["agio"] = API_GUIDES["currency_exchange"]
+API_GUIDES["disagio"] = API_GUIDES["currency_exchange"]
 API_GUIDES["valutakurs"] = API_GUIDES["currency_exchange"]
 API_GUIDES["exchange_rate"] = API_GUIDES["currency_exchange"]
+API_GUIDES["currency"] = API_GUIDES["currency_exchange"]
+API_GUIDES["EUR"] = API_GUIDES["currency_exchange"]
+API_GUIDES["foreign_currency"] = API_GUIDES["currency_exchange"]
+API_GUIDES["valuta"] = API_GUIDES["currency_exchange"]
 
 API_GUIDES["overdue_invoice_reminder"] = """\
-## Overdue Invoice + Reminder Fee + Partial Payment
-Competition prompt: "Find the overdue invoice, post reminder fee of 35 NOK (debit 1500, credit 3400), create invoice for fee, send it, register partial payment"
+## Overdue Invoice + Reminder Fee
+SANDBOX IS EMPTY! Create customer, order, invoice FIRST, then post reminder fee.
 
-Flow:
-1. GET /invoice?invoiceDateFrom=2026-01-01&invoiceDateTo=2026-12-31&fields=id,invoiceNumber,amount,amountOutstanding,invoiceDueDate,customer
-   - Find invoice where amountOutstanding > 0 AND invoiceDueDate < today
-2. POST /ledger/voucher — reminder fee posting
-   - Debit 1500 (Kundefordringer): amountGross = 35
-   - Credit 3400 (use whatever account the prompt says): amountGross = -35
-   - GET /ledger/account?number=1500 and ?number=3400 first for IDs
-3. POST /order + PUT /:invoice — create invoice for the fee
-4. PUT /invoice/:send?sendType=EMAIL
-5. PUT /invoice/{overdue_id}/:payment — partial payment
-   - GET /invoice/paymentType first
-   - paidAmount = 5000 (or whatever prompt says)
+COMPLETE FLOW:
+1. POST /customer {{"name":"X", "isCustomer":true, "organizationNumber":"Y"}}
+2. POST /order {{"customer":{{"id":CUST_ID}}, "orderDate":"2026-01-15", "deliveryDate":"2026-01-15",
+     "orderLines":[{{"description":"ProductName", "count":1, "unitPriceExcludingVatCurrency":AMOUNT}}]}}
+   - Use PAST date so invoice appears overdue!
+3. PUT /order/ORDER_ID/:invoice?invoiceDate=2026-01-15&invoiceDueDate=2026-02-15&sendToCustomer=false
+4. GET /invoice/paymentType?fields=id,description
+5. If partial payment: PUT /invoice/INV_ID/:payment?paymentDate=DATE&paymentTypeId=X&paidAmount=PARTIAL
+6. GET /ledger/account?number=1500&fields=id (Kundefordringer)
+7. GET /ledger/account?number=3400&fields=id (or account from prompt)
+8. POST /ledger/voucher — reminder fee:
+   {{"date":"2026-03-22", "description":"Purregebyr", "postings":[
+     {{"row":1, "account":{{"id":ACCT_1500_ID}}, "amountGross":FEE, "amountGrossCurrency":FEE, "vatType":{{"id":0}}, "customer":{{"id":CUST_ID}}}},
+     {{"row":2, "account":{{"id":ACCT_3400_ID}}, "amountGross":-FEE, "amountGrossCurrency":-FEE, "vatType":{{"id":0}}}}
+   ]}}
+
+CRITICAL: Account 1500 MUST include customer ref! Account 3400 locked to vatType 0!
 """
 API_GUIDES["overdue"] = API_GUIDES["overdue_invoice_reminder"]
 API_GUIDES["forfalt"] = API_GUIDES["overdue_invoice_reminder"]
 API_GUIDES["impaye"] = API_GUIDES["overdue_invoice_reminder"]
 
+API_GUIDES["month_end_closing"] = """\
+## Month-End Closing (månedsslutt)
+Post these vouchers for the specified month:
+
+### 1. Accrual reversal (periodisering)
+Move prepaid amount from balance sheet to expense:
+- Debit: expense account (e.g. 6xxx-7xxx) with monthly_amount
+- Credit: prepaid account (e.g. 1720) with -monthly_amount
+POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"Periodisering", "postings":[
+  {"row":1, "account":{"id":EXPENSE_ID}, "amountGross":MONTHLY_AMT, "amountGrossCurrency":MONTHLY_AMT, "vatType":{"id":0}},
+  {"row":2, "account":{"id":1720_ID}, "amountGross":-MONTHLY_AMT, "amountGrossCurrency":-MONTHLY_AMT, "vatType":{"id":0}}
+]}
+
+### 2. Depreciation (avskrivning)
+For each asset: annual_depreciation = asset_value / useful_life_years
+Monthly: annual / 12
+- Debit: depreciation expense (6010-6020) with monthly_depreciation
+- Credit: accumulated depreciation (1209) with -monthly_depreciation
+POST /ledger/voucher {"date":"YYYY-MM-DD", "description":"Avskrivning", "postings":[
+  {"row":1, "account":{"id":6010_ID}, "amountGross":MONTHLY_DEPR, "amountGrossCurrency":MONTHLY_DEPR, "vatType":{"id":0}},
+  {"row":2, "account":{"id":1209_ID}, "amountGross":-MONTHLY_DEPR, "amountGrossCurrency":-MONTHLY_DEPR, "vatType":{"id":0}}
+]}
+
+### 3. Salary accrual (lønn)
+If salary mentioned: accrue monthly salary
+- Debit: salary expense (5000) with salary_amount
+- Credit: salary payable (2910) with -salary_amount
+- CRITICAL: Account 5000 posting MUST include employee ref! Create employee first if none exists.
+POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Lønnsavsetning", "postings":[
+  {{"row":1, "account":{{"id":5000_ID}}, "amountGross":SALARY, "amountGrossCurrency":SALARY, "vatType":{{"id":0}}, "employee":{{"id":EMP_ID}}}},
+  {{"row":2, "account":{{"id":2910_ID}}, "amountGross":-SALARY, "amountGrossCurrency":-SALARY, "vatType":{{"id":0}}}}
+]}}
+
+CRITICAL:
+- ALL accounts (1209, 1720, 5000, 2910, 6010 etc.) are locked to vatType 0
+- Date should be last day of the month (e.g. 2026-03-31)
+- GET /ledger/account?number=XXXX&fields=id for each account first
+- Create SEPARATE vouchers for each type (accrual, depreciation, salary)
+- Account 5000 postings MUST include employee: {{"id": X}}
+- Account 1500 postings MUST include customer: {{"id": X}}
+- Account 2400 postings MUST include supplier: {{"id": X}}
+"""
+API_GUIDES["månedsavslutning"] = API_GUIDES["month_end_closing"]
+API_GUIDES["closing"] = API_GUIDES["month_end_closing"]
+API_GUIDES["accrual"] = API_GUIDES["month_end_closing"]
+API_GUIDES["monatsabschluss"] = API_GUIDES["month_end_closing"]
+API_GUIDES["månedsslutt"] = API_GUIDES["month_end_closing"]
+API_GUIDES["month_end"] = API_GUIDES["month_end_closing"]
+API_GUIDES["month-end"] = API_GUIDES["month_end_closing"]
+API_GUIDES["periodisering"] = API_GUIDES["month_end_closing"]
+API_GUIDES["clôture mensuelle"] = API_GUIDES["month_end_closing"]
+API_GUIDES["cierre mensual"] = API_GUIDES["month_end_closing"]
+
 API_GUIDES["ledger_correction"] = """\
-## Ledger Correction (feilretting i regnskap)
-Steps for correcting voucher errors:
+## Ledger Correction / Voucher Correction (feilretting i regnskap)
 
-1. GET /ledger/voucher?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD to find vouchers
-   - MUST include dateFrom AND dateTo (both required!)
-2. For wrong account: POST new correcting voucher (reverse original + post correct)
-   - Create voucher with reversed postings of the original (swap debit/credit signs)
-   - Then create another voucher with the correct account numbers
-3. For duplicate: PUT /ledger/voucher/ID/:reverse?date=YYYY-MM-DD
-   - date is a QUERY param (not body!)
-4. For missing VAT: POST new voucher with VAT posting
-   - Debit the VAT receivable account (e.g. 2710), credit the expense account
-5. For wrong amount: POST correcting voucher for the difference
-   - Only book the delta between correct and incorrect amount
+### Step 1: Find all vouchers in the period
+GET /ledger/voucher?dateFrom=2026-01-01&dateTo=2026-02-28&fields=id,date,description
+- MUST include dateFrom AND dateTo (both required!)
 
-CRITICAL: Always GET /ledger/account?number=XXXX&fields=id before creating vouchers.
-CRITICAL: Postings MUST sum to zero. Use vatType.id=0 for balance sheet corrections.
+### Step 2: Inspect each voucher's postings
+For EACH voucher ID:
+GET /ledger/voucher/ID?fields=id,date,description,postings(id,account(id,number),amountGross,vatType(id),row)
+- This shows the actual postings so you can identify errors
+
+### Step 3: Identify the 4 types of errors
+The prompt tells you exactly what errors to find. Common patterns:
+a) **Wrong account number** — posting on account X should be on account Y
+b) **Duplicate voucher** — same voucher posted twice
+c) **Missing VAT** — expense posted without VAT that should have it
+d) **Wrong amount** — posted amount differs from correct amount
+
+### Step 4: Correct each error
+For WRONG ACCOUNT: POST a correcting voucher with 2 entries:
+  - Reverse the wrong posting (opposite sign on wrong account)
+  - Post correct amount on right account
+  POST /ledger/voucher {{"date":"YYYY-MM-DD", "description":"Korreksjon - feil konto", "postings":[
+    {{"row":1, "account":{{"id":WRONG_ACCT_ID}}, "amountGross":-ORIGINAL_AMT, "amountGrossCurrency":-ORIGINAL_AMT, "vatType":{{"id":0}}}},
+    {{"row":2, "account":{{"id":CORRECT_ACCT_ID}}, "amountGross":ORIGINAL_AMT, "amountGrossCurrency":ORIGINAL_AMT, "vatType":{{"id":0}}}}
+  ]}}
+
+For DUPLICATE: PUT /ledger/voucher/ID/:reverse?date=YYYY-MM-DD
+
+For MISSING VAT: POST correcting voucher adding the VAT posting
+
+For WRONG AMOUNT: POST correcting voucher for the difference only
+
+CRITICAL: GET /ledger/account?number=XXXX&fields=id for each account first.
+CRITICAL: Postings MUST sum to zero. vatType 0 for balance sheet accounts.
+CRITICAL: amountGrossCurrency MUST equal amountGross (same value).
 """
 API_GUIDES["feilretting"] = API_GUIDES["ledger_correction"]
+API_GUIDES["voucher_correction"] = API_GUIDES["ledger_correction"]
+API_GUIDES["correction"] = API_GUIDES["ledger_correction"]
+API_GUIDES["korreksjon"] = API_GUIDES["ledger_correction"]
 
 # Fields to preserve in _compact_response
 _ESSENTIAL_FIELDS = frozenset({
@@ -956,6 +1269,11 @@ _LIST_ESSENTIAL_FIELDS = frozenset({
     "startDate", "status", "isProjectActivity",
     "organizationNumber", "phoneNumber", "phoneNumberMobile",
     "departmentNumber", "accountNumber", "paymentTypeId",
+    # Amount fields needed for ledger analysis, bank reconciliation, etc.
+    "amount", "amountGross", "amountGrossCurrency", "amountCurrency",
+    "amountOutstanding", "date", "invoiceDate", "invoiceDueDate",
+    "invoiceNumber", "customer", "supplier", "account", "vatType",
+    "row", "postings", "rate", "code", "factor", "displayName",
 })
 
 
@@ -969,9 +1287,19 @@ async def tool_agent_solve(
 ) -> bool:
     """Run the tool-use agent. Returns True if task completed without errors."""
 
-    # Use Flash for speed — Pro is too slow (15-20s/turn = timeout on complex tasks)
-    # Flash: 2-5s/turn, handles API routing fine, gives us 5x more turns in same budget
-    model_name = "gemini-2.5-flash"
+    # Use Pro for complex tasks (better reasoning), Flash for simple ones (faster)
+    prompt_lower = prompt.lower()
+    is_complex = any(kw in prompt_lower for kw in (
+        "reconcil", "avstem", "rapproch", "year-end", "årsoppgjør", "årsoppgjer", "arsoppgjor", "jahresabschluss",
+        "month-end", "monatsabschluss", "månedsslutt", "månadsslutt", "cierre", "encerramento", "clôture",
+        "feil i hovedbok", "feil i hovudbok", "error in ledger", "fehler", "errores", "erros", "korriger",
+        "analyser", "analyse", "analyze", "analise", "kostnadskonto",
+        "lifecycle", "livssyklus", "prosjektsyklusen", "ciclo de vida",
+        "exchange rate", "valutakurs", "agio", "disagio", "wechselkurs", "taux de change",
+        "eur ", "usd ", "gbp ",
+        "lønn", "salary", "gehalt", "salaire", "salário", "payroll",
+    ))
+    model_name = "gemini-2.5-pro" if is_complex else "gemini-2.5-flash"
     location = "europe-north1"
     vertexai.init(project="ainm26osl-710", location=location)
     model = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT, tools=TOOLS)
@@ -987,7 +1315,33 @@ async def tool_agent_solve(
                 parts.append(Part.from_text(f"[Attached: {f.get('filename', 'file')}]"))
             except Exception:
                 pass
-    parts.append(Part.from_text(f"Execute this accounting task:\n\n{prompt}"))
+    # Auto-inject relevant guides based on keywords in prompt
+    prompt_lower = prompt.lower()
+    injected_guides = []
+    guide_triggers = [
+        (("eur ", "usd ", "gbp ", "exchange rate", "valutakurs", "agio", "disagio", "tipo de cambio", "wechselkurs", "taux de change", "taxa de câmbio"), "currency_exchange"),
+        (("month-end", "månedsavslutning", "accrual", "periodisering", "lønnsavsetning", "salary accrual", "encerramento mensal", "monatsabschluss", "cierre mensual"), "month_end_closing"),
+        (("lønn", "salary", "payroll", "salario", "gehalt", "salaire", "grunnlønn", "bonus"), "salary"),
+        (("leverandørfaktura", "supplier invoice", "fournisseur", "lieferantenrechnung", "factura del proveedor", "fatura do fornecedor"), "supplier_invoice"),
+        (("reconcil", "avstemming", "bankutskrift", "bank statement", "csv"), "bank_reconciliation_csv"),
+        (("lifecycle", "livssyklus", "ciclo de vida", "prosjektsyklusen"), "project_lifecycle"),
+        (("feil i hovedbok", "error in ledger", "korriger", "correct", "rette opp", "feil", "fehler", "errores", "erros"), "ledger_correction"),
+        (("årsoppgjør", "årsoppgjer", "arsoppgjor", "year-end", "jahresabschluss", "cierre anual", "encerramento anual", "clôture annuelle"), "year_end_closing"),
+        (("analyser", "analyse", "analyze", "analise", "analysez", "kostnadskonto", "kostnadsauke", "cost account"), "ledger_analysis"),
+        (("arbeidskontrakt", "arbeitsvertrag", "angebotsschreiben", "employment contract", "offer letter", "contrato de trabajo", "contrat de travail", "tilbudsbrev"), "employment_contract_pdf"),
+        (("overdue", "forfalt", "purregebyr", "reminder fee", "impayé", "vencida", "überfällig"), "overdue_invoice_reminder"),
+    ]
+    for keywords, guide_name in guide_triggers:
+        if any(kw in prompt_lower for kw in keywords):
+            guide = API_GUIDES.get(guide_name, "")
+            if guide:
+                injected_guides.append(guide)
+
+    guide_text = ""
+    if injected_guides:
+        guide_text = "\n\nRELEVANT API GUIDES (pre-loaded for this task):\n" + "\n---\n".join(injected_guides) + "\n\n"
+
+    parts.append(Part.from_text(f"Execute this accounting task:\n\n{prompt}{guide_text}"))
 
     chat = model.start_chat()
     had_errors = False
@@ -1145,7 +1499,11 @@ async def tool_agent_solve(
                         had_errors = True
                     logger.warning(f"Tool agent: {fn_name} -> {status} FAIL")
                     record_error(fn_name, data, prompt)
-                summary = _compact_response(data, ok)
+                    # FATAL: 403 = expired token, abort immediately
+                    if status == 403:
+                        logger.error("403 Forbidden — token expired, aborting tool agent")
+                        return had_errors
+                summary = _compact_response(data, ok, path=path)
                 function_responses.append(
                     Part.from_function_response(
                         name=fn_name,
@@ -1177,7 +1535,7 @@ async def tool_agent_solve(
     return success
 
 
-def _compact_response(data: dict, ok: bool, max_len: int = 1500) -> dict:
+def _compact_response(data: dict, ok: bool, max_len: int = 1500, path: str = "") -> dict:
     """Compact API response to save tokens while keeping essential info."""
     if not ok:
         return {"ok": False, "error": json.dumps(data, ensure_ascii=False, default=str)[:max_len]}
@@ -1193,13 +1551,16 @@ def _compact_response(data: dict, ok: bool, max_len: int = 1500) -> dict:
         if "values" in data:
             vals = data["values"]
             if isinstance(vals, list):
+                # For ledger posting queries, return ALL results (needed for summing)
+                needs_all = "/ledger/posting" in path
+                limit = len(vals) if needs_all else 10
                 compact_list = []
-                for item in vals[:10]:
+                for item in vals[:limit]:
                     if isinstance(item, dict):
                         compact_list.append({k: v for k, v in item.items() if k in _LIST_ESSENTIAL_FIELDS})
                     else:
                         compact_list.append(item)
-                truncation_note = f"(showing {min(10, len(vals))}/{len(vals)} results)" if len(vals) > 10 else ""
+                truncation_note = f"(showing {min(limit, len(vals))}/{len(vals)} results)" if len(vals) > limit else ""
                 result = {"ok": True, "count": len(vals), "values": compact_list}
                 if truncation_note:
                     result["note"] = truncation_note

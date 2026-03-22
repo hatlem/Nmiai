@@ -106,7 +106,10 @@ COMMON EXTRACTION MISTAKES TO AVOID:
 - "avdelingsnummer 200" → departmentNumber: "200" (string, not int)
 - "kontoadministrator" → role: "ALL_PRIVILEGES"
 - "pris 4999 kr eks mva" → priceExcludingVatCurrency: 4999
-- vatTypeId: If VAT rate specified (25%=3, 15% food=33, 12%=31, 0%=5), include the ID. E.g. "15% food and beverage VAT" → vatTypeId: 33"""
+- vatTypeId: If VAT rate specified (25%=3, 15% food=33, 12%=31, 0%=5), include the ID. E.g. "15% food and beverage VAT" → vatTypeId: 33
+- expense_account_number: For supplier invoices, if no specific expense account is mentioned, default to "6500" (external services). For goods: "4300". For rent: "6300". For office supplies: "6500".
+- dueDate: For supplier invoices, if no due date is mentioned, calculate as invoiceDate + 30 days.
+- amount: For "TTC" (toutes taxes comprises) or "inkl. mva" or "brutto", this is the GROSS amount including VAT. Extract the exact number."""
 
 
 def build_repair_extraction_prompt(task_type: str, original_prompt: str, errors: list[dict]) -> str:

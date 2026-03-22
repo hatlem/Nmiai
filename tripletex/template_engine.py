@@ -535,7 +535,7 @@ def _expand_dimension_steps(steps: list[dict], values: dict) -> list[dict]:
             "path": "/ledger/accountingDimensionValue",
             "body": {
                 "displayName": name,
-                "dimensionIndex": "$step_0.number",
+                "dimensionIndex": 1,
             },
         })
 

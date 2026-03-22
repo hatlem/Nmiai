@@ -187,9 +187,52 @@ Hver submission MÅ logges her med tidskode, dato og innhold. Max 3 per dag.
 | 7 | 2026-03-21 | 15:30 | submission_20260321_153000.zip | YOLO26-x ONNX + DINOv2-Base v2 (FP16, epoch 26, val=91.5%, Focal+Mixup+EMA) | ? | 250MB, 2/3 weights. V2 classifier |
 | 8 | 2026-03-20 | 18:41 | submission_20260320_182916.zip | 3-modell WBF ensemble (pseudo 0.789 + fold0 0.726 + fold2 0.749) + TTA, conf=0.01 | **0.9139** | 38.2s. Ensemble er game-changer |
 | 9 | 2026-03-20 | 20:55 | submission_20260320_203746.zip | pseudo + fold4 + fold2, conf=0.05, TTA | 0.9119 | 38.5s. conf=0.05 VERRE enn 0.01 |
-| 10 | 2026-03-20 | 22:49 | submission_20260320_224900.zip | pseudo + **1600px**(0.771) + fold2, conf=**0.001**, TTA | **0.9158** | 42.6s. NY BEST! 1600px + lavere conf hjelper |
+| 10 | 2026-03-20 | 22:49 | submission_20260320_224900.zip | pseudo + 1600px + fold2, conf=0.001, TTA | **0.9158** | 42.6s. 1600px + lavere conf hjelper |
+| 11 | 2026-03-21 | 07:56 | submission_20260321_075118.zip | pseudo + yolo11x + 1600px, multi-scale TTA+SoftNMS | 0.9149 | Multi-scale TTA skadet |
+| 12 | 2026-03-21 | 09:43 | submission_20260321_093943.zip | pseudo + yolo11x + 1600px, WBF tuning (iou=0.43, NMS=0.7, BOX_SCALE) | 0.8930 | Alle tuning-endringer skadet KRAFTIG |
+| 13 | 2026-03-21 | 11:46 | submission_20260321_112117.zip | pseudo + YOLOv8x(0.799 FP16) + YOLO11-x, 3 arkitekturer | 0.9153 | FP16 konvertering OK, men ensemble ikke bedre |
+| 14 | 2026-03-21 | 21:02 | submission_20260321_210107.zip | pseudo + 1600px + fold2, med ensemble_boxes pakke | **0.9162** | ensemble_boxes > custom wbf (+0.0004) |
+| 15 | 2026-03-22 | 06:35 | submission_20260322_032029.zip | **fulldata_v8x** + 1600px + fold2 | **0.9205** | FULLDATA GAME-CHANGER! +0.004 |
+| 16 | 2026-03-22 | 06:38 | submission_20260322_063738.zip | **fulldata_v8x + fulldata_yolo26** + fold2 | **0.9220** | TO fulldata-modeller! NY BEST! |
+| 17 | 2026-03-22 | 06:42 | submission_20260322_064045.zip | fulldata_v8x + fulldata_yolo26 + 1600px | 0.9192 | 1600px < fold2 som 3. modell |
+| 18 | 2026-03-22 | 06:47 | submission_20260322_064554.zip | fulldata_v8x + fulldata_yolo26 + pseudo | 0.9182 | pseudo < fold2 som 3. modell |
+| 19 | 2026-03-22 | 09:19 | submission_20260322_082215.zip | fulldata_v8x + fulldata_yolo26 + **fulldata_yolo11** | 0.9218 | 3x fulldata, marginalt verre enn fold2 |
+| 20 | 2026-03-22 | 11:26 | submission_20260322_112444.zip | fulldata_v8x_**s42** + fulldata_yolo26 + fold2 | 0.9203 | Annen seed hjalp ikke |
 
-### Nåværende status (oppdatert 21. mars 10:25)
+### Nåværende status (oppdatert 22. mars 11:30) — FINAL
+
+#### NorgesGruppen — **Beste: 0.9220** (submission #16)
+- **Rank: #6** av 341 lag
+- **Topp 5:** PH (0.9261), Fenrir's byte (0.9255), sf (0.9247), Punnis (0.9230), J6X (0.9229)
+- **Gap til #1: 0.004**
+- **Submissions brukt: 20 totalt, 0 igjen**
+- **Frist: 15:00 CET**
+- **Select for final: submission #16 (0.9220)**
+
+### Hva som FAKTISK fungerte
+| Endring | Score | vs forrige | Lærdom |
+|---|---|---|---|
+| Ensemble 3 modeller | 0.9139 | +0.24 | Ensemble er ALT |
+| conf 0.001 + 1600px diversitet | 0.9158 | +0.002 | Diversitet > styrke |
+| ensemble_boxes pakke | 0.9162 | +0.0004 | Offisiell impl bedre |
+| **Fulldata (248 vs 211 bilder)** | **0.9205** | **+0.004** | **STØRSTE ENKELT-FORBEDRING** |
+| **2x fulldata modeller** | **0.9220** | **+0.002** | **To arkitekturer trent på all data** |
+
+### Hva som IKKE fungerte (dag 3)
+| Endring | Score | Lærdom |
+|---|---|---|
+| 1600px i stedet for fold2 | 0.9192 | fold2 er uerstattelig som 3. modell |
+| pseudo i stedet for fold2 | 0.9182 | Sterkere modell ≠ bedre ensemble (IGJEN) |
+| 3x fulldata (alle 248 bilder) | 0.9218 | Marginalt verre enn fold2 |
+| Annen random seed (s42) | 0.9203 | Seed-diversitet hjelper ikke |
+
+### Nøkkelinnsikter fra hele konkurransen
+1. **Fulldata-trening var den STØRSTE enkelt-forbedringen** (+0.004)
+2. **fold2 (trent på 199 bilder) er paradoksalt den beste 3. modellen** — svakere individuelt men gir mest diversitet
+3. **Sterkere individuelle modeller gir IKKE bedre ensemble** — bekreftet gjentatte ganger
+4. **Post-processing tuning skadet alltid** — WBF params, multi-scale TTA, Soft-NMS, temperature scaling
+5. **Arkitektur-diversitet (YOLOv8x vs YOLO26-x) + data-diversitet (fulldata vs fold) = nøkkelen**
+6. **ensemble_boxes pakken er marginalt bedre enn custom WBF** (+0.0004)
 
 #### Samlet konkurranse — Astar Island leaderboard
 - **R13 = 91.3 pts (#22) — NY REKORD!** (forrige: R9=90.4)

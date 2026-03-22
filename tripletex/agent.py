@@ -404,6 +404,24 @@ _HIGH_CONF_KEYWORDS = sorted({
     "note de frais": ("create_travel_expense", 0.90),
     "crea una factura": ("create_invoice", 0.90),
     "créez une facture": ("create_invoice", 0.90),
+    # PDF employee tasks
+    "arbeitsvertrag": ("create_employee", 0.95),
+    "angebotsschreiben": ("create_employee", 0.95),
+    "arbeidskontrakt": ("create_employee", 0.95),
+    "employment contract": ("create_employee", 0.95),
+    "offer letter": ("create_employee", 0.95),
+    "tilbudsbrev": ("create_employee", 0.95),
+    "contrato de trabajo": ("create_employee", 0.95),
+    "contrato de emprego": ("create_employee", 0.95),
+    "contrat de travail": ("create_employee", 0.95),
+    "erstellen sie den mitarbeiter": ("create_employee", 0.95),
+    # PDF supplier invoice tasks
+    "lieferantenrechnung erhalten": ("create_supplier_invoice", 0.95),
+    "factura fournisseur": ("create_supplier_invoice", 0.95),
+    "factura del proveedor recibida": ("create_supplier_invoice", 0.95),
+    "fatura do fornecedor": ("create_supplier_invoice", 0.95),
+    "supplier invoice received": ("create_supplier_invoice", 0.95),
+    "leverandørfaktura mottatt": ("create_supplier_invoice", 0.95),
 }.items(), key=lambda x: len(x[0]), reverse=True)
 
 

@@ -400,10 +400,27 @@ def _pre_validate_body(method: str, path: str, body: dict | None, params: dict |
         cleaned["orderDate"] = cleaned["invoiceDate"]
 
     # Strip fields invalid for POST /supplierInvoice (must run AFTER date defaults above)
+    # KEEP invoiceDueDate and amountCurrency — they are REQUIRED for /supplierInvoice!
     if isinstance(path, str) and "/supplierInvoice" in path and "/orderline" not in path.lower():
-        for bad_field in ("orderDate", "deliveryDate", "dueDate", "invoiceDueDate",
-                          "amount", "amountCurrency", "orderLines"):
+        for bad_field in ("orderDate", "deliveryDate", "dueDate", "orderLines"):
             cleaned.pop(bad_field, None)
+        # Ensure invoiceDueDate is set (required field)
+        if "invoiceDueDate" not in cleaned and "invoiceDate" in cleaned:
+            try:
+                inv_date = datetime.strptime(cleaned["invoiceDate"], "%Y-%m-%d")
+                cleaned["invoiceDueDate"] = (inv_date + timedelta(days=30)).strftime("%Y-%m-%d")
+            except (ValueError, TypeError):
+                pass
+        # Ensure amountCurrency is set (required field) — compute from postings if missing
+        if "amountCurrency" not in cleaned:
+            voucher = cleaned.get("voucher", {})
+            postings = voucher.get("postings", []) if isinstance(voucher, dict) else []
+            for p in postings:
+                if isinstance(p, dict):
+                    amt = p.get("amountGross") or p.get("amountGrossCurrency")
+                    if isinstance(amt, (int, float)) and amt > 0:
+                        cleaned["amountCurrency"] = amt
+                        break
 
     return cleaned
 

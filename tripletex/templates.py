@@ -26,6 +26,7 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "POST",
                 "path": "/employee",
+                "depends_on": [0],
                 "body": {
                     "firstName": "{{firstName}}",
                     "lastName": "{{lastName}}",
@@ -833,7 +834,8 @@ TEMPLATES: dict[str, dict] = {
         "description": (
             "Create a supplier invoice (incoming invoice from a supplier).\n"
             "Steps: 1) Create supplier, 2) GET expense account, 3) GET AP account (2400), 4) POST /supplierInvoice.\n"
-            "If POST /supplierInvoice returns 500, executor auto-retries with POST /ledger/voucher as fallback."
+            "CRITICAL: Must use POST /supplierInvoice (NOT /ledger/voucher) — scoring checks SupplierInvoice entity.\n"
+            "Required fields: invoiceNumber, invoiceDate, invoiceDueDate, amountCurrency, supplier.id, voucher with postings."
         ),
         "relevant_schemas": ["Supplier", "SupplierInvoice", "Voucher", "Posting"],
         "extract_fields": ["supplier_name", "supplier_organizationNumber", "supplier_email", "supplier_phoneNumber", "supplier_phoneNumberMobile", "supplier_description", "supplier_addressLine1", "supplier_postalCode", "supplier_city", "invoiceNumber", "invoiceDate", "dueDate", "amount", "account_number", "description", "expense_account_number"],
@@ -873,13 +875,15 @@ TEMPLATES: dict[str, dict] = {
                 "body": {
                     "invoiceNumber": "{{invoiceNumber}}",
                     "invoiceDate": "{{invoiceDate}}",
+                    "invoiceDueDate": "{{dueDate}}",
+                    "amountCurrency": "{{amount}}",
                     "supplier": {"id": "$step_0.id"},
                     "voucher": {
                         "date": "{{invoiceDate}}",
                         "description": "Leverandørfaktura {{invoiceNumber}} fra {{supplier_name}}",
                         "postings": [
-                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}},
-                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}},
+                            {"row": 1, "account": {"id": "$step_1.values[0].id"}, "amountGross": "{{amount}}", "amountGrossCurrency": "{{amount}}", "vatType": {"id": 1}, "supplier": {"id": "$step_0.id"}},
+                            {"row": 2, "account": {"id": "$step_2.values[0].id"}, "amountGross": "-{{amount}}", "amountGrossCurrency": "-{{amount}}", "vatType": {"id": 0}, "supplier": {"id": "$step_0.id"}},
                         ],
                     },
                 },
@@ -1496,9 +1500,10 @@ TEMPLATES: dict[str, dict] = {
         ),
         "relevant_schemas": ["Customer", "Project", "Employee", "Order", "OrderLine", "Invoice"],
         "extract_fields": [
-            "customer_name", "customer_organizationNumber", "project_name",
-            "fixedprice", "invoice_percentage", "projectManager_firstName",
-            "projectManager_lastName", "projectManager_email",
+            "customer_name", "customer_organizationNumber", "customer_email",
+            "customer_phoneNumber", "customer_addressLine1", "customer_postalCode", "customer_city",
+            "project_name", "fixedprice", "invoice_percentage",
+            "projectManager_firstName", "projectManager_lastName", "projectManager_email",
         ],
         "optimal_calls": 7,
         "steps": [
@@ -1509,6 +1514,13 @@ TEMPLATES: dict[str, dict] = {
                     "name": "{{customer_name}}",
                     "isCustomer": True,
                     "organizationNumber": "{{customer_organizationNumber}}",
+                    "email": "{{customer_email}}",
+                    "phoneNumber": "{{customer_phoneNumber}}",
+                    "postalAddress": {
+                        "addressLine1": "{{customer_addressLine1}}",
+                        "postalCode": "{{customer_postalCode}}",
+                        "city": "{{customer_city}}",
+                    },
                 },
             },
             {
@@ -1519,6 +1531,7 @@ TEMPLATES: dict[str, dict] = {
             {
                 "method": "POST",
                 "path": "/employee",
+                "depends_on": [1],
                 "body": {
                     "firstName": "{{projectManager_firstName}}",
                     "lastName": "{{projectManager_lastName}}",
@@ -1603,7 +1616,7 @@ TEMPLATES: dict[str, dict] = {
                 "path": "/ledger/accountingDimensionValue",
                 "body": {
                     "displayName": "{{first_dimension_value}}",
-                    "dimensionIndex": "$step_0.number",
+                    "dimensionIndex": 1,
                 },
             },
             {
