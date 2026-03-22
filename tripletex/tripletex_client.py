@@ -160,6 +160,7 @@ class TripletexClient:
         self._cache: dict[str, dict] = {}
         self.call_log: list[dict] = []  # Per-call details for failure tracking
         self.vat_number_to_id: dict[int, int] = {}  # vatType number → actual DB id
+        self._vat_resolved = False
 
     def _log_call(self, method: str, path: str, status: int, ok: bool,
                   error_snippet: str = "", body: dict | None = None,
@@ -302,12 +303,9 @@ class TripletexClient:
                                 posting[field] = float(str(val).replace(",", ".").strip())
                             except (ValueError, TypeError):
                                 posting.pop(field, None)
-                    # amountGrossCurrency must equal amountGross for NOK vouchers
-                    # Only allow different values if body has a currency field (foreign currency)
-                    has_currency = "currency" in body or "currencyId" in body or "currencyCode" in body
+                    # amountGrossCurrency MUST always equal amountGross
                     if "amountGross" in posting:
-                        if "amountGrossCurrency" not in posting or not has_currency:
-                            posting["amountGrossCurrency"] = posting["amountGross"]
+                        posting["amountGrossCurrency"] = posting["amountGross"]
         # Bug fix 2: Voucher date and description must not be null
         if "/ledger/voucher" in path and isinstance(body, dict) and "/:reverse" not in path:
             body.setdefault("description", "Bilag")
@@ -502,7 +500,9 @@ class TripletexClient:
     ) -> dict:
         if body and method in ("POST", "PUT"):
             body = self._fix_body(body, path)
-            # Resolve vatType number→id for all vatType references
+            # Lazy-resolve vatType on first POST/PUT that might need it
+            if not self._vat_resolved and any(k in str(body) for k in ("vatType", "vat")):
+                await self.resolve_vat_types()
             if self.vat_number_to_id:
                 body = self._resolve_all_vat_ids(body)
             # OpenAPI field validation DISABLED — was stripping valid fields
@@ -827,8 +827,10 @@ class TripletexClient:
         return body
 
     async def resolve_vat_types(self):
-        """Fetch vatType list and build number→id mapping.
-        Must be called once per session before executing plans."""
+        """Fetch vatType list and build number→id mapping. Lazy — only called when needed."""
+        if self._vat_resolved:
+            return
+        self._vat_resolved = True
         resp = await self.request("GET", "/ledger/vatType", params={
             "fields": "id,name,number", "count": "100",
         })
@@ -840,13 +842,13 @@ class TripletexClient:
                     try:
                         self.vat_number_to_id[int(num)] = int(vid)
                     except (ValueError, TypeError):
-                        pass  # Skip non-numeric vatType numbers like "UT-2"
-            logger.info(f"Resolved {len(self.vat_number_to_id)} vatType mappings: {self.vat_number_to_id}")
+                        pass
+            logger.info(f"Resolved {len(self.vat_number_to_id)} vatType mappings")
         else:
             logger.warning(f"Failed to fetch vatTypes: {resp}")
 
     def resolve_vat_id(self, number: int) -> int:
-        """Convert vatType number to actual DB id. Falls back to number if not resolved."""
+        """Convert vatType number to actual DB id. Uses cached map if available."""
         return self.vat_number_to_id.get(number, number)
 
     async def warm_cache(self):

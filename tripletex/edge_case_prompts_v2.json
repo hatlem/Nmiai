@@ -1,0 +1,302 @@
+[
+  {
+    "id": 51,
+    "category": "invoice_all_fields",
+    "prompt": "Opprett kunde Fjordtech Solutions AS, org.nr 912345678, e-post faktura@fjordtech.no, mobil 98765432, telefon 22334455, adresse Havnepromenaden 15, 0150 Oslo. Lag faktura med 4 ordrelinjer: Systemutvikling 120 timer à 1450 kr, Prosjektledelse 40 timer à 1650 kr, Testing og QA 30 timer à 1200 kr, Dokumentasjon 15 timer à 1100 kr. Alle ekskl. 25% mva. Fakturadato 2026-03-15, forfallsdato 2026-04-15.",
+    "notes": "Invoice with full customer details (org, email, phone, address) and 4 order lines with hours as quantities"
+  },
+  {
+    "id": 52,
+    "category": "invoice_all_fields",
+    "prompt": "Create customer Nordic Analytics Ltd, org number 998877112, email billing@nordic-analytics.com, phone +4722998877, mobile +4741234567, address Teknologiveien 8B, 0349 Oslo. Invoice for: Data Platform License 45000 NOK (product number 1001), API Integration 28000 NOK (product number 1002), Training Workshop 15000 NOK (product number 1003). All excl. 25% VAT. Invoice date 2026-04-01, due date 2026-05-01. Send invoice via email after creation.",
+    "notes": "English prompt, product numbers on each line, send via email after invoicing"
+  },
+  {
+    "id": 53,
+    "category": "invoice_all_fields",
+    "prompt": "Kunde: Bergens Mekaniske Verksted AS, org.nr 987123456, e-post regnskap@bmv.no, tlf 55223344, mobil 47112233, adresse Damsgårdsveien 122, 5160 Laksevåg. Ordre: Sveisearbeid 85000 kr (25% mva), Materialer stål 42000 kr (25% mva), Transport 8500 kr (25% mva), Prosjektering 35000 kr (25% mva), Overflatebehandling 18000 kr (25% mva). Fakturadato i dag, forfall om 14 dager. Registrer innbetaling av hele fakturabeløpet inkl. mva (235625 kr) i dag på konto 1920.",
+    "notes": "5 lines, invoice + immediate full payment registration same prompt, relative due date '14 dager'"
+  },
+  {
+    "id": 54,
+    "category": "invoice_all_fields",
+    "prompt": "Facture pour client Maison du Nord SARL, nº d'organisation 876543219, courriel comptabilite@maisondunord.fr, téléphone +4722445566, adresse Rue de la Paix 42, 0250 Oslo. Lignes: Conseil stratégique 65000 NOK (TVA 25%), Analyse de marché 32000 NOK (TVA 25%), Rapport final 18000 NOK (TVA 25%). Date de facture 2026-03-20, échéance 2026-04-20.",
+    "notes": "French language, full customer with org number, 3 lines, specific dates"
+  },
+  {
+    "id": 55,
+    "category": "invoice_all_fields",
+    "prompt": "Lag kunde og faktura: Polarfront Shipping AS, org 918273645, epost admin@polarfront.no, adresse Sjøgata 1, 8006 Bodø. Ordrelinjer: Skipsreparasjon 245000 kr prod.nr 5001, Reservedeler 87000 kr prod.nr 5002, Dokking 62000 kr prod.nr 5003, Inspeksjon 28000 kr prod.nr 5004, Sertifisering 15000 kr prod.nr 5005, Frakt 9500 kr prod.nr 5006. Alt ekskl. 25% mva. Fakturadato 2026-03-22, forfall 2026-05-22. Send faktura på e-post til admin@polarfront.no.",
+    "notes": "6 order lines with product numbers, send to specific email, large amounts"
+  },
+  {
+    "id": 56,
+    "category": "employee_onboarding_complete",
+    "prompt": "Opprett komplett ansatt: Fornavn Henrik, Etternavn Solberg-Andersen, e-post henrik.sa@bedrift.no, mobil +4799887766, telefon 22556677, født 1988-05-20, fødselsnummer 20058812345, kontonummer 1234.56.78903, adresse Slottsparken Terrasse 4A, 0010 Oslo. Rolle: kontoadministrator. Startdato 2026-04-01. Årslønn 850000 kr.",
+    "notes": "ALL fields: name, email, phone, DOB, national ID, bank account, address, role, start date, annual salary"
+  },
+  {
+    "id": 57,
+    "category": "employee_onboarding_complete",
+    "prompt": "Ny ansatt med alt: Ingrid Ødegaard, epost ingrid.o@konsern.no, mobil 41556677, født 1992-11-03, personnummer 03119267890, bankkontonr 9876.54.32109, adresse Holmenkollveien 88, 0791 Oslo. Tildel rolle som regnskapsfører. Ansettelsesforhold fra 2026-05-01 med årslønn 720000.",
+    "notes": "Complete onboarding with regnskapsfører role, employment with salary"
+  },
+  {
+    "id": 58,
+    "category": "employee_onboarding_complete",
+    "prompt": "Register new employee with all details: First name Sofia, Last name Martinez-Haugen, email sofia.mh@company.no, mobile +4792334455, date of birth 1995-02-14, national identity number 14029534567, bank account 5432.10.98765, address Bogstadveien 27, 0355 Oslo. Assign role: lønnansvarlig. Employment start: 2026-06-01. Annual salary: 680000 NOK.",
+    "notes": "English prompt, hyphenated surname, lønnansvarlig role, full employment details"
+  },
+  {
+    "id": 59,
+    "category": "employee_onboarding_complete",
+    "prompt": "Registrer tilsett: Fornavn Torbjørn, Etternavn Åsheim, epost torbjorn@firma.no, mobil 48112233, fødd 1985-09-28, personnr 28098523456, bankkonto 1503.27.84561, adresse Strandgata 15, 6002 Ålesund. Gje rolla kontoadministrator. Tilsetjingsforhold frå 2026-04-15, årsløn 790000 kr.",
+    "notes": "Nynorsk dialect, full onboarding with all fields"
+  },
+  {
+    "id": 60,
+    "category": "employee_onboarding_complete",
+    "prompt": "Einen neuen Mitarbeiter vollständig registrieren: Vorname Lars, Nachname Bjørkheim, E-Mail lars.b@unternehmen.no, Mobiltelefon +4795667788, Geburtsdatum 1990-07-12, Personalnummer 12079045678, Bankkontonummer 8765.43.21098, Adresse Kirkeveien 55, 0368 Oslo. Rolle: regnskapsfører. Beschäftigungsbeginn: 2026-05-15. Jahresgehalt: 910000 NOK.",
+    "notes": "German language, complete employee onboarding including bank account and salary"
+  },
+  {
+    "id": 61,
+    "category": "complex_voucher",
+    "prompt": "Bokfør bilag med 8 posteringer — Månedlig lønnskjøring mars 2026: Bruttolønn konto 5000 debet 420000, Arbeidsgiveravgift konto 5400 debet 59220, Feriepenger konto 5200 debet 50400, Pensjonskostnad konto 5290 debet 29400, Skattetrekk konto 2600 kredit -151200, Fagforeningskontingent konto 2780 kredit -4200, AGA skyldig konto 2770 kredit -59220, Netto lønn konto 2920 kredit -344400. Bilagsdato 2026-03-31.",
+    "notes": "8-posting payroll voucher with pension, union dues, all standard Norwegian payroll accounts"
+  },
+  {
+    "id": 62,
+    "category": "complex_voucher",
+    "prompt": "Lag bilag med avdelingsfordeling: Husleie mars 2026 totalt 120000 kr. Fordeling: Avdeling Salg (avd.nr 1) 40% = 48000 kr konto 6300, Avdeling Utvikling (avd.nr 2) 35% = 42000 kr konto 6300, Avdeling Admin (avd.nr 3) 25% = 30000 kr konto 6300. Motpost: Bank konto 1920 kredit -120000. Dato 2026-03-01.",
+    "notes": "Department allocation voucher — same expense account split across 3 departments"
+  },
+  {
+    "id": 63,
+    "category": "complex_voucher",
+    "prompt": "Bokfør prosjektrelatert bilag: Prosjekt 'Ny Nettbutikk' — Konsulenthonorar konto 6700 debet 185000 (prosjekt 1), Reisekostnader konto 7140 debet 12500 (prosjekt 1), Serverdrift konto 6420 debet 8900 (prosjekt 1), Lisenser konto 6540 debet 45000 (prosjekt 2), Opplæring konto 6860 debet 22000 (prosjekt 2), Bank konto 1920 kredit -273400. Dato 2026-03-20.",
+    "notes": "Project allocation voucher — 5 expense lines across 2 projects, single bank credit"
+  },
+  {
+    "id": 64,
+    "category": "complex_voucher",
+    "prompt": "Periodiseringsbilag: Forskuddsbetalt forsikring konto 1700 debet 96000, Bank konto 1920 kredit -96000. Dato 2026-01-01. Deretter oppløsningsbilag for januar: Forsikringskostnad konto 6340 debet 8000, Forskuddsbetalt forsikring konto 1700 kredit -8000. Dato 2026-01-31.",
+    "notes": "TWO vouchers in one prompt — prepaid expense creation then monthly reversal. Agent must create 2 separate vouchers."
+  },
+  {
+    "id": 65,
+    "category": "complex_voucher",
+    "prompt": "Registrer årsoppgjørsbilag: Avskrivninger konto 6000 debet 185000, Akkumulerte avskrivninger konto 1209 kredit -185000, Tap på fordringer konto 7830 debet 42000, Avsetning tap konto 1589 kredit -42000, Skattekostnad konto 8300 debet 156000, Betalbar skatt konto 2500 kredit -156000, Avsatt utbytte konto 8800 debet 200000, Utbytte skyldig konto 2050 kredit -200000. Dato 2026-12-31. Beskrivelse: Årsoppgjør 2026.",
+    "notes": "Year-end closing voucher with 8 postings: depreciation, bad debt provision, tax provision, dividend"
+  },
+  {
+    "id": 66,
+    "category": "credit_note_reinvoice",
+    "prompt": "Opprett faktura til Feilpris AS for Konsulenttjenester 80000 kr ekskl. mva, forfallsdato 2026-04-30. Deretter opprett kreditnota for hele fakturaen med kommentar 'Feil pris avtalt'. Til slutt lag ny faktura til samme kunde for Konsulenttjenester 95000 kr ekskl. mva, forfallsdato 2026-05-15.",
+    "notes": "Full flow: create invoice -> credit note -> new invoice with different amount"
+  },
+  {
+    "id": 67,
+    "category": "credit_note_reinvoice",
+    "prompt": "Kunde Reklamasjon AS har faktura på 150000 kr ekskl. mva for Byggeprosjekt. Lag kreditnota for 45000 kr (delkreditering — 30% av totalbeløp) med kommentar 'Mangelfull leveranse, delkreditering'. Fakturadato i dag.",
+    "notes": "Partial credit note — not full amount. Must create customer, invoice, then partial credit."
+  },
+  {
+    "id": 68,
+    "category": "credit_note_reinvoice",
+    "prompt": "Créer facture pour Erreur SA: Service informatique 200000 NOK hors TVA (25%), échéance 2026-05-01. Puis créer un avoir complet avec le commentaire 'Annulation de contrat'. Enfin créer nouvelle facture: Service informatique révisé 175000 NOK hors TVA, échéance 2026-06-01.",
+    "notes": "French: invoice -> full credit note -> reinvoice at lower price"
+  },
+  {
+    "id": 69,
+    "category": "credit_note_reinvoice",
+    "prompt": "Lag faktura til Dobbeltfakturert AS: Prosjektarbeid 320000 kr ekskl. mva, forfall 2026-04-20. Kreditér deretter 50% av beløpet (160000 kr) med kommentar 'Dobbeltfakturering korrigert'. Registrer innbetaling av restbeløpet 200000 kr inkl. mva i dag.",
+    "notes": "Invoice -> 50% partial credit -> payment of remaining amount. Three operations."
+  },
+  {
+    "id": 70,
+    "category": "credit_note_reinvoice",
+    "prompt": "Erstellen Sie Rechnung für Rückgabe GmbH: Warenlieferung 55.000 NOK exkl. 25% MwSt, Fälligkeitsdatum 2026-04-30. Anschließend Gutschrift erstellen für den vollen Betrag mit dem Kommentar 'Ware vollständig zurückgegeben'. Neue Rechnung: Warenlieferung (korrigiert) 48.000 NOK exkl. MwSt, Fälligkeitsdatum 2026-05-15.",
+    "notes": "German: invoice -> full credit -> reinvoice with European number format (55.000 = 55000)"
+  },
+  {
+    "id": 71,
+    "category": "travel_expense_complete",
+    "prompt": "Reiseregning for ansatt Thomas Berg (thomas@firma.no): Konferanse i Tromsø 10.-15. mars 2026 (6 dager). Fly Oslo-Tromsø tur/retur 5200 kr, Hotell 5 netter à 1850 kr, Diett 6 dager à 892 kr, Taxi til/fra flyplass Oslo 680 kr, Taxi til/fra flyplass Tromsø 420 kr, Konferanseavgift 8500 kr. Avreise fra Oslo. Formål: Arctic Tech Conference 2026.",
+    "notes": "6-day trip with 6 different cost types, per diem at exact government rate"
+  },
+  {
+    "id": 72,
+    "category": "travel_expense_complete",
+    "prompt": "Travel expense for employee Sarah Chen (sarah.c@firma.no): Business trip to Berlin, Germany, 5-9 April 2026. Flights Oslo-Berlin return 4800 NOK, Hotel 4 nights total 12000 NOK, Per diem 5 days at 750 NOK/day, Airport train 380 NOK, Business dinner (client entertainment) 2200 NOK with 25% VAT, Taxi 3 rides total 1500 NOK. Departure from Oslo. Foreign travel. Purpose: Partner negotiations Q2.",
+    "notes": "Foreign travel, 7 cost items, client entertainment with explicit VAT, English"
+  },
+  {
+    "id": 73,
+    "category": "travel_expense_complete",
+    "prompt": "Reiseregning tilsett Marte Vik (marte@firma.no): Kundebesøk Stavanger, Bergen og Haugesund 17.-22. mars 2026. Fly Oslo-Stavanger 2100 kr, Leigebil 5 dagar 4500 kr, Drivstoff 1200 kr (15% mva mat nei — 25% mva), Hotell 5 netter totalt 11250 kr, Diett 6 dagar à 800 kr, Bompengar 340 kr, Parkering 3 dagar à 180 kr, Fly Haugesund-Oslo 1800 kr. Avreise frå Oslo. Føremål: Kundeturné Vestlandet.",
+    "notes": "Nynorsk, multi-city trip, 8 cost items, rental car with fuel, tolls, parking"
+  },
+  {
+    "id": 74,
+    "category": "travel_expense_complete",
+    "prompt": "Erstellen Sie Reisekostenabrechnung für Mitarbeiter Jonas Eriksen (jonas@firma.no): Geschäftsreise nach London und Paris, 1.-8. April 2026. Flug Oslo-London 3900 NOK, Eurostar London-Paris 2800 NOK, Flug Paris-Oslo 4200 NOK, Hotel London 3 Nächte 15000 NOK, Hotel Paris 4 Nächte 18000 NOK, Tagegeld 8 Tage à 950 NOK, U-Bahn und Metro 1200 NOK, Geschäftsessen 3500 NOK (25% MwSt). Abfahrt von Oslo. Auslandsreise. Zweck: Europäische Partnerkonferenz.",
+    "notes": "German, multi-country foreign travel (UK+France), 8 cost items, 8-day trip"
+  },
+  {
+    "id": 75,
+    "category": "travel_expense_complete",
+    "prompt": "Reiseregning for ansatt Per Olsen (per@firma.no): Tur til Kirkenes for prosjektmøte 3.-8. mars 2026. Fly Oslo-Kirkenes tur/retur 7800 kr, Hotell 5 netter à 1400 kr, Diett 6 dager à 892 kr, Taxi lokalt 4 turer totalt 1600 kr, Arbeidslunsj med kunde 1500 kr (15% mva mat), Buss flyplass-sentrum 240 kr. Avreise fra Oslo. I tillegg: privat overnatting 2 netter hos familie (ikke dekningsmessig). Formål: Prosjekt Nord-Norge.",
+    "notes": "Mix of reimbursable and non-reimbursable costs, food VAT on lunch, 6 days"
+  },
+  {
+    "id": 76,
+    "category": "year_end_closing",
+    "prompt": "Årsoppgjør 2025: Registrer avskrivninger for 3 eiendeler: Kontormøbler (konto 1200) anskaffet for 180000 kr, 5 års levetid, lineær avskrivning = 36000 kr. Produksjonsutstyr (konto 1210) anskaffet for 750000 kr, 10 års levetid = 75000 kr. IT-utstyr (konto 1250) anskaffet for 240000 kr, 3 års levetid = 80000 kr. Akkumulerte avskrivninger konto 1209/1219/1259. Avskrivningskostnad konto 6000. Dato 2025-12-31.",
+    "notes": "3 assets with different depreciation periods, separate accumulated depreciation accounts"
+  },
+  {
+    "id": 77,
+    "category": "year_end_closing",
+    "prompt": "Bokfør periodisering ved årsoppgjør: Forskuddsbetalt husleie Q1 2026 (konto 1700) skal reverseres: Debet konto 6300 Husleie 90000 kr, Kredit konto 1700 -90000 kr. Forskuddsbetalt forsikring jan-jun 2026 (konto 1710): Debet konto 6340 Forsikring 48000 kr, Kredit konto 1710 -48000 kr. Begge bilag dato 2025-12-31. Beskrivelse: Periodisering årsoppgjør.",
+    "notes": "Two prepaid expense reversals as separate vouchers, year-end date"
+  },
+  {
+    "id": 78,
+    "category": "year_end_closing",
+    "prompt": "Skatteavsetning årsoppgjør 2025: Resultat før skatt er 1250000 kr. Beregn 22% selskapsskatt = 275000 kr. Bokfør: Skattekostnad konto 8300 debet 275000, Betalbar skatt konto 2500 kredit -275000. Dato 2025-12-31. Beskrivelse: Skatteavsetning 22% av resultat.",
+    "notes": "Tax provision at 22% corporate tax rate, requires calculation from pre-tax profit"
+  },
+  {
+    "id": 79,
+    "category": "year_end_closing",
+    "prompt": "Komplett årsoppgjørsbilag: 1) Avskrivning inventar konto 6000 debet 45000, akk.avskr konto 1209 kredit -45000. 2) Avskrivning maskiner konto 6010 debet 120000, akk.avskr konto 1219 kredit -120000. 3) Tap på fordringer konto 7830 debet 35000, avsetning konto 1589 kredit -35000. 4) Skatt 22% av 890000 = 195800: konto 8300 debet 195800, konto 2500 kredit -195800. 5) Utbytte 150000: konto 8800 debet 150000, konto 2050 kredit -150000. Alt dato 2025-12-31.",
+    "notes": "Complete year-end: 5 separate voucher types (2 depreciation, bad debt, tax, dividend) — could be 1 or 5 vouchers"
+  },
+  {
+    "id": 80,
+    "category": "year_end_closing",
+    "prompt": "Year-end adjustments 2025: Depreciation on 3 fixed assets — Office furniture (account 1200, cost 95000, 5 years = 19000/year), Vehicles (account 1230, cost 450000, 8 years = 56250/year), Software (account 1270, cost 360000, 3 years = 120000/year). All depreciation expense to account 6000, accumulated depreciation accounts 1209, 1239, 1279. Plus tax provision: 22% on profit of 580000 = 127600 (account 8300 debit, account 2500 credit). All dated 2025-12-31.",
+    "notes": "English, 3 assets + tax provision in one prompt, requires multiple vouchers"
+  },
+  {
+    "id": 81,
+    "category": "salary_full_flow",
+    "prompt": "Opprett ansatt Eva Kristiansen, epost eva@bedrift.no, mobil 48990011, født 1993-04-12, adresse Grønlandsleiret 7, 0190 Oslo. Startdato 2026-04-01, årslønn 640000. Bokfør første lønnskjøring: Bruttolønn konto 5000 debet 53333, Skattetrekk konto 2600 kredit -19200, Pensjon konto 5290 debet 1067, Arbeidsgiveravgift konto 5400 debet 7520, AGA skyldig konto 2770 kredit -7520, Netto lønn konto 2920 kredit -35200. Bilagsdato 2026-04-30.",
+    "notes": "Employee creation + employment + salary voucher in one prompt"
+  },
+  {
+    "id": 82,
+    "category": "salary_full_flow",
+    "prompt": "Ny tilsett og løn: Martin Berge, epost martin@bedrift.no, mobil 47889900, fødd 1990-01-15. Tilsetjing frå 2026-05-01, årsløn 580000. Bonus for Q1: 25000 kr. Bokfør løn + bonus: Bruttoløn konto 5000 debet 48333, Bonus konto 5010 debet 25000, Skattetrekk konto 2600 kredit -26400, Feriepengar konto 5200 debet 8800, AGA konto 5400 debet 10341, AGA skyldig konto 2770 kredit -10341, Netto løn konto 2920 kredit -55733. Dato 2026-05-31.",
+    "notes": "Nynorsk, employee + employment + salary with bonus in same voucher"
+  },
+  {
+    "id": 83,
+    "category": "salary_full_flow",
+    "prompt": "Register employee and process salary: Name Anders Johansen, email anders@firma.no, mobile 46778899, born 1987-08-25. Start date 2026-06-01, annual salary 920000 NOK. Post June payroll: Gross salary account 5000 debit 76667, Tax withholding account 2600 credit -30667, Holiday pay accrual account 5200 debit 9200, Pension account 5290 debit 1533, Employer tax account 5400 debit 10810, Employer tax payable account 2770 credit -10810, Net salary account 2920 credit -56733. Voucher date 2026-06-30.",
+    "notes": "English, high salary, complete payroll posting with holiday pay and pension"
+  },
+  {
+    "id": 84,
+    "category": "salary_full_flow",
+    "prompt": "Registrieren Sie Mitarbeiter Knut Fjellstad, E-Mail knut@firma.no, Mobiltelefon 49112233, geboren 1982-12-05, Adresse Ringveien 22, 7036 Trondheim. Beschäftigungsbeginn 2026-04-01, Jahresgehalt 750000 NOK. Lohnbuchung April: Bruttolohn Konto 5000 Soll 62500, Steuerabzug Konto 2600 Haben -22500, Feriengeld Konto 5200 Soll 7500, Arbeitgeberabgabe Konto 5400 Soll 8813, AGA zahlbar Konto 2770 Haben -8813, Nettolohn Konto 2920 Haben -47500. Belegdatum 2026-04-30.",
+    "notes": "German language, employee creation + salary posting"
+  },
+  {
+    "id": 85,
+    "category": "salary_full_flow",
+    "prompt": "Opprett ansatt Line Dahl, epost line@firma.no, mobil 45334455, født 1996-06-30. Start 2026-05-01, årslønn 510000. Kjør lønning med overtidstillegg: Grunnlønn konto 5000 debet 42500, Overtid 15 timer à 350 kr = 5250 konto 5000 debet 5250, Skattetrekk konto 2600 kredit -17190, Feriepengar konto 5200 debet 5730, AGA konto 5400 debet 6733, AGA skyldig konto 2770 kredit -6733, Netto lønn konto 2920 kredit -35557. Dato 2026-05-31.",
+    "notes": "Salary with overtime calculation (15h x 350kr), split gross salary lines"
+  },
+  {
+    "id": 86,
+    "category": "project_invoice_fixed_price",
+    "prompt": "Opprett prosjekt 'ERP-implementering' for kunde Digital Drift AS, org.nr 912876543, fastpris 480000 kr. Startdato 2026-04-01, sluttdato 2026-09-30. Lag delfaktura for 25% — faktura på 120000 kr ekskl. mva for 'Milepæl 1: Kravspesifikasjon ferdigstilt'. Forfallsdato 2026-05-01.",
+    "notes": "Project creation + 25% milestone invoice"
+  },
+  {
+    "id": 87,
+    "category": "project_invoice_fixed_price",
+    "prompt": "Prosjekt 'Kontorflytting' for kunde Ny Adresse AS, fastpris 650000 kr. Start 2026-03-01, slutt 2026-06-30. Fakturer 50% ved halvveis: 325000 kr ekskl. mva, fakturatekst 'Milepæl 2: Planlegging og forberedelse ferdig'. Forfall om 30 dager.",
+    "notes": "50% milestone invoice, relative due date"
+  },
+  {
+    "id": 88,
+    "category": "project_invoice_fixed_price",
+    "prompt": "Create project 'Cloud Migration' for customer TechForward AS, org number 998112233. Fixed price 1200000 NOK. Start 2026-01-15, end 2026-12-31. Invoice 75% milestone: 900000 NOK excl. VAT, description 'Milestone 3: Migration and testing complete'. Due date 2026-04-15. Budget: 800 hours at 1500 NOK/hour.",
+    "notes": "English, 75% milestone, large amount, project with budget info"
+  },
+  {
+    "id": 89,
+    "category": "project_invoice_fixed_price",
+    "prompt": "Prosjekt 'Nettside Redesign' for kunde WebDesign Kunden AS, fastpris 280000. Fakturer 100% sluttfaktura: 280000 kr ekskl. mva, beskrivelse 'Sluttfaktura — prosjekt levert og godkjent'. Forfall 2026-05-01. Marker prosjektet som ferdig.",
+    "notes": "100% final invoice, mark project as completed"
+  },
+  {
+    "id": 90,
+    "category": "project_invoice_fixed_price",
+    "prompt": "Opprett prosjekt 'Sikkerhetsrevisjon' for kunde Bank Sikker AS, org.nr 876554321, fastpris 520000 kr. Start 2026-04-01, slutt 2026-07-31. Lag 3 fakturaer: Milepæl 1 (25%) 130000 kr forfall 2026-05-01, Milepæl 2 (50%) 260000 kr forfall 2026-06-15, Milepæl 3 (25%) 130000 kr forfall 2026-08-01. Alle ekskl. mva.",
+    "notes": "THREE milestone invoices in one prompt (25/50/25 split)"
+  },
+  {
+    "id": 91,
+    "category": "overdue_reminder",
+    "prompt": "Kunde Sein Betaler AS har en faktura på 85000 kr ekskl. mva fra 2026-01-15 med forfall 2026-02-15 som ikke er betalt. Opprett purregebyr på 70 kr. Registrer deretter delinnbetaling på 50000 kr inkl. mva i dag.",
+    "notes": "Create customer + invoice in past, then reminder fee, then partial payment"
+  },
+  {
+    "id": 92,
+    "category": "overdue_reminder",
+    "prompt": "Find all overdue invoices for customer Treg AS (unpaid past due date). Post a reminder fee of 70 NOK on each overdue invoice. Register partial payment of 25000 NOK on the oldest invoice.",
+    "notes": "English, search for overdue, reminder fee, partial payment on oldest"
+  },
+  {
+    "id": 93,
+    "category": "overdue_reminder",
+    "prompt": "Opprett faktura til Konkurs Risiko AS for Konsulenttjenester 250000 kr ekskl. mva, fakturadato 2026-01-10, forfall 2026-02-10. Fakturaen er forfalt. Bokfør purregebyr: Debet konto 2400 (kundefordringer) 70 kr, Kredit konto 3490 (purregebyr inntekt) -70 kr. Dato i dag.",
+    "notes": "Overdue invoice + reminder fee as voucher posting on specific accounts"
+  },
+  {
+    "id": 94,
+    "category": "overdue_reminder",
+    "prompt": "Kunde Slurv AS skylder 3 fakturaer: Faktura 1 på 45000 kr forfalt 2026-01-15, Faktura 2 på 67000 kr forfalt 2026-02-15, Faktura 3 på 23000 kr forfalt 2026-03-01. Registrer purregebyr 70 kr per faktura. Registrer full innbetaling på Faktura 3 (28750 kr inkl. mva) og delinnbetaling 30000 kr på Faktura 1.",
+    "notes": "3 overdue invoices, reminder fees on all, full payment on one, partial on another"
+  },
+  {
+    "id": 95,
+    "category": "overdue_reminder",
+    "prompt": "Finden Sie überfällige Rechnungen für Kunden Langsam GmbH. Erstellen Sie für jede überfällige Rechnung eine Mahngebühr von 70 NOK. Registrieren Sie dann eine Teilzahlung von 15.000 NOK auf die älteste Rechnung. Datum: heute.",
+    "notes": "German, find overdue, reminder fees, partial payment, European number format"
+  },
+  {
+    "id": 96,
+    "category": "update_operations",
+    "prompt": "Oppdater kunde Gammel Adresse AS: Ny adresse Moderne Gata 42, 0150 Oslo. Ny e-post ny-kontakt@gammeladresse.no. Nytt telefonnummer 22998877.",
+    "notes": "Customer update with address + email + phone change"
+  },
+  {
+    "id": 97,
+    "category": "update_operations",
+    "prompt": "Endre ansatt Kari Nordmann: Nytt mobilnummer 49887766, ny e-post kari.ny@bedrift.no, ny adresse Parkallleen 15, 0253 Oslo. Oppdater også stilling til avdelingsleder.",
+    "notes": "Employee update with phone + email + address + role change"
+  },
+  {
+    "id": 98,
+    "category": "update_operations",
+    "prompt": "Update product 'Standard Konsulenttime': New price 1650 NOK excl. VAT (was 1500). Update description to 'Senior consultant hourly rate, effective Q2 2026'.",
+    "notes": "English, product price and description update"
+  },
+  {
+    "id": 99,
+    "category": "update_operations",
+    "prompt": "Oppdater prosjekt 'IT-modernisering': Ny sluttdato 2026-12-31 (forlenget fra 2026-09-30). Oppdater beskrivelse til 'Utvidet scope — inkluderer nå skymigrering'. Endre prosjektleder til ansatt med e-post erik@firma.no.",
+    "notes": "Project update with end date extension, description change, and project manager change"
+  },
+  {
+    "id": 100,
+    "category": "update_operations",
+    "prompt": "Oppdater leverandør Billig Import AS: Ny org.nr 998776655, ny e-post faktura@billigimport-ny.no, ny adresse Industriveien 88, 3050 Mjøndalen. Oppdater også kontaktperson telefon til 32445566.",
+    "notes": "Supplier update with org number + email + address + contact phone"
+  }
+]

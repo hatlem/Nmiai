@@ -1367,7 +1367,7 @@ async def tool_agent_solve(
         (("leverandørfaktura", "supplier invoice", "fournisseur", "lieferantenrechnung", "factura del proveedor", "fatura do fornecedor"), "supplier_invoice"),
         (("reconcil", "avstemming", "bankutskrift", "bank statement", "csv"), "bank_reconciliation_csv"),
         (("lifecycle", "livssyklus", "ciclo de vida", "prosjektsyklusen"), "project_lifecycle"),
-        (("feil i hovedbok", "error in ledger", "korriger", "correct", "rette opp", "feil", "fehler", "errores", "erros"), "ledger_correction"),
+        (("feil i hovedbok", "error in ledger", "errors in the general", "discovered errors", "korriger", "correct the errors", "rette opp", "feil i bilag", "fehler im hauptbuch", "errores en el libro", "erros no livro", "erreurs dans le grand"), "ledger_correction"),
         (("årsoppgjør", "årsoppgjer", "arsoppgjor", "year-end", "jahresabschluss", "cierre anual", "encerramento anual", "clôture annuelle"), "year_end_closing"),
         (("analyser", "analyse", "analyze", "analise", "analysez", "kostnadskonto", "kostnadsauke", "cost account"), "ledger_analysis"),
         (("arbeidskontrakt", "arbeitsvertrag", "angebotsschreiben", "employment contract", "offer letter", "contrato de trabajo", "contrat de travail", "tilbudsbrev"), "employment_contract_pdf"),

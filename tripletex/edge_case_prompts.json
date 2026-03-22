@@ -1,0 +1,302 @@
+[
+  {
+    "id": 1,
+    "category": "mixed_language_special_chars",
+    "prompt": "Opprett kunde Ærlig Ølbryggeri AS, org.nr 987654321, e-post kontakt@ærlig-øl.no, adresse Åsveien 42, 7030 Trondheim, tlf 73554433",
+    "notes": "Norwegian Æ, Ø, Å in company name, email domain, and street name"
+  },
+  {
+    "id": 2,
+    "category": "mixed_language_special_chars",
+    "prompt": "Erstellen Sie einen Mitarbeiter: Jürgen Müller, E-Mail juergen.mueller@beispiel.de, geboren am 15.03.1985, Straße Königstraße 28, PLZ 80331, Stadt München, Telefon +4917612345678",
+    "notes": "German with ü, ö, ß, Königstraße — date in DD.MM.YYYY format"
+  },
+  {
+    "id": 3,
+    "category": "mixed_language_special_chars",
+    "prompt": "Crear cliente: Señor José María Muñoz Peña, org.nº 912345678, correo jose.munoz@compañia.es, teléfono +34612345678, dirección Calle Año Nuevo 15, 28001 Madrid",
+    "notes": "Spanish with ñ, accent marks, ñ in email domain, Año in street name"
+  },
+  {
+    "id": 4,
+    "category": "mixed_language_special_chars",
+    "prompt": "Criar fornecedor: Indústrias São João Ltda, org.nr 876543210, e-mail contato@sãojoão.com.br, endereço Rua das Açucenas 100, 01310-100 São Paulo",
+    "notes": "Portuguese with ã, ç, ú — supplier creation with special chars"
+  },
+  {
+    "id": 5,
+    "category": "mixed_language_special_chars",
+    "prompt": "Legg til ansatt Bjørg Åneby Ødegård, e-post bjorg@ødegård.no, født 1988-12-24, mobil 45678901, adresse Ørneveien 3B, 0275 Oslo. Gi henne rolla kontoadministrator.",
+    "notes": "Norwegian name with Ø, Å, Ø in email, Ø in address, plus role assignment"
+  },
+  {
+    "id": 6,
+    "category": "amounts_edge_cases",
+    "prompt": "Opprett faktura til kunde Stor Kontrakt AS for konsulentarbeid, 999999.99 kr ekskl. mva, forfallsdato 2026-04-30",
+    "notes": "Very large amount near 1M boundary"
+  },
+  {
+    "id": 7,
+    "category": "amounts_edge_cases",
+    "prompt": "Lag en ordre med 3 linjer: Produkt A 1234.50 kr, Produkt B 0.01 kr, Produkt C 9999.99 kr, alle ekskl. mva. Kunde: Testfirma AS",
+    "notes": "Decimal amounts including very small (0.01) and large amounts"
+  },
+  {
+    "id": 8,
+    "category": "amounts_edge_cases",
+    "prompt": "Opprett kreditnota til kunde Retur AS for følgende: Defekt vare -2500.00 kr, Fraktkompensasjon -150.00 kr, Returgebyr 50.00 kr, alle ekskl. mva",
+    "notes": "Negative amounts (credit) mixed with positive amount"
+  },
+  {
+    "id": 9,
+    "category": "amounts_edge_cases",
+    "prompt": "Lag ordre til Gratis Prøve AS: Prøvepakke 0.00 kr (1 stk), Standard pakke 4500.00 kr (2 stk), Premium pakke 12000.00 kr (1 stk), alle ekskl. mva",
+    "notes": "Zero amount item alongside normal priced items, with quantities"
+  },
+  {
+    "id": 10,
+    "category": "amounts_edge_cases",
+    "prompt": "Bokfør bilag med følgende: Debet konto 1500 beløp 0.50 kr, kredit konto 3000 beløp -0.50 kr. Beskrivelse: Avrundingsdifferanse.",
+    "notes": "Very small amounts (øre-level) on voucher postings"
+  },
+  {
+    "id": 11,
+    "category": "mixed_vat_rates",
+    "prompt": "Lag ordre til Dagligvare Import AS med: Kontorstol 8500 kr ekskl. mva 25%, Økologisk kaffe 450 kr ekskl. mva 15%, Eksportvare 12000 kr ekskl. mva 0%. Forfallsdato 2026-05-15.",
+    "notes": "Three different VAT rates (25%, 15% food, 0% exempt) on same order"
+  },
+  {
+    "id": 12,
+    "category": "mixed_vat_rates",
+    "prompt": "Factura para cliente Restaurante Nórdico: Mesa de oficina 3200 NOK (25% IVA), Aceite de oliva 890 NOK (15% IVA alimentos), Servicios de consultoría exportación 15000 NOK (0% IVA exento), Silla ergonómica 4500 NOK (25% IVA)",
+    "notes": "Spanish language, 4 items with mixed VAT, two items at 25%"
+  },
+  {
+    "id": 13,
+    "category": "mixed_vat_rates",
+    "prompt": "Opprett ordre til Kantine AS: Produkt 1920 (Brød) 120 kr 15% mva, Produkt 2500 (Servietter) 85 kr 25% mva, Produkt 3000 (Juice) 45 kr 15% mva",
+    "notes": "Product numbers that could be confused with account numbers or amounts"
+  },
+  {
+    "id": 14,
+    "category": "mixed_vat_rates",
+    "prompt": "Erstellen Sie eine Bestellung für Lebensmittel GmbH: Bürostuhl 2500 NOK (25% MwSt), Bio-Lachs 1200 NOK (15% MwSt Lebensmittel), Medizinische Beratung 8000 NOK (0% MwSt befreit), Druckerpapier 350 NOK (25% MwSt), Frisches Obst 280 NOK (15% MwSt Lebensmittel)",
+    "notes": "German language, 5 items, mixed VAT including food items"
+  },
+  {
+    "id": 15,
+    "category": "mixed_vat_rates",
+    "prompt": "Ordre til Matkjeden AS: 10 stk Melk (prod.nr 25) à 22.90 kr, 15% mva. 5 stk Vaskemiddel (prod.nr 150) à 89.00 kr, 25% mva. 3 stk Aviser (prod.nr 0) à 35.00 kr, 0% mva.",
+    "notes": "Product number 25 and 0 could be confused with VAT rates or quantities"
+  },
+  {
+    "id": 16,
+    "category": "employee_edge_cases",
+    "prompt": "Opprett ansatt med ALT: Fornavn Kristoffer, Etternavn Bjørnstad-Hansen, e-post kristoffer.bh@firma.no, mobil +4798765432, født 1992-06-15, adresse Parkveien 33 Leil. 4B, 0258 Oslo, rolle regnskapsfører, avdelingsnummer 2, ansattnummer 1042, startdato 2026-04-01",
+    "notes": "Employee with every possible field including hyphenated last name, apartment in address"
+  },
+  {
+    "id": 17,
+    "category": "employee_edge_cases",
+    "prompt": "Oppdater ansatt Ola Nordmann: endre mobilnummer til 41234567, ny e-post ola.ny@firma.no, ny adresse Fjordgata 8, 6004 Ålesund",
+    "notes": "Employee update with multiple fields changed simultaneously"
+  },
+  {
+    "id": 18,
+    "category": "employee_edge_cases",
+    "prompt": "Registrer ny tilsett: Silje Åse Ødegaard, fødd 15. januar 1995, epost silje@test.no, mobil 92345678. Ho skal vera lønnansvarleg.",
+    "notes": "Nynorsk dialect — tilsett=ansatt, fødd=født, ho=hun, vera=være, lønnansvarleg"
+  },
+  {
+    "id": 19,
+    "category": "employee_edge_cases",
+    "prompt": "Opprett ansatt: Fornavn Ali, Etternavn Al-Rashid, e-post ali@example.com, mobil 46001122, født 2000-01-01, adresse Karl Johans gate 1, 0154 Oslo. Startdato i dag. Gi rollen avdelingsleder.",
+    "notes": "Hyphenated foreign name, birth date on year boundary, 'i dag' means today"
+  },
+  {
+    "id": 20,
+    "category": "employee_edge_cases",
+    "prompt": "Legg til ansatt O'Brien McDonald-Smith III, epost obrien@firma.no, tlf 99001122, født 1975-11-30, adresse c/o Hansen, Storgata 5, 0182 Oslo, rolle revisor",
+    "notes": "Name with apostrophe, hyphen, suffix III, c/o in address"
+  },
+  {
+    "id": 21,
+    "category": "invoice_edge_cases",
+    "prompt": "Lag faktura til Storkjøp AS med 7 linjer: Konsulenttime 1500 kr (10 stk), Reise 3500 kr (1 stk), Materialer 8200 kr (1 stk), Lisens 990 kr (12 stk), Support 450 kr (3 stk), Opplæring 7500 kr (2 stk), Dokumentasjon 2200 kr (1 stk). Alle ekskl. mva. Forfallsdato 2026-05-01.",
+    "notes": "Invoice with 7 line items, various quantities"
+  },
+  {
+    "id": 22,
+    "category": "invoice_edge_cases",
+    "prompt": "Opprett faktura til Rask Betaler AS for Webutvikling 45000 kr ekskl. mva, forfallsdato 2026-04-15. Registrer også innbetaling av hele beløpet (56250 kr inkl. mva) i dag på konto 1920.",
+    "notes": "Invoice creation + immediate payment registration in same prompt"
+  },
+  {
+    "id": 23,
+    "category": "invoice_edge_cases",
+    "prompt": "Create invoice for International Client Ltd: IT consulting 5000 EUR excl. VAT, due date 2026-05-30. Currency EUR.",
+    "notes": "Foreign currency invoice in EUR"
+  },
+  {
+    "id": 24,
+    "category": "invoice_edge_cases",
+    "prompt": "Faktura til Blandet Mva AS: Datautstyr 15000 kr (25% mva), Lunsj-catering 3200 kr (15% mva), Eksport-tjeneste 22000 kr (0% mva), Software 8900 kr (25% mva), Fruktlevering 1200 kr (15% mva). Alle beløp ekskl. mva. Forfall 30 dager.",
+    "notes": "Invoice with 5 items across 3 VAT rates, due date as '30 dager' relative"
+  },
+  {
+    "id": 25,
+    "category": "invoice_edge_cases",
+    "prompt": "Rechnung für Müller & Söhne GmbH: Beratung 12.500,00 NOK exkl. MwSt, Fälligkeitsdatum 2026-04-30. Produkt-Nr. 4521.",
+    "notes": "German invoice with European number format (12.500,00 = 12500.00), product number"
+  },
+  {
+    "id": 26,
+    "category": "voucher_edge_cases",
+    "prompt": "Bokfør åpningsbalanse: Kasse (1900) 15000, Bank (1920) 485000, Kundefordringer (1500) 120000, Varelager (1400) 350000, Inventar (1200) 85000, Aksjekapital (2000) -100000, Annen EK (2050) -455000, Leverandørgjeld (2400) -250000, Skyldig mva (2740) -50000, Annen kortsiktig gjeld (2900) -200000",
+    "notes": "Opening balance with 10 accounts, positive=debit negative=credit, must balance to 0"
+  },
+  {
+    "id": 27,
+    "category": "voucher_edge_cases",
+    "prompt": "Bokfør bilag: Kjøp av kontorutstyr med blandet mva. Konto 6500 debet 8000 kr (25% mva utgående), konto 6340 debet 2400 kr (15% mva mat), konto 2400 kredit 10400 kr. Bilagsdato 2026-03-15.",
+    "notes": "Voucher with mixed VAT types on different lines"
+  },
+  {
+    "id": 28,
+    "category": "voucher_edge_cases",
+    "prompt": "Reverser bilaget fra 10. mars med beskrivelse 'Feilført husleie' — lag et motbilag med motsatte beløp.",
+    "notes": "Reverse a voucher by description — requires searching first, then creating opposite postings"
+  },
+  {
+    "id": 29,
+    "category": "voucher_edge_cases",
+    "prompt": "Bokfør lønn for mars 2026: Bruttolønn (5000) debet 250000, Arbeidsgiveravgift (5400) debet 35250, Feriepenger (5200) debet 30000, Skattetrekk (2600) kredit -89000, Netto lønn (2920) kredit -191250, AGA skyldig (2770) kredit -35000",
+    "notes": "Salary posting with 6 accounts, typical Norwegian payroll pattern"
+  },
+  {
+    "id": 30,
+    "category": "voucher_edge_cases",
+    "prompt": "Registrer periodisering: Forskuddsbetalt husleie 1700 debet 45000 kr, Husleiekostnad 6300 kredit -45000 kr. Dato: siste dag denne måneden.",
+    "notes": "Accrual voucher with 'siste dag denne måneden' as relative date"
+  },
+  {
+    "id": 31,
+    "category": "travel_expense_edge_cases",
+    "prompt": "Opprett reiseregning for ansatt Kari Berg (kari@firma.no): Tjenestereise Oslo-Bergen 18.-20. mars 2026. Flybillett 3800 kr, taxi til flyplassen 350 kr, hotell 2 netter à 1450 kr, diett 3 dager à 800 kr, parkering 200 kr. Avreise fra Oslo.",
+    "notes": "Travel with 5 different cost types including per diem calculation (3 days x 800)"
+  },
+  {
+    "id": 32,
+    "category": "travel_expense_edge_cases",
+    "prompt": "Reiseregning for Lars Olsen (lars@firma.no): Dagstur til Stavanger 21. mars 2026. Tog tur-retur 890 kr, lunsj 185 kr. Avreise fra Bergen. isDayTrip.",
+    "notes": "Day trip — isDayTrip=true flag, simpler structure"
+  },
+  {
+    "id": 33,
+    "category": "travel_expense_edge_cases",
+    "prompt": "Travel expense for employee Maria Silva (maria@firma.no): Business trip to London 25.-28. March 2026. Flight Oslo-London 4200 NOK, Heathrow Express 350 NOK, Hotel 3 nights 8500 NOK total, Per diem 4 days at 900 NOK/day, Uber 2 rides 600 NOK total. Departure from Oslo. Foreign travel.",
+    "notes": "Foreign travel in English, multiple transport types, hotel as total not per-night"
+  },
+  {
+    "id": 34,
+    "category": "travel_expense_edge_cases",
+    "prompt": "Reiseregning tilsett Eva Ås (eva@firma.no): Reise frå Tromsø til Oslo, 15.-16. mars 2026. Fly 2900 kr, drosje 420 kr, overnatting 1 natt 1200 kr, diett 2 dagar à 750 kr. Føremål: Kundemøte.",
+    "notes": "Nynorsk dialect — tilsett, frå, drosje, overnatting, dagar, føremål"
+  },
+  {
+    "id": 35,
+    "category": "travel_expense_edge_cases",
+    "prompt": "Erstellen Sie eine Reisekostenabrechnung für Angestellte Anna Bjørnsen (anna@firma.no): Dienstreise von Oslo nach Hamburg, 10.-13. April 2026. Flug 3500 NOK, Taxi 280 NOK, Hotel 3 Nächte 6000 NOK gesamt, Tagegeld 4 Tage à 850 NOK. Abfahrt von Oslo. Auslandsreise.",
+    "notes": "German language travel expense with Norwegian employee, foreign travel"
+  },
+  {
+    "id": 36,
+    "category": "project_edge_cases",
+    "prompt": "Opprett prosjekt 'Nettbutikk Redesign' for kunde WebShop AS, fastpris 350000 kr ekskl. mva. Prosjektnummer 2026-001. Startdato 2026-04-01, sluttdato 2026-09-30. Fakturering ved milepæl.",
+    "notes": "Fixed price project with specific project number, date range, milestone invoicing"
+  },
+  {
+    "id": 37,
+    "category": "project_edge_cases",
+    "prompt": "Lag internt prosjekt 'Kompetanseheving Q2 2026' uten kunde. Prosjektnummer 9901. Startdato 2026-04-01, sluttdato 2026-06-30. Beskrivelse: Intern opplæring og kursing av ansatte.",
+    "notes": "Internal project with no customer — should not require customer field"
+  },
+  {
+    "id": 38,
+    "category": "project_edge_cases",
+    "prompt": "Opprett timeprosjekt 'IT-support Løpende' for kunde Drift AS, timepris 1250 kr. Startdato i dag, ingen sluttdato. Prosjektleder: Eirik Hansen.",
+    "notes": "Hourly project with no end date, project manager reference"
+  },
+  {
+    "id": 39,
+    "category": "project_edge_cases",
+    "prompt": "Criar projeto 'Integração de Sistemas' para cliente Noruega-Brasil AS, preço fixo 180000 NOK. Número do projeto 5500. Data de início 2026-05-01, data de término 2026-12-31.",
+    "notes": "Portuguese language project creation"
+  },
+  {
+    "id": 40,
+    "category": "project_edge_cases",
+    "prompt": "Opprett prosjekt med navn som inneholder spesialtegn: 'Økonomi & Regnskap — Oppgradering (v2.0)', kunde Regnskap AS, startdato 2026-04-15",
+    "notes": "Project name with special characters: Ø, &, em dash, parentheses, period"
+  },
+  {
+    "id": 41,
+    "category": "supplier_invoice_edge_cases",
+    "prompt": "Registrer leverandørfaktura fra Kontor AS, fakturanummer LF-2026-0042, beløp 24500 kr inkl. mva (25%), fakturadato 2026-03-10, forfallsdato 2026-04-10. Bokfør på konto 6500 (kontorrekvisita).",
+    "notes": "Supplier invoice with specific account number and full details"
+  },
+  {
+    "id": 42,
+    "category": "supplier_invoice_edge_cases",
+    "prompt": "Leverandørfaktura fra Matvare Grossist AS: Kantine-innkjøp 8500 kr inkl. 15% mva (mat), fakturanr MG-1234, dato 2026-03-15, forfall 2026-04-15. Konto 6800.",
+    "notes": "Supplier invoice with 15% food VAT rate"
+  },
+  {
+    "id": 43,
+    "category": "supplier_invoice_edge_cases",
+    "prompt": "Bokfør leverandørfaktura fra Blandet Leveranse AS, fakturanr BL-5678: Kontormøbler 15000 kr ekskl. 25% mva, Frukt til kontoret 2000 kr ekskl. 15% mva, Eksporttjeneste 8000 kr ekskl. 0% mva. Forfall 2026-04-20.",
+    "notes": "Supplier invoice with 3 different VAT rates on different line items"
+  },
+  {
+    "id": 44,
+    "category": "supplier_invoice_edge_cases",
+    "prompt": "Lieferantenrechnung von Schmidt & Co KG: Rechnungsnummer DE-2026-789, Betrag 35.000,00 NOK inkl. 25% MwSt, Datum 2026-03-20, Fälligkeitsdatum 2026-05-20. Konto 4300 (Vareeinkauf).",
+    "notes": "German supplier invoice with European number format and German account description"
+  },
+  {
+    "id": 45,
+    "category": "supplier_invoice_edge_cases",
+    "prompt": "Registrer leverandørfaktura fra IT-Partner AS, fakturanr ITP-001, beløp 1 kr ekskl. mva. Forfallsdato i dag. Konto 6700. Beskrivelse: Testfaktura.",
+    "notes": "Minimal amount supplier invoice (1 kr), due date today"
+  },
+  {
+    "id": 46,
+    "category": "multi_language_same_task",
+    "prompt": "Registrer ny tilsett: Marit Haugen, epost marit@firma.no, mobil 91234567, fødd 1990-08-22, adresse Fjellvegen 12, 6800 Førde. Gje ho rolla fakturaansvarleg.",
+    "notes": "Nynorsk — tilsett, epost, fødd, Fjellvegen, Gje ho rolla, fakturaansvarleg"
+  },
+  {
+    "id": 47,
+    "category": "multi_language_same_task",
+    "prompt": "Créer un employé: Prénom Marit, Nom Haugen, courriel marit@firma.no, mobile 91234567, date de naissance 1990-08-22, adresse Fjellveien 12, code postal 6800, ville Førde. Attribuer le rôle responsable de la facturation.",
+    "notes": "French — same employee data as #46, role = INVOICING_MANAGER"
+  },
+  {
+    "id": 48,
+    "category": "multi_language_same_task",
+    "prompt": "Criar empregado: Nome Marit, Apelido Haugen, e-mail marit@firma.no, telemóvel 91234567, data de nascimento 1990-08-22, morada Fjellveien 12, código postal 6800, cidade Førde. Atribuir a função de gerente de faturamento.",
+    "notes": "Portuguese — same employee data as #46/#47, role = INVOICING_MANAGER"
+  },
+  {
+    "id": 49,
+    "category": "multi_language_same_task",
+    "prompt": "Einen Kunden anlegen: Firmenname Nordisk Rådgivning AS, Org.-Nr. 998877665, E-Mail info@nordisk.no, Telefon 22334455, Adresse Strandpromenaden 1, PLZ 0252, Stadt Oslo, Webseite www.nordisk.no, Beschreibung: Beratungsunternehmen für nordische Märkte",
+    "notes": "German customer creation with all fields including website and description"
+  },
+  {
+    "id": 50,
+    "category": "multi_language_same_task",
+    "prompt": "Créer un client: Nom de l'entreprise Nordisk Rådgivning AS, nº d'org 998877665, courriel info@nordisk.no, téléphone 22334455, adresse Strandpromenaden 1, code postal 0252, ville Oslo, site web www.nordisk.no, description: Cabinet de conseil pour les marchés nordiques",
+    "notes": "French customer creation — same data as #49 but in French"
+  }
+]

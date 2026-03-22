@@ -96,6 +96,20 @@ TOOL_AGENT_SIGNALS = [
     # Reverse payment (complex multi-step: create→invoice→pay→find voucher→reverse)
     ("reverser",), ("reverse",), ("stornieren",), ("zurückgebucht",), ("zuruckgebucht",),
     ("returnert",), ("returned",), ("retourné",), ("devuelto",), ("devolvido",),
+    # Ledger errors / corrections
+    ("feil", "hovedbok"), ("feil", "bilag"), ("errors", "ledger"), ("errors", "voucher"),
+    ("erros", "livro"), ("errores", "libro"), ("fehler", "hauptbuch"), ("erreurs", "grand livre"),
+    # Month-end closing
+    ("månedsavslutning",), ("month-end",), ("monthly closing",), ("encerramento mensal",),
+    ("monatsabschluss",), ("cierre mensual",), ("clôture mensuelle",),
+    ("periodiser",), ("accrual",), ("periodisering",),
+    # Reminder fee as standalone (not just with faktura)
+    ("purregebyr",), ("reminder fee",), ("Mahngebühr",), ("forfallen",), ("forfalt",),
+    # Currency / exchange rate
+    ("eur ",), ("usd ",), ("gbp ",),
+    ("exchange rate",), ("valutakurs",), ("wechselkurs",), ("taux de change",),
+    ("tipo de cambio",), ("taxa de câmbio",),
+    ("disagio",), ("agio",),
 ]
 
 
@@ -324,7 +338,8 @@ async def solve(request: Request):
     success = False
 
     try:
-        # ── Pre-flight: bank account + vatType resolution ──
+        # ── Pre-flight: vatType resolution (GET = free) + bank account (1 PUT, only if needed) ──
+        # GET calls are free. Bank account PUT costs 1 write but is needed for invoicing.
         await asyncio.gather(
             _ensure_bank_account(client),
             client.resolve_vat_types(),
